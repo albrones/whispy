@@ -53,8 +53,7 @@ def stop_recording_and_transcribe():
         if not state.is_recording:
             return None
         state.is_recording = False
-
-    proc = state.recording_process
+        proc = state.recording_process
     if proc and proc.poll() is None:
         proc.terminate()
         try:
@@ -98,7 +97,7 @@ def transcribe(audio_path):
             return None
         lines = [line.strip() for line in text.split("\n") if line.strip()]
         return " ".join(lines)
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+    except Exception as e:
         print(f"Transcription error: {e}", file=sys.stderr)
         return None
 
