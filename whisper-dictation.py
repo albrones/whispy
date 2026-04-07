@@ -19,7 +19,7 @@ WHISPER_MODEL = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "whisper.cpp",
     "models",
-    "ggml-base.bin",
+    "ggml-medium.bin",
 )
 RECORDING_PATH = os.path.join(tempfile.gettempdir(), "whisper-dictation.wav")
 PORT = 9090

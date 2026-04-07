@@ -14,10 +14,10 @@ if ! command -v karabiner_cli &>/dev/null; then
 fi
 echo "[OK] Karabiner-Elements found"
 
-MODEL_PATH="$TOOLS_DIR/whisper.cpp/models/ggml-base.bin"
+MODEL_PATH="$TOOLS_DIR/whisper.cpp/models/ggml-small.bin"
 if [ ! -f "$MODEL_PATH" ]; then
-    echo "Downloading whisper base model..."
-    (cd "$TOOLS_DIR/whisper.cpp/models" && bash download-ggml-model.sh base)
+    echo "Downloading whisper small model..."
+    (cd "$TOOLS_DIR/whisper.cpp/models" && bash download-ggml-model.sh small)
 else
     echo "[OK] Whisper model found ($MODEL_PATH)"
 fi
@@ -77,13 +77,20 @@ cat > "$PLIST_PATH" << PLISTEOF
     <string>$LAUNCH_AGENT_NAME</string>
     <key>ProgramArguments</key>
     <array>
-        <string>python3</string>
+        <string>/opt/homebrew/bin/python3</string>
         <string>$DAEMON_PATH</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>WorkingDirectory</key>
+    <string>$SCRIPT_DIR</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
     <key>StandardOutPath</key>
     <string>$HOME/.whisper-dictation.log</string>
     <key>StandardErrorPath</key>
