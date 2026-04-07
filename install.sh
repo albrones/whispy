@@ -3,24 +3,50 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOOLS_DIR="$(dirname "$SCRIPT_DIR")"
+WHISPER_DIR="$TOOLS_DIR/whisper.cpp"
 KARABINER_DIR="$HOME/.config/karabiner/assets/complex_modifications"
 
+WHISPER_MODEL_NAME="${WHISPER_MODEL:-medium}"
+
 echo "=== Whisper Dictation Setup ==="
+echo ""
+
+if [ ! -d "$WHISPER_DIR/.git" ]; then
+    echo "Initializing whisper.cpp submodule..."
+    git -C "$TOOLS_DIR" submodule update --init --recursive
+else
+    echo "[OK] whisper.cpp submodule found"
+fi
+
+if ! command -v cmake &>/dev/null; then
+    echo "cmake not found. Install Xcode Command Line Tools: xcode-select --install"
+    exit 1
+fi
+
+if [ ! -f "$WHISPER_DIR/build/bin/whisper-cli" ]; then
+    echo "Building whisper.cpp..."
+    cmake -B "$WHISPER_DIR/build" -S "$WHISPER_DIR"
+    cmake --build "$WHISPER_DIR/build" --config Release -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+    echo "[OK] whisper.cpp built"
+else
+    echo "[OK] whisper.cpp already built"
+fi
+
+MODEL_PATH="$WHISPER_DIR/models/ggml-${WHISPER_MODEL_NAME}.bin"
+if [ ! -f "$MODEL_PATH" ]; then
+    echo "Downloading whisper ${WHISPER_MODEL_NAME} model..."
+    (cd "$WHISPER_DIR/models" && bash download-ggml-model.sh "$WHISPER_MODEL_NAME")
+else
+    echo "[OK] Whisper model found ($MODEL_PATH)"
+fi
 
 if ! command -v karabiner_cli &>/dev/null; then
     echo "Karabiner-Elements not found."
     echo "Install it from https://karabiner-elements.pqrs.org/ and re-run this script."
+    echo "You may also need: sudo ln -sf '/Library/Application Support/org.pqrs/Karabiner-Elements/bin/karabiner_cli' /usr/local/bin/karabiner_cli"
     exit 1
 fi
 echo "[OK] Karabiner-Elements found"
-
-MODEL_PATH="$TOOLS_DIR/whisper.cpp/models/ggml-small.bin"
-if [ ! -f "$MODEL_PATH" ]; then
-    echo "Downloading whisper small model..."
-    (cd "$TOOLS_DIR/whisper.cpp/models" && bash download-ggml-model.sh small)
-else
-    echo "[OK] Whisper model found ($MODEL_PATH)"
-fi
 
 mkdir -p "$KARABINER_DIR"
 cat > "$KARABINER_DIR/whisper-dictation.json" << 'KARABINER'
@@ -53,16 +79,11 @@ cat > "$KARABINER_DIR/whisper-dictation.json" << 'KARABINER'
 KARABINER
 echo "[OK] Karabiner config installed"
 
-echo ""
-echo "To enable the Fn dictation rule:"
-echo "  1. Open Karabiner-Elements Settings"
-echo "  2. Go to Complex Modifications -> Add rule"
-echo "  3. Enable 'Hold Fn to record, release to transcribe'"
-echo ""
-
 LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
 LAUNCH_AGENT_NAME="com.whisper-dictation"
 PLIST_PATH="$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_NAME.plist"
+
+PYTHON3_PATH="$(command -v python3)"
 
 mkdir -p "$LAUNCH_AGENT_DIR"
 
@@ -77,7 +98,7 @@ cat > "$PLIST_PATH" << PLISTEOF
     <string>$LAUNCH_AGENT_NAME</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/opt/homebrew/bin/python3</string>
+        <string>$PYTHON3_PATH</string>
         <string>$DAEMON_PATH</string>
     </array>
     <key>RunAtLoad</key>
@@ -104,15 +125,17 @@ echo "[OK] LaunchAgent installed at $PLIST_PATH"
 echo ""
 echo "=== Required Permissions ==="
 echo ""
-echo "1. Microphone: System Settings -> Privacy & Security -> Microphone -> enable Terminal/iTerm2"
-echo "2. Accessibility: System Settings -> Privacy & Security -> Accessibility -> enable Terminal/iTerm2"
-echo "   (needed for osascript to simulate keystrokes)"
-echo "3. Input Monitoring: System Settings -> Privacy & Security -> Input Monitoring -> enable Karabiner-Elements"
+echo "1. Microphone:        System Settings -> Privacy & Security -> Microphone -> enable iTerm2/Terminal"
+echo "2. Accessibility:     System Settings -> Privacy & Security -> Accessibility -> enable python3"
+echo "                      python3 path: $PYTHON3_PATH"
+echo "3. Input Monitoring:  System Settings -> Privacy & Security -> Input Monitoring -> enable Karabiner-Elements"
 echo ""
 
 launchctl unload "$PLIST_PATH" 2>/dev/null || true
 launchctl load "$PLIST_PATH"
 echo "[OK] LaunchAgent loaded. Daemon starting..."
 echo ""
-echo "Logs: tail -f ~/.whisper-dictation.log"
+echo "Next: Enable the Fn dictation rule in Karabiner-Elements -> Complex Modifications -> Add rule"
+echo ""
+echo "Logs: tail -f ~/.whisper-dictation.log ~/.whisper-dictation-error.log"
 echo "Test: curl http://localhost:9090/status"
