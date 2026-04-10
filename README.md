@@ -1,17 +1,14 @@
 # Whisper Dictation
 
-Dictée vocale locale pour macOS via [Whisper.cpp](https://github.com/ggerganov/whisper.cpp). Maintenez la touche **Fn** pour enregistrer, relâchez pour transcrire le texte automatiquement dans le champ actif.
+Dictée vocale locale pour macOS via [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Maintenez la touche **Fn** pour enregistrer, relâchez pour transcrire le texte automatiquement dans le champ actif.
 
 Tout tourne en local, aucune donnée n'est envoyée sur internet.
 
 ## Installation rapide
 
 ```bash
-# Cloner le repo avec le submodule whisper.cpp
-git clone --recurse-submodules https://github.com/<ton-user>/whisper-dictation.git
+git clone https://github.com/<ton-user>/whisper-dictation.git
 cd whisper-dictation
-
-# Lancer l'installation (build, modèle, daemon, Karabiner)
 ./install.sh
 ```
 
@@ -21,16 +18,13 @@ cd whisper-dictation
 - [Homebrew](https://brew.sh)
 - [Karabiner-Elements](https://karabiner-elements.pqrs.org/)
 - `sox` (`brew install sox`)
-- `cmake` (via Xcode CLI : `xcode-select --install`)
-- Python 3 (`brew install python3`)
 
 ## Installation détaillée
 
 ### 1. Installer les dépendances
 
 ```bash
-brew install sox python3
-xcode-select --install
+brew install sox
 ```
 
 ### 2. Installer Karabiner-Elements
@@ -49,20 +43,20 @@ command -v karabiner_cli && echo "OK"
 ### 3. Cloner et lancer l'install
 
 ```bash
-git clone --recurse-submodules https://github.com/<ton-user>/whisper-dictation.git
+git clone https://github.com/<ton-user>/whisper-dictation.git
 cd whisper-dictation
 ./install.sh
 ```
 
 Le script gère automatiquement :
-- Build de whisper.cpp (si pas déjà fait)
-- Téléchargement du modèle (défaut : `medium`)
+- Création du virtual environment Python
+- Installation de faster-whisper
 - Installation de la config Karabiner
 - Installation et lancement du LaunchAgent
 
 Pour utiliser un modèle différent :
 ```bash
-WHISPER_MODEL=large-v3 ./install.sh
+WHISPER_MODEL=medium ./install.sh  # small, base, tiny, medium, large-v3
 ```
 
 ### 4. Activer la règle Karabiner
@@ -81,16 +75,14 @@ Le daemon a besoin du micro pour capturer l'audio.
 
 1. Ouvrir **Réglages Système** → **Confidentialité et sécurité** → **Microphone**
 2. Activer **iTerm** (ou Terminal)
-3. Le daemon (`python3`) peut aussi demander l'accès au micro lors du premier enregistrement — accepter la popup
-
-> **Astuce** : si le bouton "+" est absent, glissez iTerm depuis le Finder (`/Applications/`) directement dans la liste.
+3. Le daemon (`python`) peut aussi demander l'accès au micro lors du premier enregistrement — accepter la popup
 
 #### 5b. Accessibilité
 
 Le daemon a besoin de cette permission pour simuler la frappe clavier via `osascript`.
 
 1. Ouvrir **Réglages Système** → **Confidentialité et sécurité** → **Accessibilité**
-2. Cliquer sur **"+"** et ajouter `/opt/homebrew/bin/python3`
+2. Cliquer sur **"+"** et ajouter le python du venv (`whisper-dictation/.venv/bin/python3`)
 3. Vérifier que le toggle est **activé**
 
 > **Sans cette permission**, la transcription fonctionne mais le texte ne s'écrit pas dans le champ actif (erreur `osascript timeout` dans les logs).
@@ -126,13 +118,11 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whisper-dictation.pl
 | medium | 1.5 Go | +       | +++        |
 | large-v3 | 2.9 Go | -     | ++++       |
 
-Le modèle par défaut est `medium`. Pour changer :
+Le modèle par défaut est `small` (plus rapide). Pour changer :
 
 ```bash
-WHISPER_MODEL=large-v3 ./install.sh
+WHISPER_MODEL=medium ./install.sh
 ```
-
-Et modifier la ligne `ggml-medium.bin` dans `whisper-dictation.py` pour matcher.
 
 ## Commandes manuelles
 
@@ -143,6 +133,12 @@ curl -X POST http://localhost:9090/stop                    # Arrêter et transcr
 tail -f ~/.whisper-dictation.log ~/.whisper-dictation-error.log  # Logs en direct
 ```
 
+### Mettre à jour faster-whisper
+
+```bash
+./.venv/bin/pip install --upgrade faster-whisper
+```
+
 ## Dépannage
 
 | Symptôme | Cause probable | Solution |
@@ -150,16 +146,17 @@ tail -f ~/.whisper-dictation.log ~/.whisper-dictation-error.log  # Logs en direc
 | Pas de son Tink au maintien de Fn | Règle Karabiner non activée | Étape 4 |
 | Son Tink/Pop mais pas de texte | Permission Accessibilité manquante | Étape 5b |
 | Erreur `sox not found` dans les logs | sox pas dans le PATH du LaunchAgent | Relancer install.sh |
-| Erreur `Operation not permitted` | Mauvais python3 (Xcode au lieu de Homebrew) | Relancer install.sh |
-| Texte imprécis / erreurs | Modèle trop petit | `WHISPER_MODEL=large-v3 ./install.sh` |
-| Daemon ne démarre pas | Port 9090 occupé ou python3 introuvable | Vérifier les logs |
+| Erreur `Operation not permitted` | Mauvais python (Xcode au lieu de Homebrew) | Relancer install.sh |
+| Texte imprécis / erreurs | Modèle trop petit | `WHISPER_MODEL=medium ./install.sh` |
+| Daemon ne démarre pas | Port 9090 occupé ou python introuvable | Vérifier les logs |
+| Model non trouvé | Virtual env non créé | Relancer install.sh |
 
 ## Configuration
 
 Modifier le haut de `whisper-dictation.py` pour changer :
 - `PORT` — port HTTP (défaut : 9090)
-- `WHISPER_MODEL` — chemin du modèle (défaut : `ggml-medium.bin`)
-- La langue est en français (`-l fr`). Changer dans la fonction `transcribe()`.
+- `WHISPER_MODEL_SIZE` — modèle (défaut : `small`)
+- La langue est en français (`language="fr"`).
 
 ## Désinstallation
 
@@ -167,6 +164,7 @@ Modifier le haut de `whisper-dictation.py` pour changer :
 launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.whisper-dictation.plist
 rm ~/Library/LaunchAgents/com.whisper-dictation.plist
 rm ~/.config/karabiner/assets/complex_modifications/whisper-dictation.json
+rm -rf whisper-dictation/.venv
 ```
 
 ## Licence

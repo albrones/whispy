@@ -8,19 +8,10 @@ import tempfile
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-WHISPER_CLI = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "whisper.cpp",
-    "build",
-    "bin",
-    "whisper-cli",
-)
-WHISPER_MODEL = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "whisper.cpp",
-    "models",
-    "ggml-medium.bin",
-)
+from faster_whisper import WhisperModel
+
+WHISPER_MODEL_SIZE = "small"
+WHISPER_MODEL = None
 RECORDING_PATH = os.path.join(tempfile.gettempdir(), "whisper-dictation.wav")
 PORT = 9090
 
@@ -76,27 +67,19 @@ def stop_recording_and_transcribe():
 
 def transcribe(audio_path):
     try:
-        result = subprocess.run(
-            [
-                WHISPER_CLI,
-                "-m",
-                WHISPER_MODEL,
-                "-l",
-                "fr",
-                "-nt",
-                "-np",
-                "-f",
-                audio_path,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
+        segments, info = WHISPER_MODEL.transcribe(
+            audio_path,
+            language="fr",
+            beam_size=1,
+            best_of=2,
         )
-        text = result.stdout.strip()
+        text_parts = []
+        for segment in segments:
+            text_parts.append(segment.text.strip())
+        text = " ".join(text_parts)
         if not text:
             return None
-        lines = [line.strip() for line in text.split("\n") if line.strip()]
-        return " ".join(lines)
+        return text
     except Exception as e:
         print(f"Transcription error: {e}", file=sys.stderr)
         return None
@@ -104,7 +87,6 @@ def transcribe(audio_path):
 
 def type_text(text):
     escaped = text.replace('"', '\\"')
-    # Set the clipboard and paste
     subprocess.run(
         [
             "osascript",
@@ -175,20 +157,19 @@ class RequestHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    if not os.path.isfile(WHISPER_MODEL):
-        print(f"Error: Whisper model not found at {WHISPER_MODEL}", file=sys.stderr)
-        print(
-            "Run: cd whisper.cpp/models && bash download-ggml-model.sh base",
-            file=sys.stderr,
+    global WHISPER_MODEL
+    try:
+        print(f"Loading faster-whisper model '{WHISPER_MODEL_SIZE}'...")
+        WHISPER_MODEL = WhisperModel(
+            WHISPER_MODEL_SIZE,
+            device="cpu",
+            compute_type="int8",
         )
+        print(f"Model loaded successfully")
+    except Exception as e:
+        print(f"Error loading Whisper model: {e}", file=sys.stderr)
         sys.exit(1)
-    if not os.path.isfile(WHISPER_CLI):
-        print(f"Error: whisper-cli not found at {WHISPER_CLI}", file=sys.stderr)
-        print(
-            "Build whisper.cpp first: cd whisper.cpp && mkdir build && cd build && cmake .. && make",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+
     server = HTTPServer(("127.0.0.1", PORT), RequestHandler)
     print(f"Whisper dictation daemon running on port {PORT}")
     signal.signal(signal.SIGTERM, lambda *_: server.shutdown())

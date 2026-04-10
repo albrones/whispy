@@ -2,42 +2,22 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TOOLS_DIR="$(dirname "$SCRIPT_DIR")"
-WHISPER_DIR="$TOOLS_DIR/whisper.cpp"
 KARABINER_DIR="$HOME/.config/karabiner/assets/complex_modifications"
 
-WHISPER_MODEL_NAME="${WHISPER_MODEL:-medium}"
+WHISPER_MODEL_NAME="${WHISPER_MODEL:-small}"
 
-echo "=== Whisper Dictation Setup ==="
+echo "=== Whisper Dictation Setup (faster-whisper) ==="
 echo ""
 
-if [ ! -d "$WHISPER_DIR/.git" ]; then
-    echo "Initializing whisper.cpp submodule..."
-    git -C "$TOOLS_DIR" submodule update --init --recursive
+VENV_DIR="$SCRIPT_DIR/.venv"
+if [ ! -d "$VENV_DIR" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv "$VENV_DIR"
+    "$VENV_DIR/bin/pip" install --upgrade pip
+    "$VENV_DIR/bin/pip" install faster-whisper
+    echo "[OK] Virtual environment created with faster-whisper"
 else
-    echo "[OK] whisper.cpp submodule found"
-fi
-
-if ! command -v cmake &>/dev/null; then
-    echo "cmake not found. Install Xcode Command Line Tools: xcode-select --install"
-    exit 1
-fi
-
-if [ ! -f "$WHISPER_DIR/build/bin/whisper-cli" ]; then
-    echo "Building whisper.cpp..."
-    cmake -B "$WHISPER_DIR/build" -S "$WHISPER_DIR"
-    cmake --build "$WHISPER_DIR/build" --config Release -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-    echo "[OK] whisper.cpp built"
-else
-    echo "[OK] whisper.cpp already built"
-fi
-
-MODEL_PATH="$WHISPER_DIR/models/ggml-${WHISPER_MODEL_NAME}.bin"
-if [ ! -f "$MODEL_PATH" ]; then
-    echo "Downloading whisper ${WHISPER_MODEL_NAME} model..."
-    (cd "$WHISPER_DIR/models" && bash download-ggml-model.sh "$WHISPER_MODEL_NAME")
-else
-    echo "[OK] Whisper model found ($MODEL_PATH)"
+    echo "[OK] Virtual environment already exists"
 fi
 
 if ! command -v karabiner_cli &>/dev/null; then
@@ -83,7 +63,7 @@ LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
 LAUNCH_AGENT_NAME="com.whisper-dictation"
 PLIST_PATH="$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_NAME.plist"
 
-PYTHON3_PATH="$(command -v python3)"
+PYTHON_BIN="$VENV_DIR/bin/python3"
 
 mkdir -p "$LAUNCH_AGENT_DIR"
 
@@ -98,7 +78,7 @@ cat > "$PLIST_PATH" << PLISTEOF
     <string>$LAUNCH_AGENT_NAME</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$PYTHON3_PATH</string>
+        <string>$PYTHON_BIN</string>
         <string>$DAEMON_PATH</string>
     </array>
     <key>RunAtLoad</key>
@@ -126,8 +106,8 @@ echo ""
 echo "=== Required Permissions ==="
 echo ""
 echo "1. Microphone:        System Settings -> Privacy & Security -> Microphone -> enable iTerm2/Terminal"
-echo "2. Accessibility:     System Settings -> Privacy & Security -> Accessibility -> enable python3"
-echo "                      python3 path: $PYTHON3_PATH"
+echo "2. Accessibility:     System Settings -> Privacy & Security -> Accessibility -> enable python"
+echo "                      python path: $PYTHON_BIN"
 echo "3. Input Monitoring:  System Settings -> Privacy & Security -> Input Monitoring -> enable Karabiner-Elements"
 echo ""
 
@@ -135,6 +115,7 @@ launchctl unload "$PLIST_PATH" 2>/dev/null || true
 launchctl load "$PLIST_PATH"
 echo "[OK] LaunchAgent loaded. Daemon starting..."
 echo ""
+echo "Model will be downloaded automatically on first run (model: $WHISPER_MODEL_NAME)"
 echo "Next: Enable the Fn dictation rule in Karabiner-Elements -> Complex Modifications -> Add rule"
 echo ""
 echo "Logs: tail -f ~/.whisper-dictation.log ~/.whisper-dictation-error.log"
