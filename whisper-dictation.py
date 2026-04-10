@@ -103,12 +103,15 @@ def transcribe(audio_path):
 
 
 def type_text(text):
-    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+    escaped = text.replace('"', '\\"')
+    # Set the clipboard and paste
     subprocess.run(
         [
             "osascript",
             "-e",
-            f'tell application "System Events" to keystroke "{escaped}"',
+            f'set the clipboard to "{escaped}"',
+            "-e",
+            'tell application "System Events" to keystroke "v" using command down',
         ],
         timeout=5,
     )
