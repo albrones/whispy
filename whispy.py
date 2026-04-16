@@ -74,6 +74,12 @@ MODEL_PRESETS = {
     },
 }
 
+SUPPORTED_LANGUAGES = {
+    "auto": "Auto-détection",
+    "fr": "Français",
+    "en": "Anglais",
+}
+
 COMPUTE_OPTIONS = {
     "cpu-int8": {
         "label": "CPU — int8 (recommandé)",
@@ -104,7 +110,7 @@ COMPUTE_OPTIONS = {
 DEFAULT_CONFIG = {
     "model_size": "small",
     "compute_key": "cpu-int8",
-    "language": "fr",
+    "language": "auto",
     "beam_size": 1,
     "best_of": 2,
 }
@@ -548,6 +554,16 @@ class WhisperMenuBarApp(rumps.App):
             self._model_items[key] = item
             self.model_menu.add(item)
 
+        self.language_menu = rumps.MenuItem("Langue")
+        self._lang_items = {}
+        for code, label in SUPPORTED_LANGUAGES.items():
+            item = rumps.MenuItem(label, callback=self._on_language_select)
+            item._lang_code = code
+            if code == cfg["language"]:
+                item.state = 1
+            self._lang_items[code] = item
+            self.language_menu.add(item)
+
         self.compute_menu = rumps.MenuItem("Calcul")
         self._compute_items = {}
         is_apple_silicon = (
@@ -576,6 +592,7 @@ class WhisperMenuBarApp(rumps.App):
             self.status_item,
             None,
             self.model_menu,
+            self.language_menu,
             self.compute_menu,
             None,
             self.fn_status_item,
@@ -608,6 +625,18 @@ class WhisperMenuBarApp(rumps.App):
         state.config["model_size"] = new_key
         save_config(state.config)
         load_model_async()
+
+    def _on_language_select(self, sender):
+        """User selected a language."""
+        new_code = sender._lang_code
+        if new_code == state.config["language"]:
+            return
+
+        for code, item in self._lang_items.items():
+            item.state = 1 if code == new_code else 0
+
+        state.config["language"] = new_code
+        save_config(state.config)
 
     def _on_compute_select(self, sender):
         """User selected a compute option."""

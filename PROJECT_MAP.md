@@ -12,7 +12,7 @@ It is designed to help AI agents and developers quickly understand the project s
   - `.gitignore` — Git ignore rules.
   - `LICENSE` — Project license.
   - `README.md` — High-level project introduction and usage instructions.
-  - `wispy.py` — Main entry point for the application.
+  - `whispy.py` — Main entry point for the application.
   - `generate_icons.py` — Script for generating icons.
   - `install.sh` — Shell script for installing dependencies and setting up the environment.
   - `icons/` — Directory containing icon assets (generated or used by the project).
@@ -34,7 +34,7 @@ It is designed to help AI agents and developers quickly understand the project s
 ## Entry Points
 
 - **Application Start:**  
-  Run the project via `wispy.py`.
+  Run the project via `whispy.py`.
 
 - **Icon Generation:**  
   Use `generate_icons.py` to (re)generate icon assets.
@@ -64,7 +64,7 @@ It is designed to help AI agents and developers quickly understand the project s
 
 - **Start with `README.md`** for a high-level overview and basic usage.
 - **Consult `AGENTS.md`** for understanding agent architecture and extension.
-- **Check `wispy.py`** for the main application logic and entry point.
+- **Check `whispy.py`** for the main application logic and entry point.
 - **Use `generate_icons.py` and `icons/`** for anything related to icon management.
 - **Refer to this `PROJECT_MAP.md`** for a quick technical orientation.
 

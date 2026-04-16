@@ -130,7 +130,7 @@ tail -f ~/.wispy.log ~/.wispy-error.log  # Live logs
 
 ## Configuration
 
-You can modify the top of `wispy.py` to change:
+You can modify the top of `whispy.py` to change:
 - `PORT` — HTTP port (default: 9090)
 - `WHISPER_MODEL_SIZE` — Model name (default: `small`)
 - The language is set to French (`language="fr"`).
