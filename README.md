@@ -1,139 +1,143 @@
-# Wispy
+# Wispy (Voice Dictation for macOS)
 
-Dictée vocale locale pour macOS via [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Maintenez la touche **Fn** pour enregistrer, relâchez pour transcrire le texte automatiquement dans le champ actif.
+## 🤖 AI Description / Overview
 
-Tout tourne en local, aucune donnée n'est envoyée sur internet.
+**Wispy is a powerful, local voice dictation utility for macOS.** It uses the `faster-whisper` model to provide real-time, offline transcription of speech input. The application runs as a background daemon (`LaunchAgent`), allowing users to initiate recording by holding the `Fn` key and automatically transcribing and inserting text into any active field (e.g., iTerm, web browser, or editor) upon release. Because all processing is done locally on your machine, **zero data leaves your computer**, ensuring complete privacy.
 
-## Installation rapide
+## 📘 Project Description (User Guide)
+
+Wispy is a local voice dictation utility for macOS built on top of [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Hold the **Fn** key to record, and release it to automatically transcribe the text into the active field.
+
+Everything runs locally; no data is sent over the internet.
+
+## Quick Installation Guide
 
 ```bash
-git clone https://github.com/<ton-user>/wispy.git
+git clone https://github.com/<your-user>/wispy.git
 cd wispy
 ./install.sh
 ```
 
-## Prérequis
+## Prerequisites
 
-- **macOS** (Apple Silicon ou Intel)
+- **macOS** (Apple Silicon or Intel)
 - [Homebrew](https://brew.sh)
 - `sox` (`brew install sox`)
 
-## Installation détaillée
+## Detailed Installation
 
-### 1. Installer les dépendances
+### 1. Install Dependencies
 
 ```bash
 brew install sox
 ```
 
-### 3. Cloner et lancer l'install
+### 2. Clone and Run Install Script
 
 ```bash
-git clone https://github.com/<ton-user>/wispy.git
+git clone https://github.com/<your-user>/wispy.git
 cd wispy
 ./install.sh
 ```
 
-Le script gère automatiquement :
-- Création du virtual environment Python
-- Installation de faster-whisper
-- Installation et lancement du LaunchAgent
+The script automatically manages:
+- Python virtual environment creation
+- Installation of `faster-whisper`
+- Setup and launching the `LaunchAgent`
 
-Pour utiliser un modèle différent :
+To use a different model:
 ```bash
-WHISPER_MODEL=medium ./install.sh  # small, base, tiny, medium, large-v3
+WHISPER_MODEL=medium ./install.sh  # Options: small, base, tiny, medium, large-v3
 ```
 
-### 5. Configurer les permissions macOS
+### 3. Configure macOS Permissions (Crucial Step)
 
-C'est l'étape la plus importante. Sans ces permissions, le daemon ne peut ni enregistrer ni taper du texte.
+Without these permissions, the daemon cannot record audio or simulate keyboard input.
 
-#### 5a. Microphone
+#### 3a. Microphone Access
 
-Le daemon a besoin du micro pour capturer l'audio.
+The daemon needs microphone access to capture audio.
 
-1. Ouvrir **Réglages Système** → **Confidentialité et sécurité** → **Microphone**
-2. Activer **iTerm** (ou Terminal)
-3. Le daemon (`python`) peut aussi demander l'accès au micro lors du premier enregistrement — accepter la popup
+1. Go to **System Settings** → **Privacy & Security** → **Microphone**.
+2. Enable access for **iTerm** (or Terminal).
+3. The daemon (`python`) may also prompt you for microphone access during the first recording—please accept this popup.
 
-#### 5b. Accessibilité
+#### 3b. Accessibility Access (Keyboard Simulation)
 
-Le daemon a besoin de cette permission pour simuler la frappe clavier via `osascript`.
+The daemon requires this permission to simulate keyboard input via `osascript`.
 
-1. Ouvrir **Réglages Système** → **Confidentialité et sécurité** → **Accessibilité**
-2. Cliquer sur **"+"** et ajouter le python du venv (`wispy/.venv/bin/python3`)
-3. Vérifier que le toggle est **activé**
+1. Go to **System Settings** → **Privacy & Security** → **Accessibility**.
+2. Click the "+" button and add the python executable from the venv (`wispy/.venv/bin/python3`).
+3. Verify that the toggle is **enabled**.
 
-> **Sans cette permission**, la transcription fonctionne mais le texte ne s'écrit pas dans le champ actif (erreur `osascript timeout` dans les logs).
+> **Without this permission**, transcription works, but the text will not be typed into the active field (look for `osascript timeout` in the logs).
 
+### 4. Restart Daemon After Permissions Update
 
-
-### 6. Redémarrer le daemon après les permissions
+If you changed permissions, run these commands to ensure the daemon picks up the new settings:
 
 ```bash
 launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.wispy.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.wispy.plist
 ```
 
-## Utilisation
+## Usage
 
-1. Placer le curseur dans un champ de texte (iTerm, navigateur, éditeur...)
-2. **Maintenir Fn** → son "Tink" = enregistrement en cours
-3. **Parler**
-4. **Relâcher Fn** → son "Pop" = transcription et frappe automatique
+1. Place the cursor in a text field (iTerm, browser, editor...).
+2. **Hold Fn** → The "Tink" sound indicates recording is in progress.
+3. **Speak**.
+4. **Release Fn** → The "Pop" sound indicates transcription and automatic typing/insertion of the text.
 
-## Modèles Whisper
+## Whisper Models Selection
 
-| Modèle | Taille | Vitesse | Qualité FR |
-|--------|--------|---------|------------|
-| tiny   | 75 Mo  | ++++    | --         |
-| base   | 142 Mo | +++     | -          |
-| small  | 466 Mo | ++      | ++         |
-| medium | 1.5 Go | +       | +++        |
-| large-v3 | 2.9 Go | -     | ++++       |
+| Model | Size | Speed | FR Quality |
+|--------|------|-------|------------|
+| tiny   | 75 MB | ++++  | --         |
+| base   | 142 MB| +++    | -          |
+| small  | 466 MB| ++     | ++         |
+| medium | 1.5 GB| +      | +++        |
+| large-v3 | 2.9 GB| -     | ++++       |
 
-Le modèle par défaut est `small` (plus rapide). Pour changer :
+The default model is `small` (faster). To change it, use the command in Step 2.
 
-```bash
-WHISPER_MODEL=medium ./install.sh
-```
+## Manual Commands (API)
 
-## Commandes manuelles
+You can interact with the daemon via HTTP:
 
 ```bash
-curl http://localhost:9090/status                          # Statut du daemon
-curl -X POST http://localhost:9090/start                   # Démarrer l'enregistrement
-curl -X POST http://localhost:9090/stop                    # Arrêter et transcrire
-tail -f ~/.wispy.log ~/.wispy-error.log  # Logs en direct
+curl http://localhost:9090/status                          # Daemon status check
+curl -X POST http://localhost:9090/start                   # Start recording
+curl -X POST http://localhost:9090/stop                    # Stop and transcribe
+tail -f ~/.wispy.log ~/.wispy-error.log  # Live logs
 ```
 
-### Mettre à jour faster-whisper
+### Upgrading faster-whisper
 
 ```bash
 ./.venv/bin/pip install --upgrade faster-whisper
 ```
 
-## Dépannage
+## Troubleshooting
 
-| Symptôme | Cause probable | Solution |
-|-----------|---------------|----------|
-
-| Son Tink/Pop mais pas de texte | Permission Accessibilité manquante | Étape 5b |
-| Erreur `sox not found` dans les logs | sox pas dans le PATH du LaunchAgent | Relancer install.sh |
-| Erreur `Operation not permitted` | Mauvais python (Xcode au lieu de Homebrew) | Relancer install.sh |
-| Texte imprécis / erreurs | Modèle trop petit | `WHISPER_MODEL=medium ./install.sh` |
-| Daemon ne démarre pas | Port 9090 occupé ou python introuvable | Vérifier les logs |
-| Model non trouvé | Virtual env non créé | Relancer install.sh |
+| Symptom | Probable Cause | Solution |
+|-----------|----------------|----------|
+| Tink/Pop sounds but no text appears | Missing Accessibility Permission | Step 3b |
+| `sox not found` error in logs | SOX not in LaunchAgent PATH | Rerun `install.sh` |
+| `Operation not permitted` error | Incorrect Python interpreter (e.g., Xcode vs Homebrew) | Rerun `install.sh` |
+| Inaccurate text / errors | Model is too small | `WHISPER_MODEL=medium ./install.sh` |
+| Daemon fails to start | Port 9090 is occupied or Python executable cannot be found | Check the logs (`.wispy-error.log`) |
+| Model not found | Virtual environment not created | Rerun `install.sh` |
 
 ## Configuration
 
-Modifier le haut de `wispy.py` pour changer :
-- `PORT` — port HTTP (défaut : 9090)
-- `WHISPER_MODEL_SIZE` — modèle (défaut : `small`)
-- La langue est en français (`language="fr"`).
+You can modify the top of `wispy.py` to change:
+- `PORT` — HTTP port (default: 9090)
+- `WHISPER_MODEL_SIZE` — Model name (default: `small`)
+- The language is set to French (`language="fr"`).
 
-## Désinstallation
+## Uninstallation
 
+To fully remove Wispy:
 ```bash
 launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.wispy.plist
 rm ~/Library/LaunchAgents/com.wispy.plist
@@ -142,6 +146,6 @@ rm -rf wispy/.venv
 
 ---
 
-## Licence
+## License
 
-Ce projet est distribué sous licence **GPLv3**. Voir le fichier LICENSE pour plus de détails.
+This project is distributed under the **GPLv3** license. Please see the `LICENSE` file for more details.
