@@ -14,22 +14,31 @@ if [ ! -d "$VENV_DIR" ]; then
     echo "Creating virtual environment..."
     python3 -m venv "$VENV_DIR"
     "$VENV_DIR/bin/pip" install --upgrade pip
-    "$VENV_DIR/bin/pip" install faster-whisper
-    echo "[OK] Virtual environment created with faster-whisper"
+    "$VENV_DIR/bin/pip" install faster-whisper pyobjc-framework-Quartz rumps Pillow
+    echo "[OK] Virtual environment created with faster-whisper + pyobjc-framework-Quartz + rumps + Pillow"
 else
     echo "[OK] Virtual environment already exists"
 fi
 
-if ! command -v karabiner_cli &>/dev/null; then
-    echo "Karabiner-Elements not found."
-    echo "Install it from https://karabiner-elements.pqrs.org/ and re-run this script."
-    echo "You may also need: sudo ln -sf '/Library/Application Support/org.pqrs/Karabiner-Elements/bin/karabiner_cli' /usr/local/bin/karabiner_cli"
-    exit 1
+if [ ! -d "$SCRIPT_DIR/icons" ] || [ ! -f "$SCRIPT_DIR/icons/mic-idle.png" ]; then
+    echo "Generating menu bar icons..."
+    "$VENV_DIR/bin/python" "$SCRIPT_DIR/generate_icons.py"
+    echo "[OK] Icons generated"
+else
+    echo "[OK] Icons already exist"
 fi
-echo "[OK] Karabiner-Elements found"
 
-mkdir -p "$KARABINER_DIR"
-cat > "$KARABINER_DIR/whisper-dictation.json" << 'KARABINER'
+KARABINER_ENABLED=false
+if command -v karabiner_cli &>/dev/null; then
+    KARABINER_ENABLED=true
+    echo "[OK] Karabiner-Elements found (optionnel — détection Fn native intégrée au daemon)"
+else
+    echo "[skip] Karabiner-Elements absent — détection Fn native via CGEventTap"
+fi
+
+if [ "$KARABINER_ENABLED" = "true" ]; then
+    mkdir -p "$KARABINER_DIR"
+    cat > "$KARABINER_DIR/whisper-dictation.json" << 'KARABINER'
 {
     "title": "Whisper Dictation (Fn key push-to-talk)",
     "rules": [
@@ -57,7 +66,8 @@ cat > "$KARABINER_DIR/whisper-dictation.json" << 'KARABINER'
     ]
 }
 KARABINER
-echo "[OK] Karabiner config installed"
+    echo "[OK] Karabiner config installed (optionnel, non requis)"
+fi
 
 LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
 LAUNCH_AGENT_NAME="com.whisper-dictation"
@@ -108,7 +118,8 @@ echo ""
 echo "1. Microphone:        System Settings -> Privacy & Security -> Microphone -> enable iTerm2/Terminal"
 echo "2. Accessibility:     System Settings -> Privacy & Security -> Accessibility -> enable python"
 echo "                      python path: $PYTHON_BIN"
-echo "3. Input Monitoring:  System Settings -> Privacy & Security -> Input Monitoring -> enable Karabiner-Elements"
+echo "3. Input Monitoring:  System Settings -> Privacy & Security -> Input Monitoring -> enable python3"
+echo "                      python path: $PYTHON_BIN"
 echo ""
 
 launchctl unload "$PLIST_PATH" 2>/dev/null || true
@@ -116,7 +127,7 @@ launchctl load "$PLIST_PATH"
 echo "[OK] LaunchAgent loaded. Daemon starting..."
 echo ""
 echo "Model will be downloaded automatically on first run (model: $WHISPER_MODEL_NAME)"
-echo "Next: Enable the Fn dictation rule in Karabiner-Elements -> Complex Modifications -> Add rule"
+echo "NOTE: Karabiner-Elements n'est plus requis. Le daemon écoute la touche Fn nativement."
 echo ""
 echo "Logs: tail -f ~/.whisper-dictation.log ~/.whisper-dictation-error.log"
 echo "Test: curl http://localhost:9090/status"
