@@ -1,4 +1,4 @@
-# Whisper Dictation
+# Wispy
 
 Dictée vocale locale pour macOS via [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Maintenez la touche **Fn** pour enregistrer, relâchez pour transcrire le texte automatiquement dans le champ actif.
 

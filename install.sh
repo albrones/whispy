@@ -6,7 +6,7 @@ KARABINER_DIR="$HOME/.config/karabiner/assets/complex_modifications"
 
 WHISPER_MODEL_NAME="${WHISPER_MODEL:-small}"
 
-echo "=== Whisper Dictation Setup (faster-whisper) ==="
+echo "=== Wispy Setup (faster-whisper) ==="
 echo ""
 
 VENV_DIR="$SCRIPT_DIR/.venv"
@@ -40,10 +40,10 @@ if [ "$KARABINER_ENABLED" = "true" ]; then
     mkdir -p "$KARABINER_DIR"
     cat > "$KARABINER_DIR/whisper-dictation.json" << 'KARABINER'
 {
-    "title": "Whisper Dictation (Fn key push-to-talk)",
+    "title": "Wispy (Fn key push-to-talk)",
     "rules": [
         {
-            "description": "Hold Fn to record, release to transcribe (Whisper Dictation)",
+            "description": "Hold Fn to record, release to transcribe (Wispy)",
             "manipulators": [
                 {
                     "type": "basic",

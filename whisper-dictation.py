@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Whisper Dictation — macOS menu bar speech-to-text daemon.
+"""Wispy — macOS menu bar speech-to-text daemon.
 
 Push-to-talk via Fn key (native CGEventTap or Karabiner fallback).
 HTTP API on localhost:9090 for external control.
@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import rumps
@@ -36,21 +36,21 @@ QUARTZ_AVAILABLE = False
 
 try:
     from Quartz import (
-        CGEventTapCreate,
-        CGEventMaskBit,
-        kCGEventFlagsChanged,
-        kCGSessionEventTap,
-        kCGHeadInsertEventTap,
-        kCGEventTapOptionDefault,
+        CFMachPortCreateRunLoopSource,
+        CFRunLoopAddSource,
+        CFRunLoopGetCurrent,
+        CFRunLoopRun,
         CGEventGetFlags,
         CGEventGetIntegerValueField,
-        kCGKeyboardEventKeycode,
-        CFMachPortCreateRunLoopSource,
-        CFRunLoopGetCurrent,
-        CFRunLoopAddSource,
-        kCFRunLoopDefaultMode,
+        CGEventMaskBit,
+        CGEventTapCreate,
         CGEventTapEnable,
-        CFRunLoopRun,
+        kCFRunLoopDefaultMode,
+        kCGEventFlagsChanged,
+        kCGEventTapOptionDefault,
+        kCGHeadInsertEventTap,
+        kCGKeyboardEventKeycode,
+        kCGSessionEventTap,
     )
 
     QUARTZ_AVAILABLE = True
@@ -499,7 +499,7 @@ class WhisperMenuBarApp(rumps.App):
             else None
         )
         super().__init__(
-            name="Whisper Dictation",
+            name="Wispy",
             icon=icon_path,
             template=True,
             quit_button=None,
@@ -670,7 +670,7 @@ def main():
 
     signal.signal(signal.SIGTERM, _handle_sigterm)
 
-    print("[main] Whisper Dictation starting (menu bar mode)")
+    print("[main] Wispy starting (menu bar mode)")
     app.run()
 
     http_server.shutdown()
