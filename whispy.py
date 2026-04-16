@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wispy — macOS menu bar speech-to-text daemon.
+"""Whispy — macOS menu bar speech-to-text daemon.
 
 Push-to-talk via Fn key (native CGEventTap).
 HTTP API on localhost:9090 for external control.
@@ -25,9 +25,9 @@ from faster_whisper import WhisperModel
 # ---------------------------------------------------------------------------
 SCRIPT_DIR = Path(__file__).resolve().parent
 ICONS_DIR = SCRIPT_DIR / "icons"
-CONFIG_DIR = Path.home() / ".config" / "wispy"
+CONFIG_DIR = Path.home() / ".config" / "whispy"
 CONFIG_PATH = CONFIG_DIR / "config.json"
-RECORDING_PATH = os.path.join(tempfile.gettempdir(), "wispy.wav")
+RECORDING_PATH = os.path.join(tempfile.gettempdir(), "whispy.wav")
 PORT = 9090
 
 FN_KEYCODE = 63
@@ -398,7 +398,7 @@ def start_fn_listener():
         print(
             "[dictation] CGEventTapCreate failed — grant Input Monitoring to python3:\n"
             "  System Settings → Privacy & Security → Input Monitoring → add python3\n"
-            "  Then restart: launchctl kickstart -k gui/$(id -u)/com.wispy",
+            "  Then restart: launchctl kickstart -k gui/$(id -u)/com.whispy",
             file=sys.stderr,
         )
         return
@@ -505,7 +505,7 @@ class WhisperMenuBarApp(rumps.App):
             else None
         )
         super().__init__(
-            name="Wispy",
+            name="Whispy",
             icon=icon_path,
             template=True,
             quit_button=None,
@@ -586,6 +586,7 @@ class WhisperMenuBarApp(rumps.App):
         self.fn_status_item = rumps.MenuItem("Fn: —", callback=None)
         self.fn_status_item.set_callback(None)
 
+        self.reload_item = rumps.MenuItem("Relancer", callback=self._on_reload)
         quit_item = rumps.MenuItem("Quitter", callback=self._on_quit, key="q")
 
         self.menu = [
@@ -597,6 +598,7 @@ class WhisperMenuBarApp(rumps.App):
             None,
             self.fn_status_item,
             None,
+            self.reload_item,
             quit_item,
         ]
 
@@ -651,6 +653,10 @@ class WhisperMenuBarApp(rumps.App):
         save_config(state.config)
         load_model_async()
 
+    def _on_reload(self, _sender):
+        """Restart the application."""
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
     def _on_quit(self, _sender):
         rumps.quit_application()
 
@@ -699,7 +705,7 @@ def main():
 
     signal.signal(signal.SIGTERM, _handle_sigterm)
 
-    print("[main] Wispy starting (menu bar mode)")
+    print("[main] Whispy starting (menu bar mode)")
     app.run()
 
     http_server.shutdown()

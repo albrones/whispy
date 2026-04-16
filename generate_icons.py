@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate menu bar icons for Wispy.
+"""Generate menu bar icons for Whispy.
 
 Creates 22x22 template-style PNGs (black on transparent) in icons/ directory.
 Run once after install: python generate_icons.py

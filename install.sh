@@ -10,7 +10,7 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WHISPER_MODEL_NAME="${WHISPER_MODEL:-small}"
 
-echo -e "${YELLOW}=== Wispy Setup (faster-whisper) ===${NC}"
+echo -e "${YELLOW}=== Whispy Setup (faster-whisper) ===${NC}"
 echo ""
 
 # Check for python3
@@ -23,7 +23,7 @@ fi
 if [[ "${1:-}" == "--uninstall" ]]; then
     echo -e "${YELLOW}Removing LaunchAgent and .venv directory...${NC}"
     LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
-    LAUNCH_AGENT_NAME="com.wispy"
+    LAUNCH_AGENT_NAME="com.whispy"
     PLIST_PATH="$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_NAME.plist"
     VENV_DIR="$SCRIPT_DIR/.venv"
     launchctl unload "$PLIST_PATH" 2>/dev/null || true
@@ -57,7 +57,7 @@ fi
 
 
 LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
-LAUNCH_AGENT_NAME="com.wispy"
+LAUNCH_AGENT_NAME="com.whispy"
 PLIST_PATH="$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_NAME.plist"
 
 PYTHON_BIN="$VENV_DIR/bin/python3"
@@ -90,9 +90,9 @@ cat > "$PLIST_PATH" << PLISTEOF
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
     <key>StandardOutPath</key>
-    <string>$HOME/.wispy.log</string>
+    <string>$HOME/.whispy.log</string>
     <key>StandardErrorPath</key>
-    <string>$HOME/.wispy-error.log</string>
+    <string>$HOME/.whispy-error.log</string>
 </dict>
 </plist>
 PLISTEOF
@@ -115,7 +115,7 @@ echo -e "${GREEN}[OK] LaunchAgent loaded. Daemon starting...${NC}"
 echo ""
 echo "The model will be downloaded automatically on first run (model: $WHISPER_MODEL_NAME)"
 echo ""
-echo "Logs: tail -f ~/.wispy.log ~/.wispy-error.log"
+echo "Logs: tail -f ~/.whispy.log ~/.whispy-error.log"
 echo "Test: curl http://localhost:9090/status"
 echo ""
 echo -e "${YELLOW}To uninstall:${NC}"
