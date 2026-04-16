@@ -2,8 +2,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-KARABINER_DIR="$HOME/.config/karabiner/assets/complex_modifications"
-
 WHISPER_MODEL_NAME="${WHISPER_MODEL:-small}"
 
 echo "=== Wispy Setup (faster-whisper) ==="
@@ -28,56 +26,19 @@ else
     echo "[OK] Icons already exist"
 fi
 
-KARABINER_ENABLED=false
-if command -v karabiner_cli &>/dev/null; then
-    KARABINER_ENABLED=true
-    echo "[OK] Karabiner-Elements found (optionnel — détection Fn native intégrée au daemon)"
-else
-    echo "[skip] Karabiner-Elements absent — détection Fn native via CGEventTap"
-fi
 
-if [ "$KARABINER_ENABLED" = "true" ]; then
-    mkdir -p "$KARABINER_DIR"
-    cat > "$KARABINER_DIR/whisper-dictation.json" << 'KARABINER'
-{
-    "title": "Wispy (Fn key push-to-talk)",
-    "rules": [
-        {
-            "description": "Hold Fn to record, release to transcribe (Wispy)",
-            "manipulators": [
-                {
-                    "type": "basic",
-                    "from": {
-                        "key_code": "fn"
-                    },
-                    "to": [
-                        {
-                            "shell_command": "curl -s -X POST http://localhost:9090/start >/dev/null 2>&1"
-                        }
-                    ],
-                    "to_after_key_up": [
-                        {
-                            "shell_command": "curl -s -X POST http://localhost:9090/stop >/dev/null 2>&1"
-                        }
-                    ]
-                }
-            ]
-        }
-    ]
-}
-KARABINER
-    echo "[OK] Karabiner config installed (optionnel, non requis)"
-fi
+
+
 
 LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
-LAUNCH_AGENT_NAME="com.whisper-dictation"
+LAUNCH_AGENT_NAME="com.wispy"
 PLIST_PATH="$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_NAME.plist"
 
 PYTHON_BIN="$VENV_DIR/bin/python3"
 
 mkdir -p "$LAUNCH_AGENT_DIR"
 
-DAEMON_PATH="$SCRIPT_DIR/whisper-dictation.py"
+DAEMON_PATH="$SCRIPT_DIR/wispy.py"
 
 cat > "$PLIST_PATH" << PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -103,9 +64,9 @@ cat > "$PLIST_PATH" << PLISTEOF
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
     <key>StandardOutPath</key>
-    <string>$HOME/.whisper-dictation.log</string>
+    <string>$HOME/.wispy.log</string>
     <key>StandardErrorPath</key>
-    <string>$HOME/.whisper-dictation-error.log</string>
+    <string>$HOME/.wispy-error.log</string>
 </dict>
 </plist>
 PLISTEOF
@@ -127,7 +88,6 @@ launchctl load "$PLIST_PATH"
 echo "[OK] LaunchAgent loaded. Daemon starting..."
 echo ""
 echo "Model will be downloaded automatically on first run (model: $WHISPER_MODEL_NAME)"
-echo "NOTE: Karabiner-Elements n'est plus requis. Le daemon écoute la touche Fn nativement."
 echo ""
-echo "Logs: tail -f ~/.whisper-dictation.log ~/.whisper-dictation-error.log"
+echo "Logs: tail -f ~/.wispy.log ~/.wispy-error.log"
 echo "Test: curl http://localhost:9090/status"

@@ -7,8 +7,8 @@ Tout tourne en local, aucune donnée n'est envoyée sur internet.
 ## Installation rapide
 
 ```bash
-git clone https://github.com/<ton-user>/whisper-dictation.git
-cd whisper-dictation
+git clone https://github.com/<ton-user>/wispy.git
+cd wispy
 ./install.sh
 ```
 
@@ -16,7 +16,6 @@ cd whisper-dictation
 
 - **macOS** (Apple Silicon ou Intel)
 - [Homebrew](https://brew.sh)
-- [Karabiner-Elements](https://karabiner-elements.pqrs.org/)
 - `sox` (`brew install sox`)
 
 ## Installation détaillée
@@ -27,43 +26,23 @@ cd whisper-dictation
 brew install sox
 ```
 
-### 2. Installer Karabiner-Elements
-
-Télécharger depuis https://karabiner-elements.pqrs.org/ puis ajouter `karabiner_cli` au PATH :
-
-```bash
-sudo ln -sf "/Library/Application Support/org.pqrs/Karabiner-Elements/bin/karabiner_cli" /usr/local/bin/karabiner_cli
-```
-
-Vérifier :
-```bash
-command -v karabiner_cli && echo "OK"
-```
-
 ### 3. Cloner et lancer l'install
 
 ```bash
-git clone https://github.com/<ton-user>/whisper-dictation.git
-cd whisper-dictation
+git clone https://github.com/<ton-user>/wispy.git
+cd wispy
 ./install.sh
 ```
 
 Le script gère automatiquement :
 - Création du virtual environment Python
 - Installation de faster-whisper
-- Installation de la config Karabiner
 - Installation et lancement du LaunchAgent
 
 Pour utiliser un modèle différent :
 ```bash
 WHISPER_MODEL=medium ./install.sh  # small, base, tiny, medium, large-v3
 ```
-
-### 4. Activer la règle Karabiner
-
-1. Ouvrir **Karabiner-Elements Settings**
-2. Aller dans **Complex Modifications** → **Add rule**
-3. Activer **"Hold Fn to record, release to transcribe"**
 
 ### 5. Configurer les permissions macOS
 
@@ -82,23 +61,18 @@ Le daemon a besoin du micro pour capturer l'audio.
 Le daemon a besoin de cette permission pour simuler la frappe clavier via `osascript`.
 
 1. Ouvrir **Réglages Système** → **Confidentialité et sécurité** → **Accessibilité**
-2. Cliquer sur **"+"** et ajouter le python du venv (`whisper-dictation/.venv/bin/python3`)
+2. Cliquer sur **"+"** et ajouter le python du venv (`wispy/.venv/bin/python3`)
 3. Vérifier que le toggle est **activé**
 
 > **Sans cette permission**, la transcription fonctionne mais le texte ne s'écrit pas dans le champ actif (erreur `osascript timeout` dans les logs).
 
-#### 5c. Suivi des entrées (Input Monitoring)
 
-Nécessaire pour que Karabiner-Elements capture les touches.
-
-1. Ouvrir **Réglages Système** → **Confidentialité et sécurité** → **Suivi des entrées**
-2. Activer **Karabiner-Elements** et **karabiner_observer**
 
 ### 6. Redémarrer le daemon après les permissions
 
 ```bash
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.whisper-dictation.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whisper-dictation.plist
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.wispy.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.wispy.plist
 ```
 
 ## Utilisation
@@ -130,7 +104,7 @@ WHISPER_MODEL=medium ./install.sh
 curl http://localhost:9090/status                          # Statut du daemon
 curl -X POST http://localhost:9090/start                   # Démarrer l'enregistrement
 curl -X POST http://localhost:9090/stop                    # Arrêter et transcrire
-tail -f ~/.whisper-dictation.log ~/.whisper-dictation-error.log  # Logs en direct
+tail -f ~/.wispy.log ~/.wispy-error.log  # Logs en direct
 ```
 
 ### Mettre à jour faster-whisper
@@ -143,7 +117,7 @@ tail -f ~/.whisper-dictation.log ~/.whisper-dictation-error.log  # Logs en direc
 
 | Symptôme | Cause probable | Solution |
 |-----------|---------------|----------|
-| Pas de son Tink au maintien de Fn | Règle Karabiner non activée | Étape 4 |
+
 | Son Tink/Pop mais pas de texte | Permission Accessibilité manquante | Étape 5b |
 | Erreur `sox not found` dans les logs | sox pas dans le PATH du LaunchAgent | Relancer install.sh |
 | Erreur `Operation not permitted` | Mauvais python (Xcode au lieu de Homebrew) | Relancer install.sh |
@@ -153,7 +127,7 @@ tail -f ~/.whisper-dictation.log ~/.whisper-dictation-error.log  # Logs en direc
 
 ## Configuration
 
-Modifier le haut de `whisper-dictation.py` pour changer :
+Modifier le haut de `wispy.py` pour changer :
 - `PORT` — port HTTP (défaut : 9090)
 - `WHISPER_MODEL_SIZE` — modèle (défaut : `small`)
 - La langue est en français (`language="fr"`).
@@ -161,12 +135,13 @@ Modifier le haut de `whisper-dictation.py` pour changer :
 ## Désinstallation
 
 ```bash
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.whisper-dictation.plist
-rm ~/Library/LaunchAgents/com.whisper-dictation.plist
-rm ~/.config/karabiner/assets/complex_modifications/whisper-dictation.json
-rm -rf whisper-dictation/.venv
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.wispy.plist
+rm ~/Library/LaunchAgents/com.wispy.plist
+rm -rf wispy/.venv
 ```
+
+---
 
 ## Licence
 
-MIT
+Ce projet est distribué sous licence **GPLv3**. Voir le fichier LICENSE pour plus de détails.

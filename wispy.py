@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Wispy — macOS menu bar speech-to-text daemon.
 
-Push-to-talk via Fn key (native CGEventTap or Karabiner fallback).
+Push-to-talk via Fn key (native CGEventTap).
 HTTP API on localhost:9090 for external control.
 Menu bar UI via rumps for status, animation, and settings.
 """
@@ -25,9 +25,9 @@ from faster_whisper import WhisperModel
 # ---------------------------------------------------------------------------
 SCRIPT_DIR = Path(__file__).resolve().parent
 ICONS_DIR = SCRIPT_DIR / "icons"
-CONFIG_DIR = Path.home() / ".config" / "whisper-dictation"
+CONFIG_DIR = Path.home() / ".config" / "wispy"
 CONFIG_PATH = CONFIG_DIR / "config.json"
-RECORDING_PATH = os.path.join(tempfile.gettempdir(), "whisper-dictation.wav")
+RECORDING_PATH = os.path.join(tempfile.gettempdir(), "wispy.wav")
 PORT = 9090
 
 FN_KEYCODE = 63
@@ -353,7 +353,7 @@ def play_sound(sound_name):
 
 
 # ---------------------------------------------------------------------------
-# Fn key listener (CGEventTap — native, no Karabiner needed)
+# Fn key listener (CGEventTap — natif)
 # ---------------------------------------------------------------------------
 def _fn_event_callback(proxy, event_type, event, refcon):
     if event_type == kCGEventFlagsChanged:
@@ -392,7 +392,7 @@ def start_fn_listener():
         print(
             "[dictation] CGEventTapCreate failed — grant Input Monitoring to python3:\n"
             "  System Settings → Privacy & Security → Input Monitoring → add python3\n"
-            "  Then restart: launchctl kickstart -k gui/$(id -u)/com.whisper-dictation",
+            "  Then restart: launchctl kickstart -k gui/$(id -u)/com.wispy",
             file=sys.stderr,
         )
         return
