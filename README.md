@@ -135,16 +135,85 @@ You can modify the top of `wispy.py` to change:
 - `WHISPER_MODEL_SIZE` — Model name (default: `small`)
 - The language is set to French (`language="fr"`).
 
-## Uninstallation
+## Practical Usage & FAQ
 
-To fully remove Wispy:
+### 🔄 How do I manually restart Wispy?
+
+If you update the code or change permissions, you can restart the Wispy background service (daemon) with:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.wispy.plist
+launchctl load ~/Library/LaunchAgents/com.wispy.plist
+```
+
+Or simply rerun the install script:
+
+```bash
+./install.sh
+```
+
+### 🗑️ How do I uninstall Wispy?
+
+With the new install script, you can uninstall everything in one command:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ton-org/whispy/main/install.sh) --uninstall
+```
+
+Or manually:
+
 ```bash
 launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.wispy.plist
 rm ~/Library/LaunchAgents/com.wispy.plist
 rm -rf wispy/.venv
 ```
 
+### 📄 Where are the logs?
+
+- Standard log: `~/.wispy.log`
+- Error log: `~/.wispy-error.log`
+
+To follow logs in real time:
+
+```bash
+tail -f ~/.wispy.log ~/.wispy-error.log
+```
+
+### ❓ FAQ
+
+**Q: Will Wispy start automatically at each reboot?**  
+A: Yes, the LaunchAgent ensures Wispy starts at every login.
+
+**Q: Can I use a different Python version or environment?**  
+A: The install script creates its own virtual environment in `.venv` and uses it automatically.
+
+**Q: How do I update Wispy?**  
+A: Pull the latest code (`git pull`) and rerun `./install.sh`.
+
+**Q: What if I want to use a different Whisper model?**  
+A: Run `WHISPER_MODEL=medium ./install.sh` (see model table above).
+
+**Q: How do I know if Wispy is running?**  
+A: Check with `curl http://localhost:9090/status` or look for the process in Activity Monitor.
+
+**Q: How do I extend or debug Wispy?**  
+A: Edit the Python files, then reload the LaunchAgent as above.
+
 ---
+
+## 🖥️ Linux & Windows Support (Coming Soon)
+
+Support for Linux and Windows is planned!  
+If you want to contribute or be notified of the release, open an issue or follow the project on GitHub.
+
+- **Linux**: A systemd service or autostart script will be provided.
+- **Windows**: An automatic installer (.exe) or a PowerShell script will be provided.
+
+---
+
+## License
+
+This project is distributed under the **GPLv3** license. Please see the `LICENSE` file for more details.
 
 ## License
 

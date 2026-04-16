@@ -4,6 +4,14 @@ This document describes the concept, structure, and usage of agents within the `
 
 ---
 
+**Language Policy**
+
+All documentation, code comments, and user-facing messages in the codebase must be written in English. Communication between contributors (e.g., in issues, pull requests, or chat) can be in any language, but all code and documentation must remain in English.
+
+---
+
+---
+
 ## What is an Agent?
 
 An **agent** is an autonomous or semi-autonomous component designed to perform specific tasks, make decisions, or interact with other parts of the system. Agents can encapsulate logic, maintain state, and communicate with other agents or system components.
