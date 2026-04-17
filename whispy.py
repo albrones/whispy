@@ -113,6 +113,7 @@ DEFAULT_CONFIG = {
     "language": "auto",
     "beam_size": 1,
     "best_of": 2,
+    "copy_to_clipboard": True,
 }
 
 
@@ -337,17 +338,29 @@ def transcribe(audio_path):
 
 
 def type_text(text):
-    escaped = text.replace('"', '\\"')
-    subprocess.run(
-        [
-            "osascript",
-            "-e",
-            f'set the clipboard to "{escaped}"',
-            "-e",
-            'tell application "System Events" to keystroke "v" using command down',
-        ],
-        timeout=5,
-    )
+    if state.config.get("copy_to_clipboard", True):
+        escaped = text.replace('"', '\\"')
+        subprocess.run(
+            [
+                "osascript",
+                "-e",
+                f'set the clipboard to "{escaped}"',
+                "-e",
+                'tell application "System Events" to keystroke "v" using command down',
+            ],
+            timeout=5,
+        )
+    else:
+        # Simulate keystrokes for each character to avoid clipboard interaction
+        escaped = text.replace('"', '\\"')
+        subprocess.run(
+            [
+                "osascript",
+                "-e",
+                f'tell application "System Events" to keystroke "{escaped}"',
+            ],
+            timeout=10,
+        )
 
 
 def play_sound(sound_name):
@@ -583,6 +596,11 @@ class WhisperMenuBarApp(rumps.App):
             self._compute_items[key] = item
             self.compute_menu.add(item)
 
+        self.copy_menu = rumps.MenuItem(
+            "Copie presse-papier", callback=self._on_toggle_copy
+        )
+        self.copy_menu.state = 1 if cfg.get("copy_to_clipboard", True) else 0
+
         self.fn_status_item = rumps.MenuItem("Fn: —", callback=None)
         self.fn_status_item.set_callback(None)
 
@@ -595,6 +613,7 @@ class WhisperMenuBarApp(rumps.App):
             self.model_menu,
             self.language_menu,
             self.compute_menu,
+            self.copy_menu,
             None,
             self.fn_status_item,
             None,
@@ -652,6 +671,13 @@ class WhisperMenuBarApp(rumps.App):
         state.config["compute_key"] = new_key
         save_config(state.config)
         load_model_async()
+
+    def _on_toggle_copy(self, sender):
+        """Toggle clipboard copy setting."""
+        new_state = 0 if sender.state == 1 else 1
+        sender.state = new_state
+        state.config["copy_to_clipboard"] = new_state == 1
+        save_config(state.config)
 
     def _on_reload(self, _sender):
         """Restart the application."""
