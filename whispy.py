@@ -681,7 +681,10 @@ class WhisperMenuBarApp(rumps.App):
 
     def _on_reload(self, _sender):
         """Restart the application."""
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        # Launch a new independent process
+        subprocess.Popen([sys.executable] + sys.argv)
+        # Quit the current application gracefully
+        rumps.quit_application()
 
     def _on_quit(self, _sender):
         rumps.quit_application()
