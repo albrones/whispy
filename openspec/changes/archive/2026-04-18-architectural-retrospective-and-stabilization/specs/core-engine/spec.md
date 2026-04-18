@@ -22,7 +22,7 @@ The engine SHALL manage the creation, usage, and cleanup of temporary audio file
 - **WHEN** a transcription task is completed or fails
 - **THEN** the engine SHALL ensure the temporary audio file used for that task is deleted from the filesystem
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Configuration Loading
 The engine SHALL load and maintain the application configuration, providing access to model settings and language preferences.
