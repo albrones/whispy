@@ -86,38 +86,42 @@ class TestLoadConfig:
 class TestSaveConfig:
     """Test save_config behavior."""
 
-    def test_saves_correct_json(self, mocker):
+    def test_saves_correct_json(self, tmp_path):
         config = dict(DEFAULT_CONFIG)
         config["model_size"] = "base"
+        config_path = tmp_path / "config.json"
+        save_config(config, config_path)
 
-        mock_open = mocker.patch("builtins.open", mocker.mock_open())
-        save_config(config, Path("/any/path"))
-        mock_open.assert_called()
+        assert config_path.exists()
+        saved = json.loads(config_path.read_text())
+        assert saved["model_size"] == "base"
+        assert saved["compute_key"] == "cpu-int8"
 
-    def test_creates_directory_if_missing(self, mocker):
+    def test_creates_directory_if_missing(self, tmp_path):
         config = dict(DEFAULT_CONFIG)
-        mock_mkdir = mocker.patch("pathlib.Path.mkdir")
-        save_config(config, Path("/any/path"))
-        mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
+        config_path = tmp_path / "subdir" / "config.json"
+        save_config(config, config_path)
+        assert config_path.exists()
 
-    def test_writes_json_to_disk(self, mocker):
+    def test_writes_json_to_disk(self, tmp_path):
         config = dict(DEFAULT_CONFIG)
         config["model_size"] = "base"
-        mock_file = mocker.mock_open()
-        mocker.patch("builtins.open", mock_file)
-        save_config(config, Path("/any/path"))
-        mock_file().write.assert_called()
+        config_path = tmp_path / "config.json"
+        save_config(config, config_path)
 
-    def test_overwrites_existing_config(self, tmp_dir):
-        """Test that save_config overwrites the default config location."""
-        home_config = Path.home() / ".config" / "whispy" / "config.json"
-        # Write a known config
-        home_config.parent.mkdir(parents=True, exist_ok=True)
-        home_config.write_text(json.dumps({"model_size": "tiny"}))
+        content = config_path.read_text()
+        assert '"model_size": "base"' in content
 
-        save_config(dict(DEFAULT_CONFIG), Path("/ignored/path"))
-        saved = json.loads(home_config.read_text())
+    def test_overwrites_existing_config(self, tmp_path):
+        """Test that save_config overwrites the config at the given path."""
+        config_path = tmp_path / "config.json"
+        # Write a known config first
+        config_path.write_text(json.dumps({"model_size": "tiny", "language": "en"}))
+
+        save_config(dict(DEFAULT_CONFIG), config_path)
+        saved = json.loads(config_path.read_text())
         assert saved["model_size"] == "small"
+        assert saved["language"] == "auto"
 
 
 # ---------------------------------------------------------------------------
@@ -192,10 +196,11 @@ class TestEngineConfigUpdate:
         assert engine.state.config["model_size"] == "base"
 
     def test_update_saves_to_disk(self, engine, config_path):
-        # save_config ignores the passed path and writes to ~/.config/whispy/config.json
-        home_config = Path.home() / ".config" / "whispy" / "config.json"
+        # Verify save_config writes to the exact path passed to Engine
+        assert engine._config_path == config_path
         engine.update_config({"model_size": "base"})
-        saved = json.loads(home_config.read_text())
+        assert config_path.exists()
+        saved = json.loads(config_path.read_text())
         assert saved["model_size"] == "base"
 
     def test_update_returns_true_on_model_size_change(self, engine):
