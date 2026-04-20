@@ -1,0 +1,37 @@
+[project]
+name = "whispy"
+version = "0.1.0"
+description = "macOS menu bar speech-to-text daemon"
+requires-python = ">=3.10"
+dependencies = [
+    "faster-whisper",
+    "pyobjc-framework-Quartz",
+    "rumps",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-mock>=3.10",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "macos: requires macOS",
+]
+
+[tool.coverage.run]
+source = ["src/whispy"]
+omit = [
+    "src/whispy/ui/*",
+    "src/whispy/hardware/event_tap.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "pass",
+]

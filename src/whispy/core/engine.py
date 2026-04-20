@@ -32,6 +32,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "beam_size": 1,
     "best_of": 2,
     "copy_to_clipboard": True,
+    "auto_detect_min_duration": 0.5,
 }
 
 MODEL_PRESETS: Dict[str, Dict[str, str]] = {
@@ -52,7 +53,7 @@ MODEL_PRESETS: Dict[str, Dict[str, str]] = {
 }
 
 SUPPORTED_LANGUAGES: Dict[str, str] = {
-    "auto": "Auto-detect",
+    "auto": "Auto-detect (requires >= 1s audio for reliable detection)",
     "fr": "French",
     "en": "English",
 }
@@ -269,6 +270,9 @@ class Engine:
             language=self.state.config.get("language", "auto"),
             beam_size=self.state.config.get("beam_size", 1),
             best_of=self.state.config.get("best_of", 2),
+            auto_detect_min_duration=self.state.config.get(
+                "auto_detect_min_duration", 0.5
+            ),
         )
 
         self._audio_engine.cleanup_audio_file(RECORDING_PATH)
