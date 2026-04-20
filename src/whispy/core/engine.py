@@ -59,10 +59,22 @@ SUPPORTED_LANGUAGES: Dict[str, str] = {
 }
 
 COMPUTE_OPTIONS: Dict[str, Dict[str, str]] = {
-    "cpu-int8": {"device": "cpu", "compute_type": "int8"},
-    "cpu-float32": {"device": "cpu", "compute_type": "float32"},
-    "cuda-float16": {"device": "cuda", "compute_type": "float16"},
-    "cuda-int8": {"device": "cuda", "compute_type": "int8_float16"},
+    "cpu-int8": {"label": "CPU (int8)", "device": "cpu", "compute_type": "int8"},
+    "cpu-float32": {
+        "label": "CPU (float32)",
+        "device": "cpu",
+        "compute_type": "float32",
+    },
+    "cuda-float16": {
+        "label": "CUDA (float16)",
+        "device": "cuda",
+        "compute_type": "float16",
+    },
+    "cuda-int8": {
+        "label": "CUDA (int8)",
+        "device": "cuda",
+        "compute_type": "int8_float16",
+    },
 }
 
 
@@ -84,10 +96,9 @@ def load_config(config_path: Path) -> Dict[str, Any]:
 
 def save_config(config: Dict[str, Any], config_path: Path) -> None:
     """Persist config to disk."""
-    CONFIG_DIR = Path.home() / ".config" / "whispy"
-    config_path = CONFIG_DIR / "config.json"
+    config_dir = config_path.parent
     try:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        config_dir.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
     except OSError as exc:
@@ -333,6 +344,7 @@ class Engine:
                     if text:
                         self.state.last_transcription = text
 
+                    self._state_machine.transcription_complete()
                     self.state.is_transcribing = False
                     self._notify_status_change()
 

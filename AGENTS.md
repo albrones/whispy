@@ -125,6 +125,12 @@ To add a new agent:
 
 ---
 
+## Skills
+
+- RESEARCH_LOG.md: Agent that take note of the research during session.
+
+---
+
 ## Conclusion
 
 Agents are a powerful abstraction for building modular, maintainable, and scalable systems. By following the guidelines in this document, you can design and implement effective agents within the `whispy` project.
