@@ -80,6 +80,7 @@ class EventTapListener:
 
         self._tap = tap
         self._run_loop_source = CFMachPortCreateRunLoopSource(None, tap, 0)
+        self._ready_event = threading.Event()
 
         def _run():
             CFRunLoopAddSource(
@@ -88,12 +89,21 @@ class EventTapListener:
             CGEventTapEnable(tap, True)
             self.active = True
             print("[event-tap] Fn key listener active (CGEventTap)")
+            self._ready_event.set()
             CFRunLoopRun()
 
         self._run_loop_thread = threading.Thread(
             target=_run, name="fn-event-tap", daemon=True
         )
         self._run_loop_thread.start()
+        if self._ready_event.wait(timeout=5.0):
+            return
+        else:
+            print(
+                "[event-tap] Timed out waiting for CFRunLoop to start — "
+                "Input Monitoring may not be granted to python3",
+                file=__import__("sys").stderr,
+            )
 
     def stop(self) -> None:
         """Stop the event tap listener."""
