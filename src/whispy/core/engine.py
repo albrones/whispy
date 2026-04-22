@@ -15,15 +15,10 @@ from typing import Any, Callable, Dict, List, Optional
 
 from faster_whisper import WhisperModel
 
-from .audio import AudioEngine
+from .audio import AudioEngine, RECORDING_PATH
 from .state_machine import State, StateMachine
 from ..hardware.event_tap import EventTapListener, DEFAULT_TRIGGER_KEYCODE, PRESET_TRIGGERS
 from ..hardware.injection import TextInjector
-
-# ---------------------------------------------------------------------------
-# Paths & defaults
-# ---------------------------------------------------------------------------
-RECORDING_PATH = os.path.join(tempfile.gettempdir(), "whispy.wav")
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "model_size": "small",

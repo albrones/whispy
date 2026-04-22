@@ -8,6 +8,8 @@ import logging
 import os
 import subprocess
 import tempfile
+import threading
+import time
 import wave
 from pathlib import Path
 from typing import Optional
@@ -19,6 +21,11 @@ from .state_machine import State, StateMachine
 logger = logging.getLogger(__name__)
 
 RECORDING_PATH = os.path.join(tempfile.gettempdir(), "whispy.wav")
+
+# Minimum file size (bytes) indicating sox has started writing audio
+_MIN_RECORDING_SIZE = 5120  # 5 KB
+# Timeout for waiting for sox to become ready (seconds)
+_RECORDING_READY_TIMEOUT = 2.0
 
 
 class AudioEngine:
@@ -33,7 +40,12 @@ class AudioEngine:
         self._recording_process = None
 
     def start(self) -> bool:
-        """Start recording audio. Returns False if already recording."""
+        """Start recording audio. Returns False if already recording.
+
+        Waits for sox to be ready and writing audio before returning,
+        preventing the cold-start issue where the audio device needs
+        time to wake up after idle.
+        """
         if not self._sm.start_recording():
             return False
 
@@ -42,7 +54,47 @@ class AudioEngine:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+
+        self._wait_for_recording_ready()
         return True
+
+    def _wait_for_recording_ready(self) -> None:
+        """Wait for sox to start writing audio to the output file.
+
+        Polls the file size until it exceeds _MIN_RECORDING_SIZE or
+        the timeout expires. This handles the cold-start delay where
+        the audio device takes time to initialize after being idle.
+        """
+        ready = threading.Event()
+        stop_reason = [None]
+
+        def _poll():
+            start = time.monotonic()
+            while not ready.is_set():
+                if self._recording_process and self._recording_process.poll() is not None:
+                    stop_reason[0] = "process_exited"
+                    return
+                try:
+                    size = os.path.getsize(RECORDING_PATH)
+                    if size >= _MIN_RECORDING_SIZE:
+                        ready.set()
+                        return
+                except OSError:
+                    pass
+                if time.monotonic() - start > _RECORDING_READY_TIMEOUT:
+                    stop_reason[0] = "timeout"
+                    return
+                time.sleep(0.02)
+
+        threading.Thread(target=_poll, name="recording-waiter", daemon=True).start()
+        ready.wait()
+        if stop_reason[0] == "process_exited":
+            logger.warning("[audio] Recording process exited before writing data")
+        elif stop_reason[0] == "timeout":
+            logger.warning(
+                "[audio] Timeout waiting for recording to start — "
+                "audio device may not be ready. First recording may be empty."
+            )
 
     def stop(self) -> bool:
         """Stop recording and transition to TRANSCRIBING. Returns False if not recording."""
@@ -54,6 +106,19 @@ class AudioEngine:
                 self._recording_process.kill()
 
         self._recording_process = None
+
+        if os.path.exists(RECORDING_PATH):
+            try:
+                size = os.path.getsize(RECORDING_PATH)
+                if size < _MIN_RECORDING_SIZE:
+                    logger.warning(
+                        f"[audio] Recording file too small ({size} bytes) — "
+                        "sox may not have been ready when recording stopped. "
+                        "Try pressing Fn again once the daemon is awake."
+                    )
+            except OSError:
+                pass
+
         return self._sm.stop_recording()
 
     def transcribe(

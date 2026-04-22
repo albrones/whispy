@@ -11,12 +11,12 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, Optional
 
+from ..core.audio import RECORDING_PATH
 from ..core.engine import (
     Engine,
     DEFAULT_CONFIG,
     load_config,
     save_config,
-    RECORDING_PATH,
 )
 
 PORT = 9090
