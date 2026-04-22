@@ -117,6 +117,46 @@ tail -f ~/.whispy.log ~/.whispy-error.log  # Live logs
 ./.venv/bin/pip install --upgrade faster-whisper
 ```
 
+## 📊 Knowledge Graph (graphify)
+
+This project includes a [graphify](https://github.com/ton-org/graphify) knowledge graph for navigating and understanding the codebase. The graph is auto-generated from the source code and provides a semantic view of the project structure.
+
+### Setup
+
+```bash
+# Install graphify (requires Python 3.10+)
+pip install graphify
+
+# Initialize the graph
+graphify update .
+
+# (Optional) Watch mode for automatic rebuilds
+graphify watch .
+```
+
+### Usage
+
+| Command | Description |
+|---------|-------------|
+| `graphify query "<question>"` | Search the codebase via BFS traversal |
+| `graphify path "A" "B"` | Find shortest path between two nodes |
+| `graphify explain "X"` | Explain a node and its neighbors |
+| `graphify update .` | Rebuild the graph from source code |
+
+### Visualization
+
+```bash
+open graphify-out/graph.html
+```
+
+The HTML file provides an interactive visualization with zoom, drag, and hover capabilities.
+
+### Configuration
+
+A `.graphifyignore` file controls which paths are excluded from the graph (e.g., `node_modules/`, `.venv/`, `__pycache__/`).
+
+---
+
 ## Troubleshooting
 
 | Symptom | Probable Cause | Solution |
@@ -210,10 +250,6 @@ If you want to contribute or be notified of the release, open an issue or follow
 - **Windows**: An automatic installer (.exe) or a PowerShell script will be provided.
 
 ---
-
-## License
-
-This project is distributed under the **GPLv3** license. Please see the `LICENSE` file for more details.
 
 ## License
 

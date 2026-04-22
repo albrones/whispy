@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+*.generated.py
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.coverage
+htmlcov/
+.pytest_cache/

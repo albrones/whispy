@@ -143,3 +143,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.pyo
+
+# skills
+/skills
+
+# graphify knowledge graph (auto-generated)
+graphify-out/
+raw/

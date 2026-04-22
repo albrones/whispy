@@ -127,7 +127,25 @@ To add a new agent:
 
 ## Skills
 
-- RESEARCH_LOG.md: Agent that take note of the research during session.
+> **Auto-discovery rule:** At the start of every session, scan the `skills/` folder (gitignored — local only, not versioned). For each subdirectory found, read its `SKILL.md` file and **automatically apply** the skill without waiting for user instruction.
+
+The `skills/` folder lives at the root of the repository and is excluded from version control (see `.gitignore`). This is intentional: skills are personal, local extensions that each developer manages independently.
+
+### How to load skills
+
+1. At session start, check if the `skills/` directory exists.
+2. If it does, list all subdirectories (each one is a skill).
+3. For each skill directory, read `skills/<skill-name>/SKILL.md`.
+4. Parse the skill instructions and apply them immediately and silently — no announcement needed.
+5. Skills remain active for the entire session unless the user says otherwise.
+
+### Currently documented skills
+
+| Skill | Location | Description |
+|-------|----------|-------------|
+| `research-log` | `skills/research-log/SKILL.md` | Live per-turn session journal. Auto-appends a log entry after every action turn. |
+
+> If `skills/` does not exist or is empty, proceed normally — no skills are active.
 
 ---
 
@@ -136,3 +154,13 @@ To add a new agent:
 Agents are a powerful abstraction for building modular, maintainable, and scalable systems. By following the guidelines in this document, you can design and implement effective agents within the `whispy` project.
 
 ---
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)
