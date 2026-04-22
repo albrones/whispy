@@ -1,11 +1,12 @@
-"""Fn key listener via macOS CGEventTap.
+"""Trigger key listener via macOS CGEventTap.
 
-Monitors hardware-level events (specifically the Fn key) and notifies
-the core engine of state changes via callbacks.
+Monitors hardware-level keyboard events and notifies the core engine
+of state changes via callbacks. Supports both preset keys and learned
+(custom) trigger keys.
 """
 
 import threading
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 QUARTZ_AVAILABLE = False
 
@@ -15,14 +16,19 @@ try:
         CFRunLoopAddSource,
         CFRunLoopGetCurrent,
         CFRunLoopRun,
+        CFRunLoopStop,
         CGEventGetFlags,
         CGEventGetIntegerValueField,
+        CGEventGetType,
         CGEventMaskBit,
         CGEventTapCreate,
         CGEventTapEnable,
         kCFRunLoopDefaultMode,
         kCGEventFlagsChanged,
+        kCGEventKeyDown,
+        kCGEventKeyUp,
         kCGEventTapOptionDefault,
+        kCGEventTapOptionListenOnly,
         kCGHeadInsertEventTap,
         kCGKeyboardEventKeycode,
         kCGSessionEventTap,
@@ -32,40 +38,141 @@ try:
 except ImportError:
     pass
 
-FN_KEYCODE = 63
+# macOS keycodes for common keys (physical key position)
+# See: https://developer.apple.com/documentation/coregraphics/kcgkeycode
+_KEYCODE_TO_NAME: Dict[int, str] = {
+    0: "a",
+    1: "s",
+    2: "d",
+    3: "f",
+    4: "h",
+    5: "g",
+    6: "z",
+    7: "x",
+    8: "e",
+    9: "w",
+    10: "r",
+    11: "y",
+    12: "t",
+    16: "q",
+    17: "1",
+    18: "2",
+    19: "3",
+    20: "4",
+    21: "6",
+    22: "5",
+    24: "=",
+    26: "9",
+    27: "7",
+    28: "-",
+    29: "8",
+    30: "0",
+    33: "]",
+    34: "o",
+    35: "u",
+    36: "[",
+    37: "i",
+    38: "&",
+    39: "p",
+    40: "enter",
+    41: "l",
+    42: "j",
+    43: "'",
+    44: "k",
+    46: ";",
+    47: "\\",
+    48: ",",
+    49: "/",
+    50: "n",
+    51: "m",
+    52: ".",
+    53: "escape",
+    57: " ",
+    59: "f1",
+    60: "f2",
+    61: "f3",
+    62: "f4",
+    63: "f5",
+    64: "f6",
+    65: "f7",
+    66: "f8",
+    67: "f9",
+    68: "f10",
+    69: "f11",
+    70: "f12",
+    105: "f13",
+    106: "f14",
+    107: "f15",
+    108: "f16",
+    109: "f17",
+    110: "f18",
+    111: "f19",
+    112: "f20",
+    # Modifier keys (virtual/physical)
+    252: "shift",
+    253: "control",
+    254: "option",
+    255: "command",
+}
+
+# Preset trigger keys: name -> (keycode, label)
+PRESET_TRIGGERS: Dict[str, Tuple[int, str]] = {
+    "fn": (63, "Fn"),
+    "ampersand": (38, "&"),
+    "shift": (252, "Shift"),
+    "control": (253, "Control"),
+    "option": (254, "Option"),
+    "command": (255, "Command"),
+}
+
+# Default trigger key (Fn)
+DEFAULT_TRIGGER_KEYCODE = 63
 NX_SECONDARYFNMASK = 0x800000
 
 
 class EventTapListener:
-    """Monitors the Fn key via CGEventTap and emits events to the core engine."""
+    """Monitors keyboard events via CGEventTap and emits events for a configurable trigger key."""
 
     def __init__(
         self,
-        on_fn_press: Optional[Callable] = None,
-        on_fn_release: Optional[Callable] = None,
+        trigger_keycode: int = DEFAULT_TRIGGER_KEYCODE,
+        on_trigger_press: Optional[Callable] = None,
+        on_trigger_release: Optional[Callable] = None,
     ) -> None:
-        self._on_fn_press = on_fn_press
-        self._on_fn_release = on_fn_release
+        self._trigger_keycode = trigger_keycode
+        self._on_trigger_press = on_trigger_press
+        self._on_trigger_release = on_trigger_release
         self._tap = None
         self._run_loop_thread: Optional[threading.Thread] = None
         self._run_loop_source: Any = None
         self.active = False
+        # Learning mode state
+        self._learning = False
+        self._learned_keycode: Optional[int] = None
+        self._learn_ready_event = threading.Event()
 
     def start(self) -> None:
         """Start the event tap listener in a dedicated thread."""
         if not QUARTZ_AVAILABLE:
             print(
-                "[event-tap] pyobjc-framework-Quartz not installed — Fn key detection disabled.\n"
+                "[event-tap] pyobjc-framework-Quartz not installed — trigger key detection disabled.\n"
                 "  Install with: pip install pyobjc-framework-Quartz",
                 file=__import__("sys").stderr,
             )
             return
 
+        # Listen for BOTH flags changed AND key down/up events
+        event_mask = (
+            CGEventMaskBit(kCGEventFlagsChanged)
+            | CGEventMaskBit(kCGEventKeyDown)
+            | CGEventMaskBit(kCGEventKeyUp)
+        )
+
         tap = CGEventTapCreate(
             kCGSessionEventTap,
             kCGHeadInsertEventTap,
             kCGEventTapOptionDefault,
-            CGEventMaskBit(kCGEventFlagsChanged),
+            event_mask,
             self._event_callback,
             None,
         )
@@ -88,12 +195,13 @@ class EventTapListener:
             )
             CGEventTapEnable(tap, True)
             self.active = True
-            print("[event-tap] Fn key listener active (CGEventTap)")
+            key_name = _keycode_to_name(self._trigger_keycode)
+            print(f"[event-tap] Trigger key listener active (key: {key_name})")
             self._ready_event.set()
             CFRunLoopRun()
 
         self._run_loop_thread = threading.Thread(
-            target=_run, name="fn-event-tap", daemon=True
+            target=_run, name="trigger-event-tap", daemon=True
         )
         self._run_loop_thread.start()
         if self._ready_event.wait(timeout=5.0):
@@ -105,9 +213,27 @@ class EventTapListener:
                 file=__import__("sys").stderr,
             )
 
+    def start_learning(self) -> None:
+        """Enable learning mode — captures the next key press keycode."""
+        self._learning = True
+        self._learned_keycode = None
+        self._learn_ready_event.clear()
+
+    def stop_learning(self) -> Optional[int]:
+        """Disable learning mode and return the learned keycode (if any)."""
+        learned = self._learned_keycode
+        self._learning = False
+        self._learned_keycode = None
+        return learned
+
+    @property
+    def is_learning(self) -> bool:
+        return self._learning
+
     def stop(self) -> None:
         """Stop the event tap listener."""
         self.active = False
+        self._learning = False
         if self._run_loop_thread and self._run_loop_thread.is_alive():
             # CFRunLoopRun has no stop API; the thread will be daemonized.
             pass
@@ -116,21 +242,68 @@ class EventTapListener:
         self, _proxy: Any, event_type: int, event: Any, _refcon: Any
     ) -> Any:
         """Callback invoked for each relevant CGEvent."""
-        if event_type != kCGEventFlagsChanged:
-            return event
-
         keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
-        if keycode != FN_KEYCODE:
+
+        # Learning mode: capture the first keydown event
+        if self._learning:
+            if event_type == kCGEventKeyDown:
+                # Ignore the current trigger key during learning
+                if keycode == self._trigger_keycode:
+                    return event
+                self._learned_keycode = keycode
+                self._learning = False
+                self._learn_ready_event.set()
             return event
 
-        flags = CGEventGetFlags(event)
-        if flags & NX_SECONDARYFNMASK:
-            # Fn key pressed
-            if self._on_fn_press:
-                self._on_fn_press()
-        else:
-            # Fn key released
-            if self._on_fn_release:
-                self._on_fn_release()
+        # Normal mode: check against configured trigger keycode
+        if keycode != self._trigger_keycode:
+            return event
+
+        # Detect press vs release based on event type
+        if event_type == kCGEventKeyDown or event_type == kCGEventFlagsChanged:
+            # For Fn key (keycode 63), check secondary flag to distinguish press/release
+            if self._trigger_keycode == 63:
+                flags = CGEventGetFlags(event)
+                if flags & NX_SECONDARYFNMASK:
+                    if self._on_trigger_press:
+                        self._on_trigger_press()
+                else:
+                    if self._on_trigger_release:
+                        self._on_trigger_release()
+            else:
+                # Regular keydown = press
+                if self._on_trigger_press:
+                    self._on_trigger_press()
+        elif event_type == kCGEventKeyUp:
+            if self._on_trigger_release:
+                self._on_trigger_release()
 
         return event
+
+
+def _keycode_to_name(keycode: int) -> str:
+    """Convert a macOS keycode to a human-readable name."""
+    if keycode in _KEYCODE_TO_NAME:
+        return _KEYCODE_TO_NAME[keycode]
+    return f"key{keycode}"
+
+
+def keycode_to_label(keycode: int) -> str:
+    """Convert a macOS keycode to a display label for the UI."""
+    name = _keycode_to_name(keycode)
+    # Map common names to pretty labels
+    labels = {
+        "escape": "Esc",
+        "enter": "Enter",
+        "shift": "Shift",
+        "control": "Control",
+        "option": "Option",
+        "command": "Command",
+    }
+    if name in labels:
+        return labels[name]
+    # For F-keys, keep the name
+    if name.startswith("f"):
+        return name.upper()
+    # For numbers and symbols, return as-is
+    return name.upper() if len(name) == 1 else name

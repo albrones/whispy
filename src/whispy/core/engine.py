@@ -17,7 +17,7 @@ from faster_whisper import WhisperModel
 
 from .audio import AudioEngine
 from .state_machine import State, StateMachine
-from ..hardware.event_tap import EventTapListener
+from ..hardware.event_tap import EventTapListener, DEFAULT_TRIGGER_KEYCODE, PRESET_TRIGGERS
 from ..hardware.injection import TextInjector
 
 # ---------------------------------------------------------------------------
@@ -33,6 +33,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "best_of": 2,
     "copy_to_clipboard": True,
     "auto_detect_min_duration": 0.5,
+    "trigger_key": "fn",
 }
 
 MODEL_PRESETS: Dict[str, Dict[str, str]] = {
@@ -296,11 +297,23 @@ class Engine:
 
     # -- Fn key listener --
 
-    def start_fn_listener(self) -> None:
-        """Start the Fn key event tap listener."""
+    def _trigger_keycode_from_config(self) -> int:
+        """Convert the configured trigger_key to a keycode."""
+        trigger_key = self.state.config.get("trigger_key", "fn")
+        if trigger_key in PRESET_TRIGGERS:
+            return PRESET_TRIGGERS[trigger_key][0]
+        # Handle custom/learned keycodes stored as strings
+        try:
+            return int(trigger_key)
+        except (ValueError, TypeError):
+            return DEFAULT_TRIGGER_KEYCODE
 
-        def _on_fn_press() -> None:
-            """Handle Fn key press — start recording."""
+    def start_fn_listener(self) -> None:
+        """Start the trigger key event tap listener."""
+        trigger_keycode = self._trigger_keycode_from_config()
+
+        def _on_trigger_press() -> None:
+            """Handle trigger key press — start recording."""
             subprocess.Popen(
                 ["afplay", "/System/Library/Sounds/Tink.aiff"],
                 stdout=subprocess.DEVNULL,
@@ -308,23 +321,53 @@ class Engine:
             )
             self.start_recording()
 
-        def _on_fn_release() -> None:
-            """Handle Fn key release — stop recording asynchronously."""
+        def _on_trigger_release() -> None:
+            """Handle trigger key release — stop recording asynchronously."""
             self.stop_recording()
             self.state._stop_event.set()
 
         self._fn_listener = EventTapListener(
-            on_fn_press=_on_fn_press,
-            on_fn_release=_on_fn_release,
+            trigger_keycode=trigger_keycode,
+            on_trigger_press=_on_trigger_press,
+            on_trigger_release=_on_trigger_release,
         )
         self._fn_listener.start()
         self.state.fn_listener_active = self._fn_listener.active
 
     def stop_fn_listener(self) -> None:
-        """Stop the Fn key event tap listener."""
+        """Stop the trigger key event tap listener."""
         if self._fn_listener:
+            # Stop learning mode if active
+            self._fn_listener.stop_learning()
             self._fn_listener.stop()
             self.state.fn_listener_active = False
+
+    def update_trigger_key(self, trigger_key: str) -> None:
+        """Update the trigger key in config and restart the listener."""
+        self.state.config["trigger_key"] = trigger_key
+        save_config(self.state.config, self._config_path)
+        # Restart the listener with the new trigger key
+        self.stop_fn_listener()
+        self.start_fn_listener()
+
+    def start_learning(self) -> bool:
+        """Start learning mode for the trigger key.
+
+        Returns True if learning was started, False if event tap is not active.
+        """
+        if not self._fn_listener:
+            return False
+        self._fn_listener.start_learning()
+        return True
+
+    def stop_learning(self) -> Optional[int]:
+        """Stop learning mode and return the learned keycode.
+
+        Returns None if no keycode was learned or learning was not active.
+        """
+        if not self._fn_listener:
+            return None
+        return self._fn_listener.stop_learning()
 
     # -- Transcription worker --
 
