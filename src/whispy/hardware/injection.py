@@ -5,6 +5,7 @@ using clipboard paste or direct keystroke simulation.
 """
 
 import subprocess
+import threading
 from typing import Optional
 
 
@@ -31,25 +32,43 @@ class TextInjector:
     def _inject_via_clipboard(self, text: str) -> None:
         """Copy text to clipboard and paste via Cmd+V."""
         escaped = text.replace('"', '\\"')
-        subprocess.run(
-            [
-                "osascript",
-                "-e",
-                f'set the clipboard to "{escaped}"',
-                "-e",
-                'tell application "System Events" to keystroke "v" using command down',
-            ],
-            timeout=5,
-        )
+
+        def _run() -> None:
+            proc = subprocess.Popen(
+                [
+                    "osascript",
+                    "-e",
+                    f'set the clipboard to "{escaped}"',
+                    "-e",
+                    'tell application "System Events" to keystroke "v" using command down',
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _inject_via_keystrokes(self, text: str) -> None:
         """Simulate keystrokes for each character to avoid clipboard interaction."""
         escaped = text.replace('"', '\\"')
-        subprocess.run(
-            [
-                "osascript",
-                "-e",
-                f'tell application "System Events" to keystroke "{escaped}"',
-            ],
-            timeout=10,
-        )
+
+        def _run() -> None:
+            proc = subprocess.Popen(
+                [
+                    "osascript",
+                    "-e",
+                    f'tell application "System Events" to keystroke "{escaped}"',
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+        threading.Thread(target=_run, daemon=True).start()

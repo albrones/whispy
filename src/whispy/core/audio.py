@@ -7,6 +7,7 @@ integrating with the state machine for lifecycle management.
 import logging
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -134,7 +135,7 @@ class AudioEngine:
         if model is None:
             print(
                 "[audio] Model not loaded, skipping transcription",
-                file=__import__("sys").stderr,
+                file=sys.stderr,
             )
             return None
 
@@ -160,7 +161,7 @@ class AudioEngine:
             text = " ".join(text_parts)
             return text if text else None
         except Exception as exc:
-            print(f"[audio] Transcription error: {exc}", file=__import__("sys").stderr)
+            print(f"[audio] Transcription error: {exc}", file=sys.stderr)
             return None
 
     def _get_audio_duration(self, audio_path: str) -> Optional[float]:

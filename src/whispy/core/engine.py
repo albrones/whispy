@@ -91,14 +91,20 @@ def load_config(config_path: Path) -> Dict[str, Any]:
 
 
 def save_config(config: Dict[str, Any], config_path: Path) -> None:
-    """Persist config to disk."""
+    """Persist config to disk atomically."""
     config_dir = config_path.parent
     try:
         config_dir.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w") as f:
+        tmp_path = config_path.with_suffix(".json.tmp")
+        with open(tmp_path, "w") as f:
             json.dump(config, f, indent=2)
+        os.replace(tmp_path, config_path)
     except OSError as exc:
         print(f"[config] Failed to save {config_path}: {exc}", file=sys.stderr)
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +239,7 @@ class Engine:
 
     def _notify_status_change(self) -> None:
         """Notify all registered callbacks of state changes."""
-        for cb in self._status_callbacks:
+        for cb in list(self._status_callbacks):
             try:
                 cb()
             except Exception:
@@ -282,11 +288,10 @@ class Engine:
             ),
         )
 
-        self._audio_engine.cleanup_audio_file(RECORDING_PATH)
-
         if text:
             self.state.last_transcription = text
             self._text_injector.inject(text)
+            self._audio_engine.cleanup_audio_file(RECORDING_PATH)
 
         return text
 

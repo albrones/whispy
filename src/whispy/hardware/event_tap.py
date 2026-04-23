@@ -5,6 +5,7 @@ of state changes via callbacks. Supports both preset keys and learned
 (custom) trigger keys.
 """
 
+import sys
 import threading
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -87,7 +88,7 @@ _KEYCODE_TO_NAME: Dict[int, str] = {
     51: "m",
     52: ".",
     53: "escape",
-    57: " ",
+    57: "space",
     59: "f1",
     60: "f2",
     61: "f3",
@@ -108,6 +109,49 @@ _KEYCODE_TO_NAME: Dict[int, str] = {
     110: "f18",
     111: "f19",
     112: "f20",
+    # Navigation keys
+    123: "left",
+    124: "right",
+    125: "down",
+    126: "up",
+    116: "page_up",
+    121: "page_down",
+    115: "home",
+    114: "end",
+    118: "insert",
+    # Function keys (extended - Apple keyboards)
+    105: "f13",
+    106: "f14",
+    107: "f15",
+    108: "f16",
+    109: "f17",
+    110: "f18",
+    111: "f19",
+    112: "f20",
+    # Other keys
+    45: "tab",
+    55: "delete",
+    51: "backspace",
+    56: "caps_lock",
+    117: "help",
+    54: "decimal",
+    # International keys
+    85: "international4",
+    83: "international5",
+    82: "international6",
+    84: "international7",
+    87: "international8",
+    88: "international9",
+    # Language-specific keys
+    90: "lang1",
+    91: "lang2",
+    92: "lang3",
+    93: "lang4",
+    94: "lang5",
+    95: "lang6",
+    96: "lang7",
+    97: "lang8",
+    98: "lang9",
     # Modifier keys (virtual/physical)
     252: "shift",
     253: "control",
@@ -157,7 +201,7 @@ class EventTapListener:
             print(
                 "[event-tap] pyobjc-framework-Quartz not installed — trigger key detection disabled.\n"
                 "  Install with: pip install pyobjc-framework-Quartz",
-                file=__import__("sys").stderr,
+                file=sys.stderr,
             )
             return
 
@@ -181,13 +225,14 @@ class EventTapListener:
                 "[event-tap] CGEventTapCreate failed — grant Input Monitoring to python3:\n"
                 "  System Settings → Privacy & Security → Input Monitoring → add python3\n"
                 "  Then restart: launchctl kickstart -k gui/$(id -u)/com.whispy",
-                file=__import__("sys").stderr,
+                file=sys.stderr,
             )
             return
 
         self._tap = tap
         self._run_loop_source = CFMachPortCreateRunLoopSource(None, tap, 0)
         self._ready_event = threading.Event()
+        self._stop_event = threading.Event()
 
         def _run():
             CFRunLoopAddSource(
@@ -198,7 +243,8 @@ class EventTapListener:
             key_name = _keycode_to_name(self._trigger_keycode)
             print(f"[event-tap] Trigger key listener active (key: {key_name})")
             self._ready_event.set()
-            CFRunLoopRun()
+            while not self._stop_event.is_set():
+                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.5)
 
         self._run_loop_thread = threading.Thread(
             target=_run, name="trigger-event-tap", daemon=True
@@ -210,7 +256,7 @@ class EventTapListener:
             print(
                 "[event-tap] Timed out waiting for CFRunLoop to start — "
                 "Input Monitoring may not be granted to python3",
-                file=__import__("sys").stderr,
+                file=sys.stderr,
             )
 
     def start_learning(self) -> None:
@@ -234,9 +280,9 @@ class EventTapListener:
         """Stop the event tap listener."""
         self.active = False
         self._learning = False
+        self._stop_event.set()
         if self._run_loop_thread and self._run_loop_thread.is_alive():
-            # CFRunLoopRun has no stop API; the thread will be daemonized.
-            pass
+            self._run_loop_thread.join(timeout=2)
 
     def _event_callback(
         self, _proxy: Any, event_type: int, event: Any, _refcon: Any

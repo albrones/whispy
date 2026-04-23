@@ -5,6 +5,7 @@ and prevents illegal transitions (e.g., starting recording while transcribing).
 """
 
 import threading
+from collections import deque
 from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional
 
@@ -40,7 +41,7 @@ class StateMachine:
     def __init__(self):
         self._current_state = State.IDLE
         self._lock = threading.Lock()
-        self._transitions: List[str] = []
+        self._transitions: deque[str] = deque(maxlen=1000)
         self._callbacks: Dict[State, List[Callable]] = {}
 
     def on_state_change(self, state: State, callback: Callable) -> None:

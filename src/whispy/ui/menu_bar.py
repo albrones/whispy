@@ -333,7 +333,8 @@ class WhisperMenuBarApp(rumps.App):
             print(f"[menu] Cannot learn trigger key: {e}", file=sys.stderr)
 
     def _on_reload(self, _sender: Any) -> None:
-        subprocess.Popen([sys.executable] + sys.argv)
+        script = str(ICONS_DIR.parent / "whispy.py")
+        subprocess.Popen([sys.executable, script])
         rumps.quit_application()
 
     def _on_quit(self, _sender: Any) -> None:

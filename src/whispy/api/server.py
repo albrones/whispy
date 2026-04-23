@@ -25,48 +25,47 @@ PORT = 9090
 class RequestHandler(BaseHTTPRequestHandler):
     """HTTP request handler for Whispy control API."""
 
-    # Engine instance — set by start_http_server before serving
-    engine: Optional[Engine] = None
-
     def do_GET(self) -> None:
         """Handle GET requests."""
+        engine = self.server.engine
         if self.path == "/status":
-            self._json_response(200, self.engine.get_status())
+            self._json_response(200, engine.get_status())
         elif self.path == "/config":
-            self._json_response(200, self.engine.state.config)
+            self._json_response(200, engine.state.config)
         elif self.path == "/last-transcription":
-            self._json_response(200, {"text": self.engine.state.last_transcription})
+            self._json_response(200, {"text": engine.state.last_transcription})
         else:
             self._json_response(404, {"error": "not found"})
 
     def do_POST(self) -> None:
         """Handle POST requests."""
+        engine = self.server.engine
         if self.path == "/start":
-            self.engine.start_recording()
+            engine.start_recording()
             self._play_sound("Tink.aiff")
             self._json_response(200, {"status": "recording"})
 
         elif self.path == "/stop":
-            text = self._sync_stop_and_transcribe()
+            text = self._sync_stop_and_transcribe(engine)
             self._play_sound("Pop.aiff")
             self._json_response(200, {"status": "done", "text": text})
 
         elif self.path == "/stop-async":
-            self.engine.stop_recording()
-            self.engine.state._stop_event.set()
+            engine.stop_recording()
+            engine.state._stop_event.set()
             self._json_response(200, {"status": "stopping"})
 
         elif self.path == "/config":
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(length)) if length else {}
-                needs_reload = self.engine.update_config(body)
+                needs_reload = engine.update_config(body)
                 if needs_reload:
                     from ..core.engine import load_model_async
 
-                    load_model_async(self.engine)
+                    load_model_async(engine)
                 self._json_response(
-                    200, {"status": "ok", "config": self.engine.state.config}
+                    200, {"status": "ok", "config": engine.state.config}
                 )
             except (json.JSONDecodeError, ValueError) as exc:
                 self._json_response(400, {"error": str(exc)})
@@ -74,19 +73,19 @@ class RequestHandler(BaseHTTPRequestHandler):
         else:
             self._json_response(404, {"error": "not found"})
 
-    def _sync_stop_and_transcribe(self) -> Optional[str]:
+    def _sync_stop_and_transcribe(self, engine: Engine) -> Optional[str]:
         """Stop recording and transcribe synchronously (for /stop endpoint)."""
         import subprocess
         import os
 
-        with self.engine.state.lock:
-            if not self.engine.state.is_recording:
+        with engine.state.lock:
+            if not engine.state.is_recording:
                 return None
-            self.engine.state.is_recording = False
-            proc = self.engine.state.recording_process
-            self.engine.state.recording_process = None
+            engine.state.is_recording = False
+            proc = engine.state.recording_process
+            engine.state.recording_process = None
 
-        self.engine._notify_status_change()
+        engine._notify_status_change()
 
         if proc and proc.poll() is None:
             proc.terminate()
@@ -98,13 +97,13 @@ class RequestHandler(BaseHTTPRequestHandler):
         if not os.path.exists(RECORDING_PATH):
             return None
 
-        self.engine.state.is_transcribing = True
-        self.engine._notify_status_change()
+        engine.state.is_transcribing = True
+        engine._notify_status_change()
 
-        text = self.engine.run_transcription()
+        text = engine.run_transcription()
 
-        self.engine.state.is_transcribing = False
-        self.engine._notify_status_change()
+        engine.state.is_transcribing = False
+        engine._notify_status_change()
         return text
 
     def _play_sound(self, sound_name: str) -> None:
@@ -134,8 +133,8 @@ class RequestHandler(BaseHTTPRequestHandler):
 
 def start_http_server(engine: Engine) -> HTTPServer:
     """Start HTTP server in a daemon thread."""
-    RequestHandler.engine = engine
     server = HTTPServer(("127.0.0.1", PORT), RequestHandler)
+    server.engine = engine
 
     def _serve() -> None:
         print(f"[http] Listening on 127.0.0.1:{PORT}")
