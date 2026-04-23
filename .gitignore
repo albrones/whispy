@@ -146,7 +146,3 @@ __pycache__/
 
 # skills
 /skills
-
-# graphify knowledge graph (auto-generated)
-graphify-out/
-raw/
