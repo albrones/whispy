@@ -131,14 +131,20 @@ class RequestHandler(BaseHTTPRequestHandler):
         print(f"[http] {fmt % args}")
 
 
-def start_http_server(engine: Engine) -> HTTPServer:
-    """Start HTTP server in a daemon thread."""
-    server = HTTPServer(("127.0.0.1", PORT), RequestHandler)
-    server.engine = engine
+def start_http_server(engine: Engine, start_port: int = PORT, max_attempts: int = 10) -> HTTPServer:
+    """Start HTTP server in a daemon thread, trying consecutive ports if needed."""
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            server = HTTPServer(("127.0.0.1", port), RequestHandler)
+            server.engine = engine
 
-    def _serve() -> None:
-        print(f"[http] Listening on 127.0.0.1:{PORT}")
-        server.serve_forever()
+            def _serve(p=port):
+                print(f"[http] Listening on 127.0.0.1:{p}")
+                server.serve_forever()
 
-    threading.Thread(target=_serve, name="http-server", daemon=True).start()
-    return server
+            threading.Thread(target=_serve, name="http-server", daemon=True).start()
+            return server
+        except OSError:
+            pass
+
+    raise OSError(f"Could not bind to any port from {start_port} to {start_port + max_attempts - 1}")
