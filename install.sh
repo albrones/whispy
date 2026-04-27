@@ -64,7 +64,7 @@ PYTHON_BIN="$VENV_DIR/bin/python3"
 
 mkdir -p "$LAUNCH_AGENT_DIR"
 
-DAEMON_PATH="$SCRIPT_DIR/whispy.py"
+DAEMON_PATH="$SCRIPT_DIR/whispy_daemon.py"
 
 cat > "$PLIST_PATH" << PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>

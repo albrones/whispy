@@ -8,6 +8,9 @@ _src = Path(__file__).parent.parent.parent / "src"
 _project_root = str(Path(__file__).parent.parent.parent)
 if _project_root in sys.path:
     sys.path.remove(_project_root)
+# Also remove '' (current directory) if it points to the project root
+if "" in sys.path and str(Path(".").resolve()) == Path(_project_root).resolve():
+    sys.path.remove("")
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 

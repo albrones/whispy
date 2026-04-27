@@ -8,11 +8,20 @@ Tests that the auto-detect language feature works correctly:
 """
 
 import json
+import sys
 import wave
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+# Ensure src/ is on the path, and remove project root to avoid whispy.py shadowing
+_project_root = str(Path(__file__).parent.parent)
+if _project_root in sys.path:
+    sys.path.remove(_project_root)
+_src = Path(__file__).parent.parent / "src"
+if str(_src) not in sys.path:
+    sys.path.insert(0, str(_src))
 
 from whispy.core.audio import AudioEngine
 from whispy.core.engine import (

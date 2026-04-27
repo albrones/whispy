@@ -144,5 +144,10 @@ __pycache__/
 *$py.class
 *.pyo
 
-# skills
-/skills
+# customs skills
+.agents/skills
+
+# research logs
+research/
+
+.coverage

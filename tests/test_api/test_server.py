@@ -31,12 +31,17 @@ def test_server(mocker):
     ds = DictationState()
     engine = Engine(ds)
 
-    # Mock subprocess for sound playback
-    mocker.patch("subprocess.Popen")
+    # Mock subprocess for sound playback and recording
+    mock_popen = mocker.patch("subprocess.Popen")
+    mock_instance = MagicMock()
+    mock_instance.poll.return_value = None
+    mock_popen.return_value = mock_instance
 
     port = _find_free_port()
     server = HTTPServer(("127.0.0.1", port), RequestHandler)
-    RequestHandler.engine = engine
+
+    # Set engine on the server instance (matches start_http_server pattern)
+    server.engine = engine
 
     def serve():
         server.serve_forever()

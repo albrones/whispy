@@ -94,6 +94,7 @@ def mock_subprocess(mocker):
     popen_mock = mocker.patch("subprocess.Popen")
     popen_instance = MagicMock()
     popen_mock.return_value = popen_instance
+    popen_instance.poll.return_value = None
     return run_mock, popen_mock, popen_instance
 
 
@@ -131,6 +132,17 @@ class TestFullWorkflow:
         assert status["is_transcribing"] is False
         assert status["model_loaded"] is False
 
+        # Set up audio file before start_recording so _wait_for_recording_ready doesn't hang
+        audio_file = tmp_path / "whispy.wav"
+        audio_file.write_bytes(b"\x00" * 6000)  # Must exceed _MIN_RECORDING_SIZE (5120)
+
+        # Patch module-level RECORDING_PATH in both engine and audio modules
+        import whispy.core.engine as engine_module
+        import whispy.core.audio as audio_module
+
+        engine_module.RECORDING_PATH = str(audio_file)
+        audio_module.RECORDING_PATH = str(audio_file)
+
         # 2. Simulate recording start (mocked subprocess)
         result = engine.start_recording()
         assert result is True
@@ -140,7 +152,7 @@ class TestFullWorkflow:
         engine.stop_recording()
         assert state.is_recording is False
 
-        # 4. Set up model and audio file for transcription
+        # 4. Set up mock model for transcription
         mock_model = MagicMock()
         mock_model.transcribe.return_value = (
             iter([
@@ -151,22 +163,14 @@ class TestFullWorkflow:
         )
         state.model = mock_model
 
-        audio_file = tmp_path / "whispy.wav"
-        audio_file.write_bytes(b"\x00" * 160)  # Minimal WAV header
-
-        # Patch module-level RECORDING_PATH in engine module
-        import whispy.core.engine as engine_module
-
-        engine_module.RECORDING_PATH = str(audio_file)
-
         # 5. Run transcription
         text = engine.run_transcription()
         assert text is not None
         assert "hello world" in text
 
-        # 6. Text was injected (subprocess.run was called)
-        mock_run, _, _ = mock_subprocess
-        assert mock_run.call_count > 0
+        # 6. Text was injected (subprocess.Popen was called by TextInjector)
+        _, mock_popen, _ = mock_subprocess
+        assert mock_popen.call_count > 0
 
         # 7. Audio file was cleaned up
         assert not audio_file.exists()
@@ -190,17 +194,19 @@ class TestFullWorkflow:
         audio_file = tmp_path / "whispy.wav"
         audio_file.write_bytes(b"\x00" * 160)  # Minimal WAV header
 
-        # Patch module-level RECORDING_PATH in engine module
+        # Patch module-level RECORDING_PATH in both engine and audio modules
         import whispy.core.engine as engine_module
+        import whispy.core.audio as audio_module
 
         engine_module.RECORDING_PATH = str(audio_file)
+        audio_module.RECORDING_PATH = str(audio_file)
 
         text = engine.run_transcription()
         assert text is not None
 
         # Verify keystroke injection was used
-        mock_run, _, _ = mock_subprocess
-        assert mock_run.call_count > 0
+        _, mock_popen, _ = mock_subprocess
+        assert mock_popen.call_count > 0
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +313,8 @@ class TestHTTPAPIWithEngine:
     @pytest.fixture
     def test_server(self, state, tmp_path, mocker):
         """Start a test HTTP server with a real Engine."""
-        mocker.patch("subprocess.Popen")
+        popen_mock = mocker.patch("subprocess.Popen")
+        popen_mock.return_value.poll.return_value = None
 
         engine = Engine(state, tmp_path / "config.json")
         port = _find_free_port()
@@ -316,11 +323,11 @@ class TestHTTPAPIWithEngine:
         import whispy.api.server as server_module
 
         server_module.PORT = port
-        RequestHandler.engine = engine
 
         from http.server import HTTPServer
 
         server = HTTPServer(("127.0.0.1", port), RequestHandler)
+        server.engine = engine
 
         def serve():
             server.serve_forever()
@@ -380,11 +387,17 @@ class TestHTTPAPIWithEngine:
         assert status == 200
         assert body["text"] == "test transcription"
 
-    def test_post_start_triggers_recording(self, test_server, state):
+    def test_post_start_triggers_recording(self, test_server, state, tmp_path):
         """Test POST /start triggers recording."""
         _, port, engine = test_server
-        # Mock subprocess for sound
-        with patch("subprocess.Popen"):
+        # Create the recording file so _wait_for_recording_ready doesn't hang
+        audio_file = tmp_path / "whispy.wav"
+        audio_file.write_bytes(b"\x00" * 6000)  # Must exceed _MIN_RECORDING_SIZE (5120)
+        import whispy.core.audio as audio_module
+        audio_module.RECORDING_PATH = str(audio_file)
+        # Mock subprocess for sound and recording
+        with patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value.poll.return_value = None
             status, body = _http_post(port, "/start")
         assert status == 200
         assert body["status"] == "recording"
@@ -407,9 +420,11 @@ class TestHTTPAPIWithEngine:
 
         # Patch RECORDING_PATH
         import whispy.core.engine as engine_module
+        import whispy.core.audio as audio_module
 
         original_path = engine_module.RECORDING_PATH
         engine_module.RECORDING_PATH = str(audio_file)
+        audio_module.RECORDING_PATH = str(audio_file)
 
         status, body = _http_post(port, "/stop")
         assert status == 200
@@ -649,13 +664,13 @@ class TestTextInjector:
 
     def test_inject_via_clipboard(self, mocker):
         """Test text injection via clipboard (default mode)."""
-        mock_run = mocker.patch("subprocess.run")
+        mock_popen = mocker.patch("whispy.hardware.injection.subprocess.Popen")
         injector = TextInjector(copy_to_clipboard=True)
 
         injector.inject("hello world")
 
-        assert mock_run.call_count == 1
-        call_args = mock_run.call_args
+        assert mock_popen.call_count == 1
+        call_args = mock_popen.call_args
         cmd = call_args[0][0]
         assert "osascript" in cmd
         assert "clipboard" in cmd[2]
@@ -663,13 +678,13 @@ class TestTextInjector:
 
     def test_inject_via_keystrokes(self, mocker):
         """Test text injection via direct keystrokes."""
-        mock_run = mocker.patch("subprocess.run")
+        mock_popen = mocker.patch("whispy.hardware.injection.subprocess.Popen")
         injector = TextInjector(copy_to_clipboard=False)
 
         injector.inject("hello world")
 
-        assert mock_run.call_count == 1
-        call_args = mock_run.call_args
+        assert mock_popen.call_count == 1
+        call_args = mock_popen.call_args
         cmd = call_args[0][0]
         assert "osascript" in cmd
         assert "keystroke" in cmd[2]
@@ -682,12 +697,12 @@ class TestTextInjector:
 
     def test_inject_with_quotes_escapes_them(self, mocker):
         """Test that quotes in text are properly escaped."""
-        mock_run = mocker.patch("subprocess.run")
+        mock_popen = mocker.patch("whispy.hardware.injection.subprocess.Popen")
         injector = TextInjector(copy_to_clipboard=True)
 
         injector.inject('say "hello"')
 
-        call_args = mock_run.call_args
+        call_args = mock_popen.call_args
         cmd = call_args[0][0]
         # The escaped quote should be in the clipboard text (cmd[2])
         assert '\\"' in cmd[2]

@@ -584,504 +584,504 @@
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L1",
-      "id": "test_event_tap_e2e_rationale_1",
       "community": 0,
-      "norm_label": "e2e tests for eventtaplistener and the full fn key \u2192 recording \u2192 transcription w"
+      "norm_label": "e2e tests for eventtaplistener and the full fn key \u2192 recording \u2192 transcription w",
+      "id": "test_event_tap_e2e_rationale_1"
     },
     {
       "label": "Create a temporary config directory and return the config file path.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L59",
-      "id": "test_event_tap_e2e_rationale_59",
       "community": 0,
-      "norm_label": "create a temporary config directory and return the config file path."
+      "norm_label": "create a temporary config directory and return the config file path.",
+      "id": "test_event_tap_e2e_rationale_59"
     },
     {
       "label": "Create a fresh DictationState instance.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L70",
-      "id": "test_event_tap_e2e_rationale_70",
       "community": 0,
-      "norm_label": "create a fresh dictationstate instance."
+      "norm_label": "create a fresh dictationstate instance.",
+      "id": "test_event_tap_e2e_rationale_70"
     },
     {
       "label": "Create a fresh StateMachine.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L76",
-      "id": "test_event_tap_e2e_rationale_76",
       "community": 0,
-      "norm_label": "create a fresh statemachine."
+      "norm_label": "create a fresh statemachine.",
+      "id": "test_event_tap_e2e_rationale_76"
     },
     {
       "label": "Create an AudioEngine with a fresh StateMachine.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L82",
-      "id": "test_event_tap_e2e_rationale_82",
       "community": 0,
-      "norm_label": "create an audioengine with a fresh statemachine."
+      "norm_label": "create an audioengine with a fresh statemachine.",
+      "id": "test_event_tap_e2e_rationale_82"
     },
     {
       "label": "Create a fresh Engine with a temp config path.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L88",
-      "id": "test_event_tap_e2e_rationale_88",
       "community": 0,
-      "norm_label": "create a fresh engine with a temp config path."
+      "norm_label": "create a fresh engine with a temp config path.",
+      "id": "test_event_tap_e2e_rationale_88"
     },
     {
       "label": "Create a dict to capture press/release callback invocations.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L95",
-      "id": "test_event_tap_e2e_rationale_95",
       "community": 0,
-      "norm_label": "create a dict to capture press/release callback invocations."
+      "norm_label": "create a dict to capture press/release callback invocations.",
+      "id": "test_event_tap_e2e_rationale_95"
     },
     {
       "label": "Mock subprocess.run and subprocess.Popen.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L115",
-      "id": "test_event_tap_e2e_rationale_115",
       "community": 0,
-      "norm_label": "mock subprocess.run and subprocess.popen."
+      "norm_label": "mock subprocess.run and subprocess.popen.",
+      "id": "test_event_tap_e2e_rationale_115"
     },
     {
       "label": "Create a mock WhisperModel with transcribe output.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L125",
-      "id": "test_event_tap_e2e_rationale_125",
       "community": 0,
-      "norm_label": "create a mock whispermodel with transcribe output."
+      "norm_label": "create a mock whispermodel with transcribe output.",
+      "id": "test_event_tap_e2e_rationale_125"
     },
     {
       "label": "Test EventTapListener start/stop lifecycle.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L137",
-      "id": "test_event_tap_e2e_rationale_137",
       "community": 0,
-      "norm_label": "test eventtaplistener start/stop lifecycle."
+      "norm_label": "test eventtaplistener start/stop lifecycle.",
+      "id": "test_event_tap_e2e_rationale_137"
     },
     {
       "label": "When Quartz is not available, start() should print a message and not crash.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L140",
-      "id": "test_event_tap_e2e_rationale_140",
       "community": 0,
-      "norm_label": "when quartz is not available, start() should print a message and not crash."
+      "norm_label": "when quartz is not available, start() should print a message and not crash.",
+      "id": "test_event_tap_e2e_rationale_140"
     },
     {
       "label": "When Quartz is mocked, start() should create and start a thread.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L151",
-      "id": "test_event_tap_e2e_rationale_151",
       "community": 0,
-      "norm_label": "when quartz is mocked, start() should create and start a thread."
+      "norm_label": "when quartz is mocked, start() should create and start a thread.",
+      "id": "test_event_tap_e2e_rationale_151"
     },
     {
       "label": "Stop should set _stop_event and join the thread.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L173",
-      "id": "test_event_tap_e2e_rationale_173",
       "community": 0,
-      "norm_label": "stop should set _stop_event and join the thread."
+      "norm_label": "stop should set _stop_event and join the thread.",
+      "id": "test_event_tap_e2e_rationale_173"
     },
     {
       "label": "Active flag should be True after start, False after stop.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L193",
-      "id": "test_event_tap_e2e_rationale_193",
       "community": 0,
-      "norm_label": "active flag should be true after start, false after stop."
+      "norm_label": "active flag should be true after start, false after stop.",
+      "id": "test_event_tap_e2e_rationale_193"
     },
     {
       "label": "Test EventTap event callback routing.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L218",
-      "id": "test_event_tap_e2e_rationale_218",
       "community": 0,
-      "norm_label": "test eventtap event callback routing."
+      "norm_label": "test eventtap event callback routing.",
+      "id": "test_event_tap_e2e_rationale_218"
     },
     {
       "label": "Simulate a keydown event with keycode 63 (Fn) and secondary flag \u2192 on_trigger_pr",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L221",
-      "id": "test_event_tap_e2e_rationale_221",
       "community": 0,
-      "norm_label": "simulate a keydown event with keycode 63 (fn) and secondary flag \u2192 on_trigger_pr"
+      "norm_label": "simulate a keydown event with keycode 63 (fn) and secondary flag \u2192 on_trigger_pr",
+      "id": "test_event_tap_e2e_rationale_221"
     },
     {
       "label": "Simulate a keyup event for keycode 63 \u2192 on_trigger_release.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L243",
-      "id": "test_event_tap_e2e_rationale_243",
       "community": 0,
-      "norm_label": "simulate a keyup event for keycode 63 \u2192 on_trigger_release."
+      "norm_label": "simulate a keyup event for keycode 63 \u2192 on_trigger_release.",
+      "id": "test_event_tap_e2e_rationale_243"
     },
     {
       "label": "Keycode different from trigger should not trigger callbacks.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L265",
-      "id": "test_event_tap_e2e_rationale_265",
       "community": 0,
-      "norm_label": "keycode different from trigger should not trigger callbacks."
+      "norm_label": "keycode different from trigger should not trigger callbacks.",
+      "id": "test_event_tap_e2e_rationale_265"
     },
     {
       "label": "Test with a custom keycode (e.g., keycode 0 for 'a').",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L284",
-      "id": "test_event_tap_e2e_rationale_284",
       "community": 0,
-      "norm_label": "test with a custom keycode (e.g., keycode 0 for 'a')."
+      "norm_label": "test with a custom keycode (e.g., keycode 0 for 'a').",
+      "id": "test_event_tap_e2e_rationale_284"
     },
     {
       "label": "For non-Fn keys, flagschanged event should also trigger press.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L311",
-      "id": "test_event_tap_e2e_rationale_311",
       "community": 0,
-      "norm_label": "for non-fn keys, flagschanged event should also trigger press."
+      "norm_label": "for non-fn keys, flagschanged event should also trigger press.",
+      "id": "test_event_tap_e2e_rationale_311"
     },
     {
       "label": "Fn key with NX_SECONDARYFNMASK flag should trigger press.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L329",
-      "id": "test_event_tap_e2e_rationale_329",
       "community": 0,
-      "norm_label": "fn key with nx_secondaryfnmask flag should trigger press."
+      "norm_label": "fn key with nx_secondaryfnmask flag should trigger press.",
+      "id": "test_event_tap_e2e_rationale_329"
     },
     {
       "label": "Fn key without NX_SECONDARYFNMASK flag should trigger release.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L351",
-      "id": "test_event_tap_e2e_rationale_351",
       "community": 0,
-      "norm_label": "fn key without nx_secondaryfnmask flag should trigger release."
+      "norm_label": "fn key without nx_secondaryfnmask flag should trigger release.",
+      "id": "test_event_tap_e2e_rationale_351"
     },
     {
       "label": "The callback should return the event object.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L373",
-      "id": "test_event_tap_e2e_rationale_373",
       "community": 0,
-      "norm_label": "the callback should return the event object."
+      "norm_label": "the callback should return the event object.",
+      "id": "test_event_tap_e2e_rationale_373"
     },
     {
       "label": "Test EventTapListener learning mode.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L395",
-      "id": "test_event_tap_e2e_rationale_395",
       "community": 0,
-      "norm_label": "test eventtaplistener learning mode."
+      "norm_label": "test eventtaplistener learning mode.",
+      "id": "test_event_tap_e2e_rationale_395"
     },
     {
       "label": "start_learning() then simulate keydown \u2192 stop_learning() returns captured keycod",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L398",
-      "id": "test_event_tap_e2e_rationale_398",
       "community": 0,
-      "norm_label": "start_learning() then simulate keydown \u2192 stop_learning() returns captured keycod"
+      "norm_label": "start_learning() then simulate keydown \u2192 stop_learning() returns captured keycod",
+      "id": "test_event_tap_e2e_rationale_398"
     },
     {
       "label": "During learning, the current trigger key should be ignored.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L415",
-      "id": "test_event_tap_e2e_rationale_415",
       "community": 0,
-      "norm_label": "during learning, the current trigger key should be ignored."
+      "norm_label": "during learning, the current trigger key should be ignored.",
+      "id": "test_event_tap_e2e_rationale_415"
     },
     {
       "label": "Non-keydown events during learning should not capture a keycode.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L440",
-      "id": "test_event_tap_e2e_rationale_440",
       "community": 0,
-      "norm_label": "non-keydown events during learning should not capture a keycode."
+      "norm_label": "non-keydown events during learning should not capture a keycode.",
+      "id": "test_event_tap_e2e_rationale_440"
     },
     {
       "label": "stop_learning() without start_learning() should return None.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L456",
-      "id": "test_event_tap_e2e_rationale_456",
       "community": 0,
-      "norm_label": "stop_learning() without start_learning() should return none."
+      "norm_label": "stop_learning() without start_learning() should return none.",
+      "id": "test_event_tap_e2e_rationale_456"
     },
     {
       "label": "stop_learning() should clear learning state.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L462",
-      "id": "test_event_tap_e2e_rationale_462",
       "community": 0,
-      "norm_label": "stop_learning() should clear learning state."
+      "norm_label": "stop_learning() should clear learning state.",
+      "id": "test_event_tap_e2e_rationale_462"
     },
     {
       "label": "Should be able to start/stop learning multiple times.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L480",
-      "id": "test_event_tap_e2e_rationale_480",
       "community": 0,
-      "norm_label": "should be able to start/stop learning multiple times."
+      "norm_label": "should be able to start/stop learning multiple times.",
+      "id": "test_event_tap_e2e_rationale_480"
     },
     {
       "label": "Test the full FN key \u2192 recording \u2192 transcription workflow.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L504",
-      "id": "test_event_tap_e2e_rationale_504",
       "community": 0,
-      "norm_label": "test the full fn key \u2192 recording \u2192 transcription workflow."
+      "norm_label": "test the full fn key \u2192 recording \u2192 transcription workflow.",
+      "id": "test_event_tap_e2e_rationale_504"
     },
     {
       "label": "EventTapListener callback \u2192 Engine.start_recording \u2192 FSM state = RECORDING.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L507",
-      "id": "test_event_tap_e2e_rationale_507",
       "community": 0,
-      "norm_label": "eventtaplistener callback \u2192 engine.start_recording \u2192 fsm state = recording."
+      "norm_label": "eventtaplistener callback \u2192 engine.start_recording \u2192 fsm state = recording.",
+      "id": "test_event_tap_e2e_rationale_507"
     },
     {
       "label": "on_trigger_release \u2192 Engine.stop_recording \u2192 FSM state = TRANSCRIBING.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L539",
-      "id": "test_event_tap_e2e_rationale_539",
       "community": 0,
-      "norm_label": "on_trigger_release \u2192 engine.stop_recording \u2192 fsm state = transcribing."
+      "norm_label": "on_trigger_release \u2192 engine.stop_recording \u2192 fsm state = transcribing.",
+      "id": "test_event_tap_e2e_rationale_539"
     },
     {
       "label": "IDLE \u2192 RECORDING \u2192 TRANSCRIBING \u2192 IDLE via Engine's internal FSM.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L575",
-      "id": "test_event_tap_e2e_rationale_575",
       "community": 0,
-      "norm_label": "idle \u2192 recording \u2192 transcribing \u2192 idle via engine's internal fsm."
+      "norm_label": "idle \u2192 recording \u2192 transcribing \u2192 idle via engine's internal fsm.",
+      "id": "test_event_tap_e2e_rationale_575"
     },
     {
       "label": "Full chain: stop recording \u2192 set up mock model \u2192 run_transcription \u2192 verify text",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L595",
-      "id": "test_event_tap_e2e_rationale_595",
       "community": 0,
-      "norm_label": "full chain: stop recording \u2192 set up mock model \u2192 run_transcription \u2192 verify text"
+      "norm_label": "full chain: stop recording \u2192 set up mock model \u2192 run_transcription \u2192 verify text",
+      "id": "test_event_tap_e2e_rationale_595"
     },
     {
       "label": "Verify TextInjector inject is called with transcribed text.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L627",
-      "id": "test_event_tap_e2e_rationale_627",
       "community": 0,
-      "norm_label": "verify textinjector inject is called with transcribed text."
+      "norm_label": "verify textinjector inject is called with transcribed text.",
+      "id": "test_event_tap_e2e_rationale_627"
     },
     {
       "label": "End-to-end: EventTapListener callback \u2192 Engine methods \u2192 text injection.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L655",
-      "id": "test_event_tap_e2e_rationale_655",
       "community": 0,
-      "norm_label": "end-to-end: eventtaplistener callback \u2192 engine methods \u2192 text injection."
+      "norm_label": "end-to-end: eventtaplistener callback \u2192 engine methods \u2192 text injection.",
+      "id": "test_event_tap_e2e_rationale_655"
     },
     {
       "label": "All PRESET_TRIGGERS should map to valid keycodes.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L722",
-      "id": "test_event_tap_e2e_rationale_722",
       "community": 0,
-      "norm_label": "all preset_triggers should map to valid keycodes."
+      "norm_label": "all preset_triggers should map to valid keycodes.",
+      "id": "test_event_tap_e2e_rationale_722"
     },
     {
       "label": "Engine should resolve 'fn' trigger_key to keycode 63.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L730",
-      "id": "test_event_tap_e2e_rationale_730",
       "community": 0,
-      "norm_label": "engine should resolve 'fn' trigger_key to keycode 63."
+      "norm_label": "engine should resolve 'fn' trigger_key to keycode 63.",
+      "id": "test_event_tap_e2e_rationale_730"
     },
     {
       "label": "Engine should resolve 'ampersand' trigger_key to keycode 38.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L736",
-      "id": "test_event_tap_e2e_rationale_736",
       "community": 0,
-      "norm_label": "engine should resolve 'ampersand' trigger_key to keycode 38."
+      "norm_label": "engine should resolve 'ampersand' trigger_key to keycode 38.",
+      "id": "test_event_tap_e2e_rationale_736"
     },
     {
       "label": "Engine should use DEFAULT_TRIGGER_KEYCODE for unknown trigger_key.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L743",
-      "id": "test_event_tap_e2e_rationale_743",
       "community": 0,
-      "norm_label": "engine should use default_trigger_keycode for unknown trigger_key."
+      "norm_label": "engine should use default_trigger_keycode for unknown trigger_key.",
+      "id": "test_event_tap_e2e_rationale_743"
     },
     {
       "label": "Engine start/stop recording via AudioEngine.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L750",
-      "id": "test_event_tap_e2e_rationale_750",
       "community": 0,
-      "norm_label": "engine start/stop recording via audioengine."
+      "norm_label": "engine start/stop recording via audioengine.",
+      "id": "test_event_tap_e2e_rationale_750"
     },
     {
       "label": "Engine cannot start recording twice.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L763",
-      "id": "test_event_tap_e2e_rationale_763",
       "community": 0,
-      "norm_label": "engine cannot start recording twice."
+      "norm_label": "engine cannot start recording twice.",
+      "id": "test_event_tap_e2e_rationale_763"
     },
     {
       "label": "TextInjector should be created with copy_to_clipboard=True by default.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L770",
-      "id": "test_event_tap_e2e_rationale_770",
       "community": 0,
-      "norm_label": "textinjector should be created with copy_to_clipboard=true by default."
+      "norm_label": "textinjector should be created with copy_to_clipboard=true by default.",
+      "id": "test_event_tap_e2e_rationale_770"
     },
     {
       "label": "TextInjector config should sync with engine config.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L775",
-      "id": "test_event_tap_e2e_rationale_775",
       "community": 0,
-      "norm_label": "textinjector config should sync with engine config."
+      "norm_label": "textinjector config should sync with engine config.",
+      "id": "test_event_tap_e2e_rationale_775"
     },
     {
       "label": "Engine.get_status returns a valid status dict.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L786",
-      "id": "test_event_tap_e2e_rationale_786",
       "community": 0,
-      "norm_label": "engine.get_status returns a valid status dict."
+      "norm_label": "engine.get_status returns a valid status dict.",
+      "id": "test_event_tap_e2e_rationale_786"
     },
     {
       "label": "Config save and load should preserve all values.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L800",
-      "id": "test_event_tap_e2e_rationale_800",
       "community": 0,
-      "norm_label": "config save and load should preserve all values."
+      "norm_label": "config save and load should preserve all values.",
+      "id": "test_event_tap_e2e_rationale_800"
     },
     {
       "label": "AudioEngine start/stop should drive FSM transitions correctly.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L822",
-      "id": "test_event_tap_e2e_rationale_822",
       "community": 0,
-      "norm_label": "audioengine start/stop should drive fsm transitions correctly."
+      "norm_label": "audioengine start/stop should drive fsm transitions correctly.",
+      "id": "test_event_tap_e2e_rationale_822"
     },
     {
       "label": "AudioEngine cannot start recording twice.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L836",
-      "id": "test_event_tap_e2e_rationale_836",
       "community": 0,
-      "norm_label": "audioengine cannot start recording twice."
+      "norm_label": "audioengine cannot start recording twice.",
+      "id": "test_event_tap_e2e_rationale_836"
     },
     {
       "label": "AudioEngine cannot stop when not recording.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L842",
-      "id": "test_event_tap_e2e_rationale_842",
       "community": 0,
-      "norm_label": "audioengine cannot stop when not recording."
+      "norm_label": "audioengine cannot stop when not recording.",
+      "id": "test_event_tap_e2e_rationale_842"
     },
     {
       "label": "FSM should record transition history.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L847",
-      "id": "test_event_tap_e2e_rationale_847",
       "community": 0,
-      "norm_label": "fsm should record transition history."
+      "norm_label": "fsm should record transition history.",
+      "id": "test_event_tap_e2e_rationale_847"
     },
     {
       "label": "FSM callbacks should be invoked during transitions.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L859",
-      "id": "test_event_tap_e2e_rationale_859",
       "community": 0,
-      "norm_label": "fsm callbacks should be invoked during transitions."
+      "norm_label": "fsm callbacks should be invoked during transitions.",
+      "id": "test_event_tap_e2e_rationale_859"
     },
     {
       "label": "Status change callbacks should be invoked.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L878",
-      "id": "test_event_tap_e2e_rationale_878",
       "community": 0,
-      "norm_label": "status change callbacks should be invoked."
+      "norm_label": "status change callbacks should be invoked.",
+      "id": "test_event_tap_e2e_rationale_878"
     },
     {
       "label": "All registered status callbacks should be invoked.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L894",
-      "id": "test_event_tap_e2e_rationale_894",
       "community": 0,
-      "norm_label": "all registered status callbacks should be invoked."
+      "norm_label": "all registered status callbacks should be invoked.",
+      "id": "test_event_tap_e2e_rationale_894"
     },
     {
       "label": "Loading a non-existent config should return defaults.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L914",
-      "id": "test_event_tap_e2e_rationale_914",
       "community": 0,
-      "norm_label": "loading a non-existent config should return defaults."
+      "norm_label": "loading a non-existent config should return defaults.",
+      "id": "test_event_tap_e2e_rationale_914"
     },
     {
       "label": "Loading corrupted JSON should fall back to defaults.",
       "file_type": "rationale",
       "source_file": "tests/test_event_tap_e2e.py",
       "source_location": "L922",
-      "id": "test_event_tap_e2e_rationale_922",
       "community": 0,
-      "norm_label": "loading corrupted json should fall back to defaults."
+      "norm_label": "loading corrupted json should fall back to defaults.",
+      "id": "test_event_tap_e2e_rationale_922"
     },
     {
       "label": "test_engine.py",
@@ -5129,72 +5129,72 @@
       "file_type": "rationale",
       "source_file": "src/whispy/hardware/event_tap.py",
       "source_location": "L179",
-      "id": "event_tap_rationale_179",
       "community": 0,
-      "norm_label": "monitors keyboard events via cgeventtap and emits events for a configurable trig"
+      "norm_label": "monitors keyboard events via cgeventtap and emits events for a configurable trig",
+      "id": "event_tap_rationale_179"
     },
     {
       "label": "Start the event tap listener in a dedicated thread.",
       "file_type": "rationale",
       "source_file": "src/whispy/hardware/event_tap.py",
       "source_location": "L200",
-      "id": "event_tap_rationale_200",
       "community": 16,
-      "norm_label": "start the event tap listener in a dedicated thread."
+      "norm_label": "start the event tap listener in a dedicated thread.",
+      "id": "event_tap_rationale_200"
     },
     {
       "label": "Enable learning mode \u2014 captures the next key press keycode.",
       "file_type": "rationale",
       "source_file": "src/whispy/hardware/event_tap.py",
       "source_location": "L264",
-      "id": "event_tap_rationale_264",
       "community": 17,
-      "norm_label": "enable learning mode \u2014 captures the next key press keycode."
+      "norm_label": "enable learning mode \u2014 captures the next key press keycode.",
+      "id": "event_tap_rationale_264"
     },
     {
       "label": "Disable learning mode and return the learned keycode (if any).",
       "file_type": "rationale",
       "source_file": "src/whispy/hardware/event_tap.py",
       "source_location": "L270",
-      "id": "event_tap_rationale_270",
       "community": 19,
-      "norm_label": "disable learning mode and return the learned keycode (if any)."
+      "norm_label": "disable learning mode and return the learned keycode (if any).",
+      "id": "event_tap_rationale_270"
     },
     {
       "label": "Stop the event tap listener.",
       "file_type": "rationale",
       "source_file": "src/whispy/hardware/event_tap.py",
       "source_location": "L281",
-      "id": "event_tap_rationale_281",
       "community": 18,
-      "norm_label": "stop the event tap listener."
+      "norm_label": "stop the event tap listener.",
+      "id": "event_tap_rationale_281"
     },
     {
       "label": "Callback invoked for each relevant CGEvent.",
       "file_type": "rationale",
       "source_file": "src/whispy/hardware/event_tap.py",
       "source_location": "L291",
-      "id": "event_tap_rationale_291",
       "community": 8,
-      "norm_label": "callback invoked for each relevant cgevent."
+      "norm_label": "callback invoked for each relevant cgevent.",
+      "id": "event_tap_rationale_291"
     },
     {
       "label": "Convert a macOS keycode to a human-readable name.",
       "file_type": "rationale",
       "source_file": "src/whispy/hardware/event_tap.py",
       "source_location": "L332",
-      "id": "event_tap_rationale_332",
       "community": 6,
-      "norm_label": "convert a macos keycode to a human-readable name."
+      "norm_label": "convert a macos keycode to a human-readable name.",
+      "id": "event_tap_rationale_332"
     },
     {
       "label": "Convert a macOS keycode to a display label for the UI.",
       "file_type": "rationale",
       "source_file": "src/whispy/hardware/event_tap.py",
       "source_location": "L339",
-      "id": "event_tap_rationale_339",
       "community": 6,
-      "norm_label": "convert a macos keycode to a display label for the ui."
+      "norm_label": "convert a macos keycode to a display label for the ui.",
+      "id": "event_tap_rationale_339"
     },
     {
       "label": "test_stress.py",
@@ -7894,9 +7894,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplistenerstartstop",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplistenerstartstop",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -7906,9 +7906,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplistenerstartstop",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplistenerstartstop",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -7918,9 +7918,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplistenerstartstop",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplistenerstartstop",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -7930,9 +7930,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplistenerstartstop",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplistenerstartstop",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -7942,9 +7942,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplistenerstartstop",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplistenerstartstop",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -7954,9 +7954,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplistenerstartstop",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplistenerstartstop",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -7966,9 +7966,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplistenerstartstop",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplistenerstartstop",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "rationale_for",
@@ -8266,9 +8266,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtapcallback",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtapcallback",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -8278,9 +8278,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtapcallback",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtapcallback",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -8290,9 +8290,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtapcallback",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtapcallback",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -8302,9 +8302,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtapcallback",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtapcallback",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -8314,9 +8314,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtapcallback",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtapcallback",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -8326,9 +8326,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtapcallback",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtapcallback",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -8338,9 +8338,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtapcallback",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtapcallback",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "rationale_for",
@@ -8722,9 +8722,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplearningmode",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplearningmode",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -8734,9 +8734,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplearningmode",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplearningmode",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -8746,9 +8746,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplearningmode",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplearningmode",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -8758,9 +8758,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplearningmode",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplearningmode",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -8770,9 +8770,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplearningmode",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplearningmode",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -8782,9 +8782,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplearningmode",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplearningmode",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -8794,9 +8794,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testeventtaplearningmode",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testeventtaplearningmode",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "rationale_for",
@@ -9442,9 +9442,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testfullfnworkflowintegration",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testfullfnworkflowintegration",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -9454,9 +9454,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testfullfnworkflowintegration",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testfullfnworkflowintegration",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -9466,9 +9466,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testfullfnworkflowintegration",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testfullfnworkflowintegration",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -9478,9 +9478,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testfullfnworkflowintegration",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testfullfnworkflowintegration",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -9490,9 +9490,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testfullfnworkflowintegration",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testfullfnworkflowintegration",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -9502,9 +9502,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testfullfnworkflowintegration",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testfullfnworkflowintegration",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -9514,9 +9514,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_testfullfnworkflowintegration",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_testfullfnworkflowintegration",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "rationale_for",
@@ -10342,9 +10342,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_1",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_1",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -10354,9 +10354,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_1",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_1",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -10366,9 +10366,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_1",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_1",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -10378,9 +10378,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_1",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_1",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -10390,9 +10390,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_1",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_1",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -10402,9 +10402,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_1",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_1",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -10414,9 +10414,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_1",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_1",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -10426,9 +10426,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_59",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_59",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -10438,9 +10438,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_59",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_59",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -10450,9 +10450,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_59",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_59",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -10462,9 +10462,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_59",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_59",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -10474,9 +10474,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_59",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_59",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -10486,9 +10486,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_59",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_59",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -10498,9 +10498,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_59",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_59",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -10510,9 +10510,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_70",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_70",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -10522,9 +10522,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_70",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_70",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -10534,9 +10534,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_70",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_70",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -10546,9 +10546,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_70",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_70",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -10558,9 +10558,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_70",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_70",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -10570,9 +10570,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_70",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_70",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -10582,9 +10582,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_70",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_70",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -10594,9 +10594,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_76",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_76",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -10606,9 +10606,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_76",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_76",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -10618,9 +10618,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_76",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_76",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -10630,9 +10630,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_76",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_76",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -10642,9 +10642,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_76",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_76",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -10654,9 +10654,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_76",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_76",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -10666,9 +10666,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_76",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_76",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -10678,9 +10678,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_82",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_82",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -10690,9 +10690,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_82",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_82",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -10702,9 +10702,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_82",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_82",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -10714,9 +10714,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_82",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_82",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -10726,9 +10726,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_82",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_82",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -10738,9 +10738,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_82",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_82",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -10750,9 +10750,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_82",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_82",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -10762,9 +10762,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_88",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_88",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -10774,9 +10774,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_88",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_88",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -10786,9 +10786,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_88",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_88",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -10798,9 +10798,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_88",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_88",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -10810,9 +10810,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_88",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_88",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -10822,9 +10822,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_88",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_88",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -10834,9 +10834,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_88",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_88",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -10846,9 +10846,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_95",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_95",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -10858,9 +10858,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_95",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_95",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -10870,9 +10870,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_95",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_95",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -10882,9 +10882,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_95",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_95",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -10894,9 +10894,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_95",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_95",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -10906,9 +10906,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_95",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_95",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -10918,9 +10918,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_95",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_95",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -10930,9 +10930,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_115",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_115",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -10942,9 +10942,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_115",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_115",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -10954,9 +10954,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_115",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_115",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -10966,9 +10966,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_115",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_115",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -10978,9 +10978,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_115",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_115",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -10990,9 +10990,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_115",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_115",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -11002,9 +11002,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_115",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_115",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -11014,9 +11014,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_125",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_125",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -11026,9 +11026,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_125",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_125",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -11038,9 +11038,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_125",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_125",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -11050,9 +11050,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_125",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_125",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -11062,9 +11062,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_125",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_125",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -11074,9 +11074,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_125",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_125",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -11086,9 +11086,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_125",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_125",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -11098,9 +11098,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_137",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_137",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -11110,9 +11110,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_137",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_137",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -11122,9 +11122,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_137",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_137",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -11134,9 +11134,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_137",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_137",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -11146,9 +11146,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_137",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_137",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -11158,9 +11158,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_137",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_137",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -11170,9 +11170,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_137",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_137",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -11182,9 +11182,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_140",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_140",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -11194,9 +11194,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_140",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_140",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -11206,9 +11206,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_140",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_140",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -11218,9 +11218,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_140",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_140",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -11230,9 +11230,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_140",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_140",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -11242,9 +11242,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_140",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_140",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -11254,9 +11254,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_140",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_140",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -11266,9 +11266,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_151",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_151",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -11278,9 +11278,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_151",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_151",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -11290,9 +11290,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_151",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_151",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -11302,9 +11302,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_151",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_151",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -11314,9 +11314,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_151",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_151",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -11326,9 +11326,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_151",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_151",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -11338,9 +11338,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_151",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_151",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -11350,9 +11350,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_173",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_173",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -11362,9 +11362,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_173",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_173",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -11374,9 +11374,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_173",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_173",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -11386,9 +11386,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_173",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_173",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -11398,9 +11398,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_173",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_173",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -11410,9 +11410,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_173",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_173",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -11422,9 +11422,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_173",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_173",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -11434,9 +11434,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_193",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_193",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -11446,9 +11446,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_193",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_193",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -11458,9 +11458,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_193",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_193",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -11470,9 +11470,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_193",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_193",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -11482,9 +11482,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_193",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_193",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -11494,9 +11494,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_193",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_193",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -11506,9 +11506,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_193",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_193",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -11518,9 +11518,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_218",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_218",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -11530,9 +11530,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_218",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_218",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -11542,9 +11542,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_218",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_218",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -11554,9 +11554,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_218",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_218",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -11566,9 +11566,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_218",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_218",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -11578,9 +11578,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_218",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_218",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -11590,9 +11590,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_218",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_218",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -11602,9 +11602,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_221",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_221",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -11614,9 +11614,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_221",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_221",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -11626,9 +11626,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_221",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_221",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -11638,9 +11638,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_221",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_221",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -11650,9 +11650,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_221",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_221",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -11662,9 +11662,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_221",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_221",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -11674,9 +11674,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_221",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_221",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -11686,9 +11686,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_243",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_243",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -11698,9 +11698,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_243",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_243",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -11710,9 +11710,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_243",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_243",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -11722,9 +11722,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_243",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_243",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -11734,9 +11734,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_243",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_243",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -11746,9 +11746,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_243",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_243",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -11758,9 +11758,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_243",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_243",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -11770,9 +11770,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_265",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_265",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -11782,9 +11782,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_265",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_265",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -11794,9 +11794,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_265",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_265",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -11806,9 +11806,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_265",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_265",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -11818,9 +11818,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_265",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_265",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -11830,9 +11830,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_265",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_265",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -11842,9 +11842,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_265",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_265",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -11854,9 +11854,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_284",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_284",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -11866,9 +11866,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_284",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_284",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -11878,9 +11878,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_284",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_284",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -11890,9 +11890,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_284",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_284",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -11902,9 +11902,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_284",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_284",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -11914,9 +11914,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_284",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_284",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -11926,9 +11926,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_284",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_284",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -11938,9 +11938,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_311",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_311",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -11950,9 +11950,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_311",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_311",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -11962,9 +11962,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_311",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_311",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -11974,9 +11974,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_311",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_311",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -11986,9 +11986,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_311",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_311",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -11998,9 +11998,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_311",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_311",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -12010,9 +12010,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_311",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_311",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -12022,9 +12022,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_329",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_329",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -12034,9 +12034,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_329",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_329",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -12046,9 +12046,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_329",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_329",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -12058,9 +12058,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_329",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_329",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -12070,9 +12070,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_329",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_329",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -12082,9 +12082,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_329",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_329",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -12094,9 +12094,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_329",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_329",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -12106,9 +12106,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_351",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_351",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -12118,9 +12118,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_351",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_351",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -12130,9 +12130,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_351",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_351",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -12142,9 +12142,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_351",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_351",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -12154,9 +12154,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_351",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_351",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -12166,9 +12166,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_351",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_351",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -12178,9 +12178,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_351",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_351",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -12190,9 +12190,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_373",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_373",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -12202,9 +12202,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_373",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_373",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -12214,9 +12214,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_373",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_373",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -12226,9 +12226,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_373",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_373",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -12238,9 +12238,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_373",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_373",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -12250,9 +12250,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_373",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_373",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -12262,9 +12262,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_373",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_373",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -12274,9 +12274,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_395",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_395",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -12286,9 +12286,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_395",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_395",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -12298,9 +12298,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_395",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_395",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -12310,9 +12310,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_395",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_395",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -12322,9 +12322,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_395",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_395",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -12334,9 +12334,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_395",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_395",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -12346,9 +12346,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_395",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_395",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -12358,9 +12358,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_398",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_398",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -12370,9 +12370,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_398",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_398",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -12382,9 +12382,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_398",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_398",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -12394,9 +12394,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_398",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_398",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -12406,9 +12406,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_398",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_398",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -12418,9 +12418,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_398",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_398",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -12430,9 +12430,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_398",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_398",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -12442,9 +12442,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_415",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_415",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -12454,9 +12454,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_415",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_415",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -12466,9 +12466,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_415",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_415",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -12478,9 +12478,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_415",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_415",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -12490,9 +12490,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_415",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_415",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -12502,9 +12502,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_415",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_415",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -12514,9 +12514,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_415",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_415",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -12526,9 +12526,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_440",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_440",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -12538,9 +12538,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_440",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_440",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -12550,9 +12550,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_440",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_440",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -12562,9 +12562,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_440",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_440",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -12574,9 +12574,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_440",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_440",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -12586,9 +12586,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_440",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_440",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -12598,9 +12598,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_440",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_440",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -12610,9 +12610,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_456",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_456",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -12622,9 +12622,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_456",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_456",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -12634,9 +12634,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_456",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_456",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -12646,9 +12646,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_456",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_456",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -12658,9 +12658,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_456",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_456",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -12670,9 +12670,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_456",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_456",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -12682,9 +12682,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_456",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_456",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -12694,9 +12694,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_462",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_462",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -12706,9 +12706,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_462",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_462",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -12718,9 +12718,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_462",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_462",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -12730,9 +12730,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_462",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_462",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -12742,9 +12742,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_462",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_462",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -12754,9 +12754,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_462",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_462",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -12766,9 +12766,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_462",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_462",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -12778,9 +12778,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_480",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_480",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -12790,9 +12790,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_480",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_480",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -12802,9 +12802,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_480",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_480",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -12814,9 +12814,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_480",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_480",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -12826,9 +12826,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_480",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_480",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -12838,9 +12838,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_480",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_480",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -12850,9 +12850,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_480",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_480",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -12862,9 +12862,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_504",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_504",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -12874,9 +12874,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_504",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_504",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -12886,9 +12886,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_504",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_504",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -12898,9 +12898,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_504",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_504",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -12910,9 +12910,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_504",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_504",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -12922,9 +12922,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_504",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_504",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -12934,9 +12934,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_504",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_504",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -12946,9 +12946,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_507",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_507",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -12958,9 +12958,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_507",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_507",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -12970,9 +12970,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_507",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_507",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -12982,9 +12982,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_507",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_507",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -12994,9 +12994,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_507",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_507",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -13006,9 +13006,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_507",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_507",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -13018,9 +13018,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_507",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_507",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -13030,9 +13030,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_539",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_539",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -13042,9 +13042,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_539",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_539",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -13054,9 +13054,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_539",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_539",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -13066,9 +13066,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_539",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_539",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -13078,9 +13078,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_539",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_539",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -13090,9 +13090,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_539",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_539",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -13102,9 +13102,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_539",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_539",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -13114,9 +13114,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_575",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_575",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -13126,9 +13126,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_575",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_575",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -13138,9 +13138,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_575",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_575",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -13150,9 +13150,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_575",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_575",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -13162,9 +13162,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_575",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_575",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -13174,9 +13174,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_575",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_575",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -13186,9 +13186,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_575",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_575",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -13198,9 +13198,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_595",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_595",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -13210,9 +13210,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_595",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_595",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -13222,9 +13222,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_595",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_595",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -13234,9 +13234,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_595",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_595",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -13246,9 +13246,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_595",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_595",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -13258,9 +13258,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_595",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_595",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -13270,9 +13270,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_595",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_595",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -13282,9 +13282,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_627",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_627",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -13294,9 +13294,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_627",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_627",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -13306,9 +13306,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_627",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_627",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -13318,9 +13318,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_627",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_627",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -13330,9 +13330,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_627",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_627",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -13342,9 +13342,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_627",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_627",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -13354,9 +13354,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_627",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_627",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -13366,9 +13366,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_655",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_655",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -13378,9 +13378,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_655",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_655",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -13390,9 +13390,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_655",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_655",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -13402,9 +13402,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_655",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_655",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -13414,9 +13414,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_655",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_655",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -13426,9 +13426,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_655",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_655",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -13438,9 +13438,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_655",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_655",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -13450,9 +13450,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_722",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_722",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -13462,9 +13462,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_722",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_722",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -13474,9 +13474,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_722",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_722",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -13486,9 +13486,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_722",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_722",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -13498,9 +13498,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_722",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_722",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -13510,9 +13510,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_722",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_722",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -13522,9 +13522,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_722",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_722",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -13534,9 +13534,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_730",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_730",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -13546,9 +13546,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_730",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_730",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -13558,9 +13558,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_730",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_730",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -13570,9 +13570,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_730",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_730",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -13582,9 +13582,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_730",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_730",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -13594,9 +13594,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_730",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_730",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -13606,9 +13606,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_730",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_730",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -13618,9 +13618,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_736",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_736",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -13630,9 +13630,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_736",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_736",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -13642,9 +13642,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_736",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_736",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -13654,9 +13654,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_736",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_736",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -13666,9 +13666,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_736",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_736",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -13678,9 +13678,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_736",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_736",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -13690,9 +13690,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_736",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_736",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -13702,9 +13702,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_743",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_743",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -13714,9 +13714,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_743",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_743",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -13726,9 +13726,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_743",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_743",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -13738,9 +13738,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_743",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_743",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -13750,9 +13750,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_743",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_743",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -13762,9 +13762,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_743",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_743",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -13774,9 +13774,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_743",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_743",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -13786,9 +13786,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_750",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_750",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -13798,9 +13798,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_750",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_750",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -13810,9 +13810,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_750",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_750",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -13822,9 +13822,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_750",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_750",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -13834,9 +13834,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_750",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_750",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -13846,9 +13846,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_750",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_750",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -13858,9 +13858,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_750",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_750",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -13870,9 +13870,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_763",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_763",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -13882,9 +13882,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_763",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_763",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -13894,9 +13894,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_763",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_763",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -13906,9 +13906,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_763",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_763",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -13918,9 +13918,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_763",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_763",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -13930,9 +13930,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_763",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_763",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -13942,9 +13942,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_763",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_763",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -13954,9 +13954,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_770",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_770",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -13966,9 +13966,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_770",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_770",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -13978,9 +13978,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_770",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_770",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -13990,9 +13990,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_770",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_770",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -14002,9 +14002,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_770",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_770",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -14014,9 +14014,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_770",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_770",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -14026,9 +14026,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_770",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_770",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -14038,9 +14038,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_775",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_775",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -14050,9 +14050,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_775",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_775",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -14062,9 +14062,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_775",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_775",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -14074,9 +14074,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_775",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_775",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -14086,9 +14086,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_775",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_775",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -14098,9 +14098,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_775",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_775",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -14110,9 +14110,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_775",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_775",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -14122,9 +14122,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_786",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_786",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -14134,9 +14134,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_786",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_786",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -14146,9 +14146,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_786",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_786",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -14158,9 +14158,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_786",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_786",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -14170,9 +14170,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_786",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_786",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -14182,9 +14182,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_786",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_786",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -14194,9 +14194,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_786",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_786",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -14206,9 +14206,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_800",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_800",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -14218,9 +14218,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_800",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_800",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -14230,9 +14230,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_800",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_800",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -14242,9 +14242,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_800",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_800",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -14254,9 +14254,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_800",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_800",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -14266,9 +14266,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_800",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_800",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -14278,9 +14278,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_800",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_800",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -14290,9 +14290,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_822",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_822",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -14302,9 +14302,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_822",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_822",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -14314,9 +14314,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_822",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_822",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -14326,9 +14326,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_822",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_822",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -14338,9 +14338,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_822",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_822",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -14350,9 +14350,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_822",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_822",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -14362,9 +14362,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_822",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_822",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -14374,9 +14374,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_836",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_836",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -14386,9 +14386,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_836",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_836",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -14398,9 +14398,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_836",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_836",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -14410,9 +14410,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_836",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_836",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -14422,9 +14422,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_836",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_836",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -14434,9 +14434,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_836",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_836",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -14446,9 +14446,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_836",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_836",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -14458,9 +14458,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_842",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_842",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -14470,9 +14470,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_842",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_842",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -14482,9 +14482,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_842",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_842",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -14494,9 +14494,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_842",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_842",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -14506,9 +14506,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_842",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_842",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -14518,9 +14518,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_842",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_842",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -14530,9 +14530,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_842",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_842",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -14542,9 +14542,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_847",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_847",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -14554,9 +14554,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_847",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_847",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -14566,9 +14566,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_847",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_847",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -14578,9 +14578,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_847",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_847",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -14590,9 +14590,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_847",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_847",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -14602,9 +14602,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_847",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_847",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -14614,9 +14614,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_847",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_847",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -14626,9 +14626,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_859",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_859",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -14638,9 +14638,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_859",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_859",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -14650,9 +14650,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_859",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_859",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -14662,9 +14662,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_859",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_859",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -14674,9 +14674,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_859",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_859",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -14686,9 +14686,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_859",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_859",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -14698,9 +14698,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_859",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_859",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -14710,9 +14710,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_878",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_878",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -14722,9 +14722,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_878",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_878",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -14734,9 +14734,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_878",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_878",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -14746,9 +14746,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_878",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_878",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -14758,9 +14758,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_878",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_878",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -14770,9 +14770,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_878",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_878",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -14782,9 +14782,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_878",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_878",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -14794,9 +14794,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_894",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_894",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -14806,9 +14806,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_894",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_894",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -14818,9 +14818,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_894",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_894",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -14830,9 +14830,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_894",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_894",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -14842,9 +14842,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_894",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_894",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -14854,9 +14854,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_894",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_894",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -14866,9 +14866,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_894",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_894",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -14878,9 +14878,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_914",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_914",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -14890,9 +14890,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_914",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_914",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -14902,9 +14902,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_914",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_914",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -14914,9 +14914,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_914",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_914",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -14926,9 +14926,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_914",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_914",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -14938,9 +14938,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_914",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_914",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -14950,9 +14950,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_914",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_914",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "uses",
@@ -14962,9 +14962,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_922",
       "_tgt": "audio_audioengine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_922",
-      "target": "audio_audioengine",
-      "confidence_score": 0.5
+      "target": "audio_audioengine"
     },
     {
       "relation": "uses",
@@ -14974,9 +14974,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_922",
       "_tgt": "engine_dictationstate",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_922",
-      "target": "engine_dictationstate",
-      "confidence_score": 0.5
+      "target": "engine_dictationstate"
     },
     {
       "relation": "uses",
@@ -14986,9 +14986,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_922",
       "_tgt": "engine_engine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_922",
-      "target": "engine_engine",
-      "confidence_score": 0.5
+      "target": "engine_engine"
     },
     {
       "relation": "uses",
@@ -14998,9 +14998,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_922",
       "_tgt": "state_machine_state",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_922",
-      "target": "state_machine_state",
-      "confidence_score": 0.5
+      "target": "state_machine_state"
     },
     {
       "relation": "uses",
@@ -15010,9 +15010,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_922",
       "_tgt": "state_machine_statemachine",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_922",
-      "target": "state_machine_statemachine",
-      "confidence_score": 0.5
+      "target": "state_machine_statemachine"
     },
     {
       "relation": "uses",
@@ -15022,9 +15022,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_922",
       "_tgt": "event_tap_eventtaplistener",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_922",
-      "target": "event_tap_eventtaplistener",
-      "confidence_score": 0.5
+      "target": "event_tap_eventtaplistener"
     },
     {
       "relation": "uses",
@@ -15034,9 +15034,9 @@
       "weight": 0.8,
       "_src": "test_event_tap_e2e_rationale_922",
       "_tgt": "injection_textinjector",
+      "confidence_score": 0.5,
       "source": "test_event_tap_e2e_rationale_922",
-      "target": "injection_textinjector",
-      "confidence_score": 0.5
+      "target": "injection_textinjector"
     },
     {
       "relation": "contains",

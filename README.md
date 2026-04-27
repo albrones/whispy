@@ -251,6 +251,39 @@ If you want to contribute or be notified of the release, open an issue or follow
 
 ---
 
+## Testing
+
+Run the full test suite:
+
+```bash
+./.venv/bin/pytest
+```
+
+Run with coverage:
+
+```bash
+./.venv/bin/pytest --cov=src/whispy --cov-report=term-missing
+```
+
+Run a specific test file:
+
+```bash
+./.venv/bin/pytest tests/test_core.py -v
+./.venv/bin/pytest tests/test_e2e.py -v
+```
+
+Test files are organized by scope:
+
+| File | Scope |
+|------|-------|
+| `tests/test_core.py` | Core engine, state machine, config |
+| `tests/test_audio.py` | AudioEngine, transcription, language detection |
+| `tests/test_integration.py` | Multi-module integration |
+| `tests/test_e2e.py` | End-to-end workflow tests |
+| `tests/test_event_tap_e2e.py` | EventTapListener E2E tests |
+| `tests/test_api/test_server.py` | HTTP API server tests |
+| `tests/test_stress.py` | Concurrent access stress tests |
+
 ## License
 
 This project is distributed under the **GPLv3** license. Please see the `LICENSE` file for more details.

@@ -2,6 +2,22 @@
 
 This document provides high-signal context for agents working in the `whispy` repository.
 
+---
+
+## 🔁 Automatic Skill Triggers
+
+### 🛑 MANDATORY POST-ACTION: research-log (Always Active)
+
+**The `research-log` skill is a core, always-active behavior.**
+**BEFORE** you send any text reply to the user, ask yourself: *Did I use a tool, edit a file, or run a command in this turn?*
+- If **NO**: Proceed normally.
+- If **YES**: You are STRICTLY FORBIDDEN to answer the user until you have updated the session log.
+  1. Read `.agents/skills/research-log/SKILL.md` (if you don't remember the exact format, triggers, wrap-up rules, and Linear MCP integration steps). All logic and conditions are centralized there. Do not guess the format.
+  2. Perform the required tool calls to append the log and sync with Linear.
+  3. Only AFTER these tools succeed, you may reply to the user.
+
+---
+
 ## 🛠️ Core Tech Stack & Environment
 - **Platform:** macOS (Apple Silicon/Intel) only.
 - **Language:** Python 3.
@@ -127,15 +143,15 @@ To add a new agent:
 
 ## Skills
 
-> **Auto-discovery rule:** At the start of every session, scan the `skills/` folder (gitignored — local only, not versioned). For each subdirectory found, read its `SKILL.md` file and **automatically apply** the skill without waiting for user instruction.
+> **Auto-discovery rule:** At the start of every session, scan the `.agents/skills/` folder (gitignored — local only, not versioned). For each subdirectory found, read its `SKILL.md` file and **automatically apply** the skill without waiting for user instruction.
 
-The `skills/` folder lives at the root of the repository and is excluded from version control (see `.gitignore`). This is intentional: skills are personal, local extensions that each developer manages independently.
+The `.agents/skills/` folder lives at the root of the repository and is excluded from version control (see `.gitignore`). This is intentional: skills are personal, local extensions that each developer manages independently.
 
 ### How to load skills
 
-1. At session start, check if the `skills/` directory exists.
+1. At session start, check if the `.agents/skills/` directory exists.
 2. If it does, list all subdirectories (each one is a skill).
-3. For each skill directory, read `skills/<skill-name>/SKILL.md`.
+3. For each skill directory, read `.agents/skills/<skill-name>/SKILL.md`.
 4. Parse the skill instructions and apply them immediately and silently — no announcement needed.
 5. Skills remain active for the entire session unless the user says otherwise.
 
@@ -143,9 +159,9 @@ The `skills/` folder lives at the root of the repository and is excluded from ve
 
 | Skill | Location | Description |
 |-------|----------|-------------|
-| `research-log` | `skills/research-log/SKILL.md` | Live per-turn session journal. Auto-appends a log entry after every action turn. |
+| `research-log` | `.agents/skills/research-log/SKILL.md` | Live per-turn session journal. Auto-appends a log entry after every action turn. |
 
-> If `skills/` does not exist or is empty, proceed normally — no skills are active.
+> If `.agents/skills/` does not exist or is empty, proceed normally — no skills are active.
 
 ---
 

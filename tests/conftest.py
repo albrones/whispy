@@ -24,6 +24,9 @@ _src = Path(__file__).parent.parent / "src"
 _project_root = str(Path(__file__).parent.parent)
 if _project_root in sys.path:
     sys.path.remove(_project_root)
+# Also remove '' (current directory) if it points to the project root
+if "" in sys.path and str(Path(".").resolve()) == Path(_project_root).resolve():
+    sys.path.remove("")
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
@@ -53,11 +56,23 @@ def state():
 
 
 @pytest.fixture
-def engine(state, config_path):
+def engine(state, config_path, tmp_dir):
     """Create a fresh Engine instance with a DictationState."""
     from whispy.core.engine import Engine
+    import whispy.core.audio as audio_module
 
-    return Engine(state, config_path)
+    # Patch RECORDING_PATH before Engine/AudioEngine init so the audio engine
+    # uses a temp path instead of /tmp/whispy.wav
+    recording_file = tmp_dir / "whispy.wav"
+    recording_file.write_bytes(b"\x00" * 6000)
+    original_path = audio_module.RECORDING_PATH
+    audio_module.RECORDING_PATH = str(recording_file)
+
+    eng = Engine(state, config_path)
+
+    audio_module.RECORDING_PATH = original_path
+
+    return eng
 
 
 @pytest.fixture
@@ -93,4 +108,5 @@ def mock_subprocess(mocker):
     popen_mock = mocker.patch("subprocess.Popen")
     popen_instance = MagicMock()
     popen_mock.return_value = popen_instance
+    popen_instance.poll.return_value = None
     return run_mock, popen_mock, popen_instance

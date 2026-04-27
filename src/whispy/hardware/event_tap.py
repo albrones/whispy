@@ -17,6 +17,7 @@ try:
         CFRunLoopAddSource,
         CFRunLoopGetCurrent,
         CFRunLoopRun,
+        CFRunLoopRunInMode,
         CFRunLoopStop,
         CGEventGetFlags,
         CGEventGetIntegerValueField,
@@ -244,7 +245,7 @@ class EventTapListener:
             print(f"[event-tap] Trigger key listener active (key: {key_name})")
             self._ready_event.set()
             while not self._stop_event.is_set():
-                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.5)
+                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.5, False)
 
         self._run_loop_thread = threading.Thread(
             target=_run, name="trigger-event-tap", daemon=True
