@@ -667,6 +667,8 @@ class TestFullFnWorkflowIntegration:
         audio_module.RECORDING_PATH = str(audio_file)
 
         try:
+            # Enable copy_to_clipboard to verify injection behavior
+            engine.update_config({"copy_to_clipboard": True})
             text = engine.run_transcription()
             assert text == "test output"
 
@@ -812,14 +814,14 @@ class TestFullFnWorkflowIntegration:
         assert engine.start_recording() is False
 
     def test_text_injector_copy_mode(self, state, tmp_config):
-        """TextInjector should be created with copy_to_clipboard=True by default."""
+        """TextInjector should be created with copy_to_clipboard=False by default."""
         engine = Engine(state, tmp_config)
-        assert engine._text_injector._copy_to_clipboard is True
+        assert engine._text_injector._copy_to_clipboard is False
 
     def test_text_injector_sync_with_config(self, state, tmp_config):
         """TextInjector config should sync with engine config."""
         engine = Engine(state, tmp_config)
-        assert engine._text_injector._copy_to_clipboard is True
+        assert engine._text_injector._copy_to_clipboard is False
 
         engine.update_config({"copy_to_clipboard": False})
         assert engine._text_injector._copy_to_clipboard is False

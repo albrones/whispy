@@ -112,7 +112,7 @@ class TestEngineInjectorIntegration:
 
     def test_injector_initialized_with_config(self, state):
         engine = Engine(state)
-        assert engine._text_injector._copy_to_clipboard is True
+        assert engine._text_injector._copy_to_clipboard is False
 
     def test_injector_updated_on_config_change(self, state):
         engine = Engine(state)

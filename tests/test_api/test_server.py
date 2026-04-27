@@ -115,7 +115,7 @@ class TestGetConfig:
         status, body = _get(port, "/config")
         assert status == 200
         assert body["model_size"] == "small"
-        assert body["language"] == "auto"
+        assert body["language"] == "fr"
         assert body["compute_key"] == "cpu-int8"
 
 

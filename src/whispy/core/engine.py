@@ -23,10 +23,10 @@ from ..hardware.injection import TextInjector
 DEFAULT_CONFIG: Dict[str, Any] = {
     "model_size": "small",
     "compute_key": "cpu-int8",
-    "language": "auto",
+    "language": "fr",
     "beam_size": 1,
     "best_of": 2,
-    "copy_to_clipboard": True,
+    "copy_to_clipboard": False,
     "auto_detect_min_duration": 0.5,
     "trigger_key": "fn",
 }

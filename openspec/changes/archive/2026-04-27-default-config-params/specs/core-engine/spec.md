@@ -1,8 +1,5 @@
-# core-engine Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change architectural-retrospective-and-stabilization. Update Purpose after archive.
-## Requirements
 ### Requirement: Configuration Loading
 The engine SHALL load and maintain the application configuration, providing access to model settings and language preferences. The default language SHALL be French (`"fr"`) and clipboard copy SHALL be disabled by default.
 
@@ -17,4 +14,3 @@ The engine SHALL load and maintain the application configuration, providing acce
 #### Scenario: Default copy to clipboard is disabled
 - **WHEN** the application starts with no saved config
 - **THEN** the engine SHALL use `copy_to_clipboard: False` as the default
-

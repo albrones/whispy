@@ -58,7 +58,7 @@ class TestLoadConfig:
 
         loaded = load_config(config_file)
         assert loaded["model_size"] == "medium"
-        assert loaded["language"] == "auto"
+        assert loaded["language"] == "fr"
         assert loaded["compute_key"] == "cpu-int8"
 
     def test_unknown_keys_in_config_are_ignored(self, tmp_dir):
@@ -76,6 +76,18 @@ class TestLoadConfig:
         loaded = load_config(config_file)
         for key in DEFAULT_CONFIG:
             assert key in loaded
+
+    def test_default_language_is_french(self, tmp_dir):
+        config_file = tmp_dir / "nonexistent" / "config.json"
+        loaded = load_config(config_file)
+        assert loaded["language"] == "fr"
+        assert DEFAULT_CONFIG["language"] == "fr"
+
+    def test_default_copy_to_clipboard_is_false(self, tmp_dir):
+        config_file = tmp_dir / "nonexistent" / "config.json"
+        loaded = load_config(config_file)
+        assert loaded["copy_to_clipboard"] is False
+        assert DEFAULT_CONFIG["copy_to_clipboard"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +133,7 @@ class TestSaveConfig:
         save_config(dict(DEFAULT_CONFIG), config_path)
         saved = json.loads(config_path.read_text())
         assert saved["model_size"] == "small"
-        assert saved["language"] == "auto"
+        assert saved["language"] == "fr"
 
 
 # ---------------------------------------------------------------------------

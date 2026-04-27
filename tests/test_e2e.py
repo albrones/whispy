@@ -124,7 +124,7 @@ class TestFullWorkflow:
         # 1. Engine is created and initialized
         assert engine.state is state
         assert engine.state.config["model_size"] == "small"
-        assert engine.state.config["language"] == "auto"
+        assert engine.state.config["language"] == "fr"
         assert engine.state.config["compute_key"] == "cpu-int8"
 
         status = engine.get_status()
@@ -357,7 +357,7 @@ class TestHTTPAPIWithEngine:
         status, body = _http_get(port, "/config")
         assert status == 200
         assert body["model_size"] == "small"
-        assert body["language"] == "auto"
+        assert body["language"] == "fr"
         assert body["compute_key"] == "cpu-int8"
 
     def test_post_config_updates_and_persists(self, test_server, tmp_path):
@@ -495,7 +495,7 @@ class TestEngineLifecycle:
     def test_engine_text_injector_config_sync(self, state):
         """Test that TextInjector config stays in sync with engine config."""
         engine = Engine(state)
-        assert engine._text_injector._copy_to_clipboard is True
+        assert engine._text_injector._copy_to_clipboard is False
 
         engine.update_config({"copy_to_clipboard": False})
         assert engine._text_injector._copy_to_clipboard is False
