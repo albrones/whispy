@@ -1,8 +1,5 @@
-# core-engine Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change architectural-retrospective-and-stabilization. Update Purpose after archive.
-## Requirements
 ### Requirement: Configuration Loading
 The engine SHALL load and maintain the application configuration, providing access to model settings and language preferences. The default language SHALL be French (`"fr"`) and clipboard copy SHALL be disabled by default. The engine SHALL also apply text cleaning to strip Whisper watermark credits from transcription output before text injection.
 
@@ -21,4 +18,3 @@ The engine SHALL load and maintain the application configuration, providing acce
 #### Scenario: Whisper credit is stripped from output
 - **WHEN** transcription produces text starting with a known Whisper credit phrase
 - **THEN** the credit prefix is removed before the text is injected into the active field
-
