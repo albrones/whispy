@@ -152,14 +152,15 @@ The `.agents/skills/` folder lives at the root of the repository and is excluded
 1. At session start, check if the `.agents/skills/` directory exists.
 2. If it does, list all subdirectories (each one is a skill).
 3. For each skill directory, read `.agents/skills/<skill-name>/SKILL.md`.
-4. Parse the skill instructions and apply them immediately and silently — no announcement needed.
-5. Skills remain active for the entire session unless the user says otherwise.
+4. Parse the YAML frontmatter. If `trigger: always` is present, load the skill unconditionally. Otherwise, check if the user's prompt matches the keyword triggers in the `description` field.
+5. Parse the skill instructions and apply them immediately and silently — no announcement needed.
+6. Skills remain active for the entire session unless the user says otherwise.
 
 ### Currently documented skills
 
 | Skill | Location | Description |
 |-------|----------|-------------|
-| `research-log` | `.agents/skills/research-log/SKILL.md` | Live per-turn session journal. Auto-appends a log entry after every action turn. |
+| `research-log` | `.agents/skills/research-log/SKILL.md` | Live per-turn session journal. Trigger: always. Auto-appends a log entry after every action turn. |
 
 > If `.agents/skills/` does not exist or is empty, proceed normally — no skills are active.
 
