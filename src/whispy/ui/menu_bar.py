@@ -141,7 +141,7 @@ class WhisperMenuBarApp(rumps.App):
         self.copy_menu = rumps.MenuItem(
             "Copy to clipboard", callback=self._on_toggle_copy
         )
-        self.copy_menu.state = 1 if cfg.get("copy_to_clipboard", True) else 0
+        self.copy_menu.state = 1 if cfg.get("copy_to_clipboard", False) else 0
 
         # Fn listener status
         self.fn_status_item = rumps.MenuItem("Fn: —", callback=None)
@@ -333,8 +333,26 @@ class WhisperMenuBarApp(rumps.App):
             print(f"[menu] Cannot learn trigger key: {e}", file=sys.stderr)
 
     def _on_reload(self, _sender: Any) -> None:
-        script = str(ICONS_DIR.parent / "whispy.py")
-        subprocess.Popen([sys.executable, script])
+        script_path = ICONS_DIR.parent.parent / "whispy_daemon.py"
+        if not script_path.exists():
+            try:
+                from AppKit import NSAlert
+
+                alert = NSAlert.alloc().init()
+                alert.setMessageText_("Restart file not found")
+                alert.setInformativeText_(
+                    f"Expected restart script at:\n{script_path}\n\n"
+                    "Please reinstall Whispy."
+                )
+                alert.addButtonWithTitle_("OK")
+                alert.runModal()
+            except ImportError:
+                print(
+                    f"[menu] Restart script not found: {script_path}",
+                    file=sys.stderr,
+                )
+            return
+        subprocess.Popen([sys.executable, str(script_path)])
         rumps.quit_application()
 
     def _on_quit(self, _sender: Any) -> None:

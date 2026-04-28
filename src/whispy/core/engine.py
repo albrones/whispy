@@ -91,13 +91,25 @@ def load_config(config_path: Path) -> Dict[str, Any]:
 
 
 def save_config(config: Dict[str, Any], config_path: Path) -> None:
-    """Persist config to disk atomically."""
+    """Persist config to disk atomically, filtering to known keys."""
+    filtered: Dict[str, Any] = {}
+    for key in DEFAULT_CONFIG:
+        if key in config:
+            filtered[key] = config[key]
+        else:
+            filtered[key] = DEFAULT_CONFIG[key]
+    for key in config:
+        if key not in DEFAULT_CONFIG:
+            print(
+                f"[config] Unknown config key '{key}' filtered out",
+                file=sys.stderr,
+            )
     config_dir = config_path.parent
     try:
         config_dir.mkdir(parents=True, exist_ok=True)
         tmp_path = config_path.with_suffix(".json.tmp")
         with open(tmp_path, "w") as f:
-            json.dump(config, f, indent=2)
+            json.dump(filtered, f, indent=2)
         os.replace(tmp_path, config_path)
     except OSError as exc:
         print(f"[config] Failed to save {config_path}: {exc}", file=sys.stderr)

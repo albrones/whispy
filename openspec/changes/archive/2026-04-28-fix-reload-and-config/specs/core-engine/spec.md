@@ -1,8 +1,5 @@
-# core-engine Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change architectural-retrospective-and-stabilization. Update Purpose after archive.
-## Requirements
 ### Requirement: Configuration Loading
 The engine SHALL load and maintain the application configuration, providing access to model settings and language preferences. The default language SHALL be French (`"fr"`) and clipboard copy SHALL be disabled by default (`False`). The engine SHALL also apply text cleaning to strip Whisper watermark credits from transcription output before text injection. The engine SHALL validate configuration keys against `DEFAULT_CONFIG` before persisting to disk.
 
@@ -26,6 +23,8 @@ The engine SHALL load and maintain the application configuration, providing acce
 - **WHEN** `save_config` is called with keys not in `DEFAULT_CONFIG`
 - **THEN** only known keys are saved and a warning is logged to stderr
 
+## ADDED Requirements
+
 ### Requirement: Restart uses correct entry point
 The menu bar "Restart" item SHALL launch the application using the correct entry point file `whispy_daemon.py` located at the project root.
 
@@ -40,4 +39,3 @@ The menu bar "Restart" item SHALL launch the application using the correct entry
 #### Scenario: Restart exits current instance
 - **WHEN** user clicks the "Restart" menu item
 - **THEN** the current menu bar application instance quits after launching the new instance
-
