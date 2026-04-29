@@ -59,6 +59,15 @@ class RequestHandler(BaseHTTPRequestHandler):
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(length)) if length else {}
+
+                # Reject deprecated config keys
+                if "trigger_key" in body:
+                    self._json_response(400, {"error": "trigger_key is no longer configurable"})
+                    return
+                if "compute_key" in body:
+                    self._json_response(400, {"error": "compute_key is no longer configurable"})
+                    return
+
                 needs_reload = engine.update_config(body)
                 if needs_reload:
                     from ..core.engine import load_model_async

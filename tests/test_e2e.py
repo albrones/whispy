@@ -32,7 +32,6 @@ if str(_src) not in sys.path:
 
 from whispy.core.audio import AudioEngine
 from whispy.core.engine import (
-    COMPUTE_OPTIONS,
     DEFAULT_CONFIG,
     DictationState,
     Engine,
@@ -125,7 +124,6 @@ class TestFullWorkflow:
         assert engine.state is state
         assert engine.state.config["model_size"] == "small"
         assert engine.state.config["language"] == "fr"
-        assert engine.state.config["compute_key"] == "cpu-int8"
 
         status = engine.get_status()
         assert status["is_recording"] is False
@@ -221,7 +219,6 @@ class TestConfigPersistence:
         """Test saving and loading config preserves all values."""
         config = {
             "model_size": "medium",
-            "compute_key": "cpu-float32",
             "language": "fr",
             "beam_size": 3,
             "best_of": 4,
@@ -232,7 +229,6 @@ class TestConfigPersistence:
 
         loaded = load_config(config_path)
         assert loaded["model_size"] == "medium"
-        assert loaded["compute_key"] == "cpu-float32"
         assert loaded["language"] == "fr"
         assert loaded["beam_size"] == 3
         assert loaded["best_of"] == 4
@@ -358,7 +354,6 @@ class TestHTTPAPIWithEngine:
         assert status == 200
         assert body["model_size"] == "small"
         assert body["language"] == "fr"
-        assert body["compute_key"] == "cpu-int8"
 
     def test_post_config_updates_and_persists(self, test_server, tmp_path):
         """Test POST /config updates engine config and persists to disk."""
@@ -466,7 +461,6 @@ class TestEngineLifecycle:
             {
                 "model_size": "base",
                 "language": "fr",
-                "compute_key": "cpu-float32",
                 "beam_size": 3,
                 "best_of": 5,
                 "copy_to_clipboard": False,
@@ -475,7 +469,6 @@ class TestEngineLifecycle:
 
         assert engine.state.config["model_size"] == "base"
         assert engine.state.config["language"] == "fr"
-        assert engine.state.config["compute_key"] == "cpu-float32"
         assert engine.state.config["beam_size"] == 3
         assert engine.state.config["best_of"] == 5
         assert engine.state.config["copy_to_clipboard"] is False
@@ -484,9 +477,6 @@ class TestEngineLifecycle:
         """Test that config update returns True when model reload is needed."""
         # model_size change triggers reload
         assert engine.update_config({"model_size": "medium"}) is True
-
-        # compute_key change triggers reload
-        assert engine.update_config({"compute_key": "cpu-float32"}) is True
 
         # other changes don't trigger reload
         assert engine.update_config({"language": "fr"}) is False
@@ -726,39 +716,6 @@ class TestTextInjector:
 
 
 # ---------------------------------------------------------------------------
-# E2E: COMPUTE_OPTIONS validation
-# ---------------------------------------------------------------------------
-
-
-class TestComputeOptions:
-    """Test that COMPUTE_OPTIONS has the correct structure."""
-
-    def test_all_options_have_label(self):
-        """Test that every compute option has a 'label' key."""
-        for key, opt in COMPUTE_OPTIONS.items():
-            assert "label" in opt, f"{key} missing 'label' key"
-            assert isinstance(opt["label"], str)
-            assert len(opt["label"]) > 0
-
-    def test_all_options_have_device(self):
-        """Test that every compute option has a 'device' key."""
-        for key, opt in COMPUTE_OPTIONS.items():
-            assert "device" in opt, f"{key} missing 'device' key"
-            assert opt["device"] in ("cpu", "cuda")
-
-    def test_all_options_have_compute_type(self):
-        """Test that every compute option has a 'compute_type' key."""
-        for key, opt in COMPUTE_OPTIONS.items():
-            assert "compute_type" in opt, f"{key} missing 'compute_type' key"
-
-    def test_labels_are_human_readable(self):
-        """Test that labels are human-readable (not just the key)."""
-        for key, opt in COMPUTE_OPTIONS.items():
-            # Label should be different from the key (more descriptive)
-            assert opt["label"] != key, f"Label for {key} should be descriptive"
-
-
-# ---------------------------------------------------------------------------
 # E2E: Full Engine + AudioEngine + FSM integration
 # ---------------------------------------------------------------------------
 
@@ -786,8 +743,6 @@ class TestFullEngineAudioFSMIntegration:
 
     def test_engine_transcription_worker_config(self, state, engine):
         """Test that transcription worker respects config."""
-        # The worker is started via engine.start()
-        # We test the config is properly read
         assert engine.state.config["model_size"] in (
             "tiny",
             "base",
@@ -795,8 +750,7 @@ class TestFullEngineAudioFSMIntegration:
             "medium",
             "large-v3",
         )
-        assert engine.state.config["compute_key"] in COMPUTE_OPTIONS
-        assert engine.state.config["language"] in ("auto", "fr", "en")
+        assert engine.state.config["language"] in ("fr", "en")
 
 
 # ---------------------------------------------------------------------------

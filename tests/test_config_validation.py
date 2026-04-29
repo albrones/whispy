@@ -47,7 +47,6 @@ class TestSaveConfigFiltering:
         saved = json.loads(config_path.read_text())
         assert saved["model_size"] == "base"
         assert saved["language"] == "fr"
-        assert saved["compute_key"] == "cpu-int8"
         for key in DEFAULT_CONFIG:
             assert key in saved
 
@@ -68,8 +67,6 @@ class TestSaveConfigFiltering:
         assert saved["copy_to_clipboard"] is True
         assert saved["beam_size"] == 5
         assert "unknown_key" not in saved
-        # Missing valid keys get defaults
-        assert saved["compute_key"] == DEFAULT_CONFIG["compute_key"]
 
     def test_empty_config_uses_all_defaults(self, tmp_path):
         config_path = tmp_path / "config.json"

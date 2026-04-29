@@ -1,8 +1,8 @@
 """Trigger key listener via macOS CGEventTap.
 
 Monitors hardware-level keyboard events and notifies the core engine
-of state changes via callbacks. Supports both preset keys and learned
-(custom) trigger keys.
+of state changes via callbacks. Always uses the Fn key (keycode 63)
+as the trigger key.
 """
 
 import sys
@@ -160,16 +160,6 @@ _KEYCODE_TO_NAME: Dict[int, str] = {
     255: "command",
 }
 
-# Preset trigger keys: name -> (keycode, label)
-PRESET_TRIGGERS: Dict[str, Tuple[int, str]] = {
-    "fn": (63, "Fn"),
-    "ampersand": (38, "&"),
-    "shift": (252, "Shift"),
-    "control": (253, "Control"),
-    "option": (254, "Option"),
-    "command": (255, "Command"),
-}
-
 # Default trigger key (Fn)
 DEFAULT_TRIGGER_KEYCODE = 63
 NX_SECONDARYFNMASK = 0x800000
@@ -191,10 +181,6 @@ class EventTapListener:
         self._run_loop_thread: Optional[threading.Thread] = None
         self._run_loop_source: Any = None
         self.active = False
-        # Learning mode state
-        self._learning = False
-        self._learned_keycode: Optional[int] = None
-        self._learn_ready_event = threading.Event()
 
     def start(self) -> None:
         """Start the event tap listener in a dedicated thread."""
@@ -260,27 +246,9 @@ class EventTapListener:
                 file=sys.stderr,
             )
 
-    def start_learning(self) -> None:
-        """Enable learning mode — captures the next key press keycode."""
-        self._learning = True
-        self._learned_keycode = None
-        self._learn_ready_event.clear()
-
-    def stop_learning(self) -> Optional[int]:
-        """Disable learning mode and return the learned keycode (if any)."""
-        learned = self._learned_keycode
-        self._learning = False
-        self._learned_keycode = None
-        return learned
-
-    @property
-    def is_learning(self) -> bool:
-        return self._learning
-
     def stop(self) -> None:
         """Stop the event tap listener."""
         self.active = False
-        self._learning = False
         self._stop_event.set()
         if self._run_loop_thread and self._run_loop_thread.is_alive():
             self._run_loop_thread.join(timeout=2)
@@ -290,17 +258,6 @@ class EventTapListener:
     ) -> Any:
         """Callback invoked for each relevant CGEvent."""
         keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
-
-        # Learning mode: capture the first keydown event
-        if self._learning:
-            if event_type == kCGEventKeyDown:
-                # Ignore the current trigger key during learning
-                if keycode == self._trigger_keycode:
-                    return event
-                self._learned_keycode = keycode
-                self._learning = False
-                self._learn_ready_event.set()
-            return event
 
         # Normal mode: check against configured trigger keycode
         if keycode != self._trigger_keycode:
@@ -333,24 +290,3 @@ def _keycode_to_name(keycode: int) -> str:
     if keycode in _KEYCODE_TO_NAME:
         return _KEYCODE_TO_NAME[keycode]
     return f"key{keycode}"
-
-
-def keycode_to_label(keycode: int) -> str:
-    """Convert a macOS keycode to a display label for the UI."""
-    name = _keycode_to_name(keycode)
-    # Map common names to pretty labels
-    labels = {
-        "escape": "Esc",
-        "enter": "Enter",
-        "shift": "Shift",
-        "control": "Control",
-        "option": "Option",
-        "command": "Command",
-    }
-    if name in labels:
-        return labels[name]
-    # For F-keys, keep the name
-    if name.startswith("f"):
-        return name.upper()
-    # For numbers and symbols, return as-is
-    return name.upper() if len(name) == 1 else name

@@ -1,7 +1,6 @@
 """Core engine module."""
 
 from .engine import (
-    COMPUTE_OPTIONS,
     DEFAULT_CONFIG,
     DictationState,
     Engine,
@@ -20,7 +19,6 @@ __all__ = [
     "DEFAULT_CONFIG",
     "MODEL_PRESETS",
     "SUPPORTED_LANGUAGES",
-    "COMPUTE_OPTIONS",
     "load_config",
     "save_config",
     "load_model_async",

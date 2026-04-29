@@ -33,8 +33,6 @@ class TestLoadConfig:
         loaded = load_config(config_file)
         assert loaded["model_size"] == "base"
         assert loaded["language"] == "fr"
-        # Defaults preserved
-        assert loaded["compute_key"] == "cpu-int8"
 
     def test_missing_config_file_falls_back_to_defaults(self, tmp_dir):
         config_file = tmp_dir / "nonexistent" / "config.json"
@@ -59,7 +57,6 @@ class TestLoadConfig:
         loaded = load_config(config_file)
         assert loaded["model_size"] == "medium"
         assert loaded["language"] == "fr"
-        assert loaded["compute_key"] == "cpu-int8"
 
     def test_unknown_keys_in_config_are_ignored(self, tmp_dir):
         config_dir = tmp_dir / ".config" / "whispy"
@@ -107,7 +104,6 @@ class TestSaveConfig:
         assert config_path.exists()
         saved = json.loads(config_path.read_text())
         assert saved["model_size"] == "base"
-        assert saved["compute_key"] == "cpu-int8"
 
     def test_creates_directory_if_missing(self, tmp_path):
         config = dict(DEFAULT_CONFIG)
@@ -217,10 +213,6 @@ class TestEngineConfigUpdate:
 
     def test_update_returns_true_on_model_size_change(self, engine):
         result = engine.update_config({"model_size": "base"})
-        assert result is True
-
-    def test_update_returns_true_on_compute_key_change(self, engine):
-        result = engine.update_config({"compute_key": "cpu-float32"})
         assert result is True
 
     def test_update_returns_false_on_only_copy_to_clipboard_change(self, engine):

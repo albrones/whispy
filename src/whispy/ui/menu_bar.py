@@ -10,12 +10,10 @@ import rumps
 
 from ..core.engine import (
     Engine,
-    COMPUTE_OPTIONS,
     DEFAULT_CONFIG,
     MODEL_PRESETS,
     SUPPORTED_LANGUAGES,
 )
-from ..hardware.event_tap import PRESET_TRIGGERS, keycode_to_label
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -99,44 +97,6 @@ class WhisperMenuBarApp(rumps.App):
             self._lang_items[code] = item
             self.language_menu.add(item)
 
-        # Compute option selection
-        self.compute_menu = rumps.MenuItem("Compute")
-        self._compute_items: Dict[str, rumps.MenuItem] = {}
-        is_apple_silicon = (
-            platform.processor() == "arm" or platform.machine() == "arm64"
-        )
-        for key, opt in COMPUTE_OPTIONS.items():
-            label = opt["label"]
-            if is_apple_silicon and key == "cpu-int8":
-                label += " \u2b50"
-            item = rumps.MenuItem(label, callback=self._on_compute_select)
-            item._compute_key = key
-            if key == cfg["compute_key"]:
-                item.state = 1
-            if "cuda" in key and sys.platform == "darwin":
-                item.set_callback(None)
-                item.title = f"{label} (unavailable)"
-            self._compute_items[key] = item
-            self.compute_menu.add(item)
-
-        # Trigger key selection
-        self.trigger_key_menu = rumps.MenuItem("Trigger Key")
-        self._trigger_items: Dict[str, rumps.MenuItem] = {}
-        for key, (keycode, label) in PRESET_TRIGGERS.items():
-            item = rumps.MenuItem(label, callback=self._on_trigger_select)
-            item._trigger_key = key
-            item._keycode = keycode
-            if key == cfg.get("trigger_key", "fn"):
-                item.state = 1
-            self._trigger_items[key] = item
-            self.trigger_key_menu.add(item)
-
-        # Learn trigger key option
-        self.learn_trigger_item = rumps.MenuItem(
-            "Learn trigger key...", callback=self._on_learn_trigger
-        )
-        self.trigger_key_menu.add(self.learn_trigger_item)
-
         # Clipboard toggle
         self.copy_menu = rumps.MenuItem(
             "Copy to clipboard", callback=self._on_toggle_copy
@@ -156,8 +116,6 @@ class WhisperMenuBarApp(rumps.App):
             None,
             self.model_menu,
             self.language_menu,
-            self.compute_menu,
-            self.trigger_key_menu,
             self.copy_menu,
             None,
             self.fn_status_item,
@@ -199,138 +157,10 @@ class WhisperMenuBarApp(rumps.App):
             item.state = 1 if code == new_code else 0
         self.engine.update_config({"language": new_code})
 
-    def _on_compute_select(self, sender: rumps.MenuItem) -> None:
-        new_key = sender._compute_key
-        if new_key == self.engine.state.config["compute_key"]:
-            return
-        for key, item in self._compute_items.items():
-            item.state = 1 if key == new_key else 0
-        self.engine.update_config({"compute_key": new_key})
-
     def _on_toggle_copy(self, sender: rumps.MenuItem) -> None:
         new_state = 0 if sender.state == 1 else 1
         sender.state = new_state
         self.engine.update_config({"copy_to_clipboard": new_state == 1})
-
-    def _on_trigger_select(self, sender: rumps.MenuItem) -> None:
-        new_key = sender._trigger_key
-        if new_key == self.engine.state.config.get("trigger_key", "fn"):
-            return
-        for key, item in self._trigger_items.items():
-            item.state = 1 if key == new_key else 0
-        self.engine.update_trigger_key(new_key)
-
-    def _on_learn_trigger(self, sender: rumps.MenuItem) -> None:
-        """Start learning mode for the trigger key."""
-        try:
-            from AppKit import NSAlert
-
-            # Alert asking user to press a key
-            alert = NSAlert.alloc().init()
-            alert.setMessageText_("Press the key you want to use as trigger")
-            alert.setInformativeText_("Waiting for your key press...")
-            alert.addButtonWithTitle_("Cancel")
-
-            from Quartz import (
-                CFMachPortCreateRunLoopSource,
-                CFRunLoopAddSource,
-                CFRunLoopGetCurrent,
-                CFRunLoopRun,
-                CFRunLoopStop,
-                CFRelease,
-                CGEventGetIntegerValueField,
-                CGEventMaskBit,
-                CGEventTapCreate,
-                CGEventTapEnable,
-                kCGEventKeyDown,
-                kCGEventTapOptionListenOnly,
-                kCFRunLoopDefaultMode,
-                kCGHeadInsertEventTap,
-                kCGKeyboardEventKeycode,
-                kCGSessionEventTap,
-            )
-
-            learned_keycode = None
-
-            def _learn_callback(proxy, event_type, event, refcon):
-                nonlocal learned_keycode
-                if event_type == kCGEventKeyDown:
-                    keycode = CGEventGetIntegerValueField(
-                        event, kCGKeyboardEventKeycode
-                    )
-                    # Ignore modifier keys during learning
-                    if keycode in (252, 253, 254, 255):
-                        return event
-                    learned_keycode = keycode
-                    CFRunLoopStop(CFRunLoopGetCurrent())
-                return event
-
-            tap = CGEventTapCreate(
-                kCGSessionEventTap,
-                kCGHeadInsertEventTap,
-                kCGEventTapOptionListenOnly,
-                CGEventMaskBit(kCGEventKeyDown),
-                _learn_callback,
-                None,
-            )
-
-            if tap:
-                run_loop_source = CFMachPortCreateRunLoopSource(None, tap, 0)
-                CFRunLoopAddSource(
-                    CFRunLoopGetCurrent(), run_loop_source, kCFRunLoopDefaultMode
-                )
-                CGEventTapEnable(tap, True)
-                CFRunLoopRun()
-                CFRelease(tap)
-            else:
-                cancel_alert = NSAlert.alloc().init()
-                cancel_alert.setMessageText_(
-                    "Input Monitoring required"
-                )
-                cancel_alert.setInformativeText_(
-                    "Please grant Input Monitoring permission in System Settings."
-                )
-                cancel_alert.addButtonWithTitle_("OK")
-                cancel_alert.runModal()
-                return
-
-            if learned_keycode is not None:
-                key_name = keycode_to_label(learned_keycode)
-                confirm = NSAlert.alloc().init()
-                confirm.setMessageText_(f"Trigger key set to '{key_name}'")
-                confirm.setInformativeText_(
-                    f"Keycode: {learned_keycode}\nPress it to start dictation."
-                )
-                confirm.addButtonWithTitle_("OK")
-                confirm.runModal()
-
-                # Save the learned key
-                self.engine.update_trigger_key(str(learned_keycode))
-
-                # Update menu to show the custom key
-                if learned_keycode not in PRESET_TRIGGERS:
-                    label = keycode_to_label(learned_keycode)
-                    custom_item = rumps.MenuItem(
-                        label, callback=self._on_trigger_select
-                    )
-                    custom_item._trigger_key = str(learned_keycode)
-                    custom_item._keycode = learned_keycode
-                    custom_item.state = 1
-                    # Uncheck preset items
-                    for key, item in self._trigger_items.items():
-                        item.state = 0
-                    # Insert before "Learn trigger key..."
-                    self.trigger_key_menu.insert(custom_item, len(PRESET_TRIGGERS))
-                    self._trigger_items[str(learned_keycode)] = custom_item
-            else:
-                cancel_alert = NSAlert.alloc().init()
-                cancel_alert.setMessageText_("Learning cancelled")
-                cancel_alert.setInformativeText_("No key was captured.")
-                cancel_alert.addButtonWithTitle_("OK")
-                cancel_alert.runModal()
-
-        except ImportError as e:
-            print(f"[menu] Cannot learn trigger key: {e}", file=sys.stderr)
 
     def _on_reload(self, _sender: Any) -> None:
         script_path = ICONS_DIR.parent.parent / "whispy_daemon.py"
@@ -374,17 +204,4 @@ class WhisperMenuBarApp(rumps.App):
         else:
             self.status_item.title = "Ready"
 
-        if self.engine.state.fn_listener_active:
-            trigger_key = self.engine.state.config.get("trigger_key", "fn")
-            if trigger_key in PRESET_TRIGGERS:
-                key_label = PRESET_TRIGGERS[trigger_key][1]
-            else:
-                key_label = keycode_to_label(int(trigger_key))
-            self.fn_status_item.title = f"Trigger: {key_label} \u2713"
-        else:
-            from ..hardware import event_tap
-
-            if event_tap.QUARTZ_AVAILABLE:
-                self.fn_status_item.title = "Trigger: \u2717 inactive (check permissions)"
-            else:
-                self.fn_status_item.title = "Trigger: \u2014 (pyobjc not installed)"
+        self.fn_status_item.title = "Trigger: Fn \u2713"

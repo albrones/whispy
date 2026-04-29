@@ -116,7 +116,6 @@ class TestGetConfig:
         assert status == 200
         assert body["model_size"] == "small"
         assert body["language"] == "fr"
-        assert body["compute_key"] == "cpu-int8"
 
 
 class TestGetLastTranscription:

@@ -41,7 +41,6 @@ from whispy.hardware.event_tap import (
     DEFAULT_TRIGGER_KEYCODE,
     EventTapListener,
     NX_SECONDARYFNMASK,
-    PRESET_TRIGGERS,
     kCGEventKeyDown,
     kCGEventKeyUp,
     kCGEventFlagsChanged,
@@ -388,115 +387,6 @@ class TestEventTapCallback:
 
 
 # ---------------------------------------------------------------------------
-# TestEventTapLearningMode
-# ---------------------------------------------------------------------------
-
-
-class TestEventTapLearningMode:
-    """Test EventTapListener learning mode."""
-
-    def test_learning_mode_captures_keycode(self):
-        """start_learning() then simulate keydown → stop_learning() returns captured keycode."""
-        listener = EventTapListener(trigger_keycode=63)
-        listener.start_learning()
-
-        mock_event = MagicMock()
-
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=0,
-        ):
-            listener._event_callback(None, kCGEventKeyDown, mock_event, None)
-
-        learned = listener.stop_learning()
-        assert learned == 0
-        assert listener.is_learning is False
-
-    def test_learning_ignores_current_trigger_key(self):
-        """During learning, the current trigger key should be ignored."""
-        listener = EventTapListener(trigger_keycode=63)
-        listener.start_learning()
-
-        mock_event = MagicMock()
-
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=63,
-        ):
-            listener._event_callback(None, kCGEventKeyDown, mock_event, None)
-
-        assert listener._learned_keycode is None
-        assert listener.is_learning is True
-
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=41,
-        ):
-            listener._event_callback(None, kCGEventKeyDown, mock_event, None)
-
-        assert listener.is_learning is False
-        assert listener.stop_learning() == 41
-
-    def test_learning_mode_no_keydown_event(self):
-        """Non-keydown events during learning should not capture a keycode."""
-        listener = EventTapListener(trigger_keycode=63)
-        listener.start_learning()
-
-        mock_event = MagicMock()
-
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=0,
-        ):
-            listener._event_callback(None, kCGEventKeyUp, mock_event, None)
-
-        assert listener._learned_keycode is None
-        assert listener.is_learning is True
-
-    def test_stop_learning_without_start_returns_none(self):
-        """stop_learning() without start_learning() should return None."""
-        listener = EventTapListener()
-        learned = listener.stop_learning()
-        assert learned is None
-
-    def test_learning_mode_clears_on_stop(self):
-        """stop_learning() should clear learning state."""
-        listener = EventTapListener(trigger_keycode=63)
-        listener.start_learning()
-
-        mock_event = MagicMock()
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=0,
-        ):
-            listener._event_callback(None, kCGEventKeyDown, mock_event, None)
-
-        assert listener._learned_keycode is not None
-
-        listener.stop_learning()
-        assert listener._learned_keycode is None
-        assert listener.is_learning is False
-
-    def test_multiple_learning_cycles(self):
-        """Should be able to start/stop learning multiple times."""
-        listener = EventTapListener(trigger_keycode=63)
-        mock_event = MagicMock()
-
-        for expected_keycode in [0, 1, 41]:
-            listener.start_learning()
-            assert listener.is_learning is True
-
-            with patch(
-                "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-                return_value=expected_keycode,
-            ):
-                listener._event_callback(None, kCGEventKeyDown, mock_event, None)
-
-            assert listener.stop_learning() == expected_keycode
-            assert listener.is_learning is False
-
-
-# ---------------------------------------------------------------------------
 # TestFullFnWorkflowIntegration
 # ---------------------------------------------------------------------------
 
@@ -751,33 +641,11 @@ class TestFullFnWorkflowIntegration:
             audio_module.RECORDING_PATH = original_audio_path
             engine_module.RECORDING_PATH = original_engine_path
 
-    def test_preset_trigger_keys_map_correctly(self):
-        """All PRESET_TRIGGERS should map to valid keycodes."""
-        for name, (keycode, label) in PRESET_TRIGGERS.items():
-            assert isinstance(keycode, int)
-            assert keycode >= 0
-            assert isinstance(label, str)
-            assert len(label) > 0
-
     def test_trigger_keycode_from_config_fn(self, state, tmp_config):
         """Engine should resolve 'fn' trigger_key to keycode 63."""
         engine = Engine(state, tmp_config)
         keycode = engine._trigger_keycode_from_config()
         assert keycode == 63
-
-    def test_trigger_keycode_from_config_ampersand(self, state, tmp_config):
-        """Engine should resolve 'ampersand' trigger_key to keycode 38."""
-        state.config["trigger_key"] = "ampersand"
-        engine = Engine(state, tmp_config)
-        keycode = engine._trigger_keycode_from_config()
-        assert keycode == 38
-
-    def test_trigger_keycode_from_config_custom(self, state, tmp_config):
-        """Engine should use DEFAULT_TRIGGER_KEYCODE for unknown trigger_key."""
-        state.config["trigger_key"] = "unknown_key"
-        engine = Engine(state, tmp_config)
-        keycode = engine._trigger_keycode_from_config()
-        assert keycode == DEFAULT_TRIGGER_KEYCODE
 
     def test_engine_start_and_stop_recording(self, state, engine, mocker, tmp_path):
         """Engine start/stop recording via AudioEngine."""
@@ -847,7 +715,6 @@ class TestFullFnWorkflowIntegration:
         """Config save and load should preserve all values."""
         config = {
             "model_size": "medium",
-            "compute_key": "cpu-float32",
             "language": "fr",
             "beam_size": 3,
             "best_of": 4,
@@ -858,7 +725,6 @@ class TestFullFnWorkflowIntegration:
 
         loaded = load_config(tmp_config)
         assert loaded["model_size"] == "medium"
-        assert loaded["compute_key"] == "cpu-float32"
         assert loaded["language"] == "fr"
         assert loaded["beam_size"] == 3
         assert loaded["best_of"] == 4

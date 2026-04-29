@@ -17,18 +17,16 @@ from faster_whisper import WhisperModel
 
 from .audio import AudioEngine, RECORDING_PATH
 from .state_machine import State, StateMachine
-from ..hardware.event_tap import EventTapListener, DEFAULT_TRIGGER_KEYCODE, PRESET_TRIGGERS
+from ..hardware.event_tap import EventTapListener, DEFAULT_TRIGGER_KEYCODE
 from ..hardware.injection import TextInjector
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "model_size": "small",
-    "compute_key": "cpu-int8",
     "language": "fr",
     "beam_size": 1,
     "best_of": 2,
     "copy_to_clipboard": False,
     "auto_detect_min_duration": 0.5,
-    "trigger_key": "fn",
 }
 
 MODEL_PRESETS: Dict[str, Dict[str, str]] = {
@@ -49,28 +47,8 @@ MODEL_PRESETS: Dict[str, Dict[str, str]] = {
 }
 
 SUPPORTED_LANGUAGES: Dict[str, str] = {
-    "auto": "Auto-detect (requires >= 1s audio for reliable detection)",
     "fr": "French",
     "en": "English",
-}
-
-COMPUTE_OPTIONS: Dict[str, Dict[str, str]] = {
-    "cpu-int8": {"label": "CPU (int8)", "device": "cpu", "compute_type": "int8"},
-    "cpu-float32": {
-        "label": "CPU (float32)",
-        "device": "cpu",
-        "compute_type": "float32",
-    },
-    "cuda-float16": {
-        "label": "CUDA (float16)",
-        "device": "cuda",
-        "compute_type": "float16",
-    },
-    "cuda-int8": {
-        "label": "CUDA (int8)",
-        "device": "cuda",
-        "compute_type": "int8_float16",
-    },
 }
 
 
@@ -123,18 +101,16 @@ def save_config(config: Dict[str, Any], config_path: Path) -> None:
 # Model loading
 # ---------------------------------------------------------------------------
 def _load_model(config: Dict[str, Any]) -> WhisperModel:
-    """Instantiate WhisperModel from config dict."""
-    compute = COMPUTE_OPTIONS.get(config["compute_key"], COMPUTE_OPTIONS["cpu-int8"])
+    """Instantiate WhisperModel from config dict. Always uses CPU int8."""
     cpu_threads = 0
-    if compute["device"] == "cpu":
-        try:
-            cpu_threads = max(2, os.cpu_count() // 2)
-        except (TypeError, AttributeError):
-            cpu_threads = 4
+    try:
+        cpu_threads = max(2, os.cpu_count() // 2)
+    except (TypeError, AttributeError):
+        cpu_threads = 4
     return WhisperModel(
         config["model_size"],
-        device=compute["device"],
-        compute_type=compute["compute_type"],
+        device="cpu",
+        compute_type="int8",
         cpu_threads=cpu_threads,
     )
 
@@ -147,8 +123,7 @@ def load_model_async(engine: "Engine") -> None:
         engine._notify_status_change()
         try:
             model_name = engine.state.config["model_size"]
-            compute_key = engine.state.config["compute_key"]
-            print(f"[model] Loading '{model_name}' with compute '{compute_key}'...")
+            print(f"[model] Loading '{model_name}' with CPU int8...")
             new_model = _load_model(engine.state.config)
             engine.state.model = new_model
             print("[model] Loaded successfully")
@@ -292,7 +267,7 @@ class Engine:
         text = self._audio_engine.transcribe(
             audio_path=RECORDING_PATH,
             model=self.state.model,
-            language=self.state.config.get("language", "auto"),
+            language=self.state.config.get("language", "fr"),
             beam_size=self.state.config.get("beam_size", 1),
             best_of=self.state.config.get("best_of", 2),
             auto_detect_min_duration=self.state.config.get(
@@ -310,15 +285,8 @@ class Engine:
     # -- Fn key listener --
 
     def _trigger_keycode_from_config(self) -> int:
-        """Convert the configured trigger_key to a keycode."""
-        trigger_key = self.state.config.get("trigger_key", "fn")
-        if trigger_key in PRESET_TRIGGERS:
-            return PRESET_TRIGGERS[trigger_key][0]
-        # Handle custom/learned keycodes stored as strings
-        try:
-            return int(trigger_key)
-        except (ValueError, TypeError):
-            return DEFAULT_TRIGGER_KEYCODE
+        """Always return the hardcoded Fn keycode (44)."""
+        return DEFAULT_TRIGGER_KEYCODE
 
     def start_fn_listener(self) -> None:
         """Start the trigger key event tap listener."""
@@ -349,37 +317,8 @@ class Engine:
     def stop_fn_listener(self) -> None:
         """Stop the trigger key event tap listener."""
         if self._fn_listener:
-            # Stop learning mode if active
-            self._fn_listener.stop_learning()
             self._fn_listener.stop()
             self.state.fn_listener_active = False
-
-    def update_trigger_key(self, trigger_key: str) -> None:
-        """Update the trigger key in config and restart the listener."""
-        self.state.config["trigger_key"] = trigger_key
-        save_config(self.state.config, self._config_path)
-        # Restart the listener with the new trigger key
-        self.stop_fn_listener()
-        self.start_fn_listener()
-
-    def start_learning(self) -> bool:
-        """Start learning mode for the trigger key.
-
-        Returns True if learning was started, False if event tap is not active.
-        """
-        if not self._fn_listener:
-            return False
-        self._fn_listener.start_learning()
-        return True
-
-    def stop_learning(self) -> Optional[int]:
-        """Stop learning mode and return the learned keycode.
-
-        Returns None if no keycode was learned or learning was not active.
-        """
-        if not self._fn_listener:
-            return None
-        return self._fn_listener.stop_learning()
 
     # -- Transcription worker --
 
@@ -430,7 +369,7 @@ class Engine:
 
         if "copy_to_clipboard" in updates:
             self._text_injector.update_config(updates["copy_to_clipboard"])
-        if any(k in updates for k in ("model_size", "compute_key")):
+        if "model_size" in updates:
             needs_reload = True
         return needs_reload
 
