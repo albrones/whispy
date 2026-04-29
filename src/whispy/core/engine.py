@@ -178,6 +178,8 @@ class Engine:
     ) -> None:
         self.state = state
         self._status_callbacks: List[Callable] = []
+        self._recording_start_callbacks: List[Callable] = []
+        self._recording_stop_callbacks: List[Callable] = []
         self._config_path = config_path or (
             Path.home() / ".config" / "whispy" / "config.json"
         )
@@ -207,16 +209,44 @@ class Engine:
         """Sync DictationState when FSM enters RECORDING."""
         self.state.is_recording = True
         self.state.is_transcribing = False
+        self._notify_recording_start()
 
     def _on_fsm_transcribing(self, _state: State) -> None:
         """Sync DictationState when FSM enters TRANSCRIBING."""
         self.state.is_recording = False
         self.state.is_transcribing = True
+        self._notify_recording_stop()
 
     def _on_fsm_idle(self, _state: State) -> None:
         """Sync DictationState when FSM enters IDLE."""
         self.state.is_recording = False
         self.state.is_transcribing = False
+
+    # -- Recording lifecycle callbacks --
+
+    def on_recording_start(self, callback: Callable) -> None:
+        """Register a callback to be called when recording starts."""
+        self._recording_start_callbacks.append(callback)
+
+    def on_recording_stop(self, callback: Callable) -> None:
+        """Register a callback to be called when recording stops."""
+        self._recording_stop_callbacks.append(callback)
+
+    def _notify_recording_start(self) -> None:
+        """Notify all registered callbacks of recording start."""
+        for cb in list(self._recording_start_callbacks):
+            try:
+                cb()
+            except Exception:
+                pass
+
+    def _notify_recording_stop(self) -> None:
+        """Notify all registered callbacks of recording stop."""
+        for cb in list(self._recording_stop_callbacks):
+            try:
+                cb()
+            except Exception:
+                pass
 
     # -- Callback system --
 

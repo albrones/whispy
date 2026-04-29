@@ -14,6 +14,8 @@ from ..core.engine import (
     MODEL_PRESETS,
     SUPPORTED_LANGUAGES,
 )
+from .audio_level import AudioLevelMonitor
+from .ferrofluid_window import FerrofluidWindow
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -50,6 +52,13 @@ class WhisperMenuBarApp(rumps.App):
 
         # Register for status updates
         self.engine.on_status_change(self.update_status_display)
+
+        # Recording visualization
+        self._audio_monitor = AudioLevelMonitor()
+        self._visualization = FerrofluidWindow()
+        self._visualization.set_audio_monitor(self._audio_monitor)
+        self.engine.on_recording_start(self._on_visualization_show)
+        self.engine.on_recording_stop(self._on_visualization_hide)
 
     def _load_icons(self) -> None:
         """Load icon paths for animation frames."""
@@ -139,6 +148,17 @@ class WhisperMenuBarApp(rumps.App):
                 self.icon = self._idle_icon
             self._recording_frame = 0
 
+    # -- Visualization callbacks --
+
+    def _on_visualization_show(self) -> None:
+        """Show the ferrofluid visualization when recording starts."""
+        if self._audio_monitor.start():
+            self._visualization.show()
+
+    def _on_visualization_hide(self) -> None:
+        """Hide the ferrofluid visualization when recording stops."""
+        self._visualization.hide()
+
     # -- Menu callbacks --
 
     def _on_model_select(self, sender: rumps.MenuItem) -> None:
@@ -186,7 +206,13 @@ class WhisperMenuBarApp(rumps.App):
         rumps.quit_application()
 
     def _on_quit(self, _sender: Any) -> None:
+        self._cleanup_visualization()
         rumps.quit_application()
+
+    def _cleanup_visualization(self) -> None:
+        """Clean up visualization resources on app quit."""
+        self._visualization.destroy()
+        self._audio_monitor.stop()
 
     # -- Status display --
 
