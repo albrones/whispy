@@ -11,33 +11,55 @@ from typing import Any
 
 from AppKit import NSColor, NSView
 from Quartz import (
-    CGColorSpaceCreateDeviceGray,
+    CGColorSpaceCreateDeviceRGB,
+    CGGradientCreateWithColors,
     CGContextAddArc,
     CGContextAddLineToPoint,
     CGContextBeginPath,
     CGContextClosePath,
-    CGContextClearRect,
-    CGContextConcatCTM,
-    CGContextCreateLinearGradient,
-    CGContextCreateRadialGradient,
-    CGContextDrawGradient,
+    CGContextDrawLinearGradient,
+    CGContextDrawRadialGradient,
     CGContextFillPath,
-    CGContextGetCTM,
-    CGContextGetType,
     CGContextMoveToPoint,
-    CGContextSetLineWidth,
     CGContextSetRGBFillColor,
     CGContextSetRGBStrokeColor,
     CGContextSetShadowWithColor,
     CGContextTranslateCTM,
-    CGBitmapContextCreateImage,
-    CGImageCreateWithImageInRect,
-    CGImageDestinationCreateWithURL,
-    CGImageDestinationAddImage,
-    CGImageDestinationFinalize,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _make_color(r: float, g: float, b: float, a: float) -> NSColor:
+    """Create an NSColor with explicit RGBA values."""
+    return NSColor.colorWithSRGBRed_green_blue_alpha_(r, g, b, a)
+
+
+def _create_linear_gradient(
+    ctx: Any,
+    start: tuple[float, float],
+    end: tuple[float, float],
+    color_stops: list[tuple[float, float, float, float]],
+) -> Any:
+    """Create a CoreGraphics linear gradient."""
+    color_space = CGColorSpaceCreateDeviceRGB()
+    colors = [_make_color(*c) for c in color_stops]
+    locations = [i / (len(color_stops) - 1) for i in range(len(color_stops))]
+    return CGGradientCreateWithColors(color_space, colors, locations)
+
+
+def _create_radial_gradient(
+    ctx: Any,
+    center: tuple[float, float],
+    inner_radius: float,
+    outer_radius: float,
+    color_stops: list[tuple[float, float, float, float]],
+) -> Any:
+    """Create a CoreGraphics radial gradient."""
+    color_space = CGColorSpaceCreateDeviceRGB()
+    colors = [_make_color(*c) for c in color_stops]
+    locations = [i / (len(color_stops) - 1) for i in range(len(color_stops))]
+    return CGGradientCreateWithColors(color_space, colors, locations)
 
 
 class FerrofluidView(NSView):
@@ -54,6 +76,7 @@ class FerrofluidView(NSView):
         self._last_frame_time: float = 0.0
         self._frame_count: int = 0
         self._spike_phase: float = 0.0
+        self._audio_monitor: Any = None
         # Sphere parameters
         self._sphere_radius: float = 50.0
         self._spike_count: int = 16
@@ -73,13 +96,14 @@ class FerrofluidView(NSView):
         """Set the fade target for show/hide animation."""
         self._fade_target = 1.0 if visible else 0.0
 
+    def set_audio_monitor(self, monitor: Any) -> None:
+        """Set the audio level monitor to read from during animation."""
+        self._audio_monitor = monitor
+
     def start_animation(self) -> None:
         """Start the NSTimer-driven animation loop at ~30fps."""
         if self._anim_timer is not None:
             return
-        # We use a Python timer thread instead of NSTimer to avoid rumps
-        # timer integration complexity. The drawRect: will be called
-        # via performSelectorOnMainThread.
         self._last_frame_time = time.monotonic()
         self._schedule_next_frame()
 
@@ -110,6 +134,11 @@ class FerrofluidView(NSView):
         self._last_frame_time = now
         self._frame_count += 1
 
+        # Read audio level from monitor if available
+        if self._audio_monitor is not None:
+            raw_level = self._audio_monitor.get_level()
+            self._target_level = max(self._target_level, raw_level)
+        
         # Smooth audio level interpolation
         lerp_speed = min(dt * 4.0, 1.0)
         self._audio_level = (
@@ -163,24 +192,19 @@ class FerrofluidView(NSView):
         alpha = self._current_fade * 0.9
         ctx.setAlpha(alpha)
 
-        # Translate to sphere center
-        ctx.beginPath()
-        ctx.closePath()
-
         # Draw ambient glow (large radial gradient)
-        glow_ctx = ctx
-        glow_ctx.beginPath()
-        glow = glow_ctx.createRadialGradient(
-            (cx, cy), self._sphere_radius * 0.5,
-            (cx, cy), self._sphere_radius * 3.0
+        glow = _create_radial_gradient(
+            ctx,
+            (cx, cy),
+            self._sphere_radius * 0.5,
+            self._sphere_radius * 3.0,
+            [
+                (0.15, 0.10, 0.25, 0.3),
+                (0.08, 0.05, 0.15, 0.1),
+                (0.0, 0.0, 0.0, 0.0),
+            ],
         )
-        glow.addColorStop(0.0, (0.15, 0.10, 0.25, 0.3))
-        glow.addColorStop(0.5, (0.08, 0.05, 0.15, 0.1))
-        glow.addColorStop(1.0, (0.0, 0.0, 0.0, 0.0))
-        glow_ctx.saveGraphicsState()
-        glow_ctx.clipToRect_(((0, 0), (w, h)))
-        glow_ctx.fillRect_(((0, 0), (w, h)))
-        glow_ctx.restoreGraphicsState()
+        CGContextDrawRadialGradient(ctx, glow, (cx, cy), self._sphere_radius * 0.5, (cx, cy), self._sphere_radius * 3.0, 0)
 
         # Draw spikes
         self._draw_spikes(ctx, cx, cy)
@@ -246,54 +270,64 @@ class FerrofluidView(NSView):
             ctx.closePath()
 
             # Gradient fill for spike
-            spike_grad = ctx.createLinearGradient(
+            spike_grad = _create_linear_gradient(
+                ctx,
                 (inner_x, inner_y),
-                (outer_x, outer_y)
+                (outer_x, outer_y),
+                [
+                    (r * 0.5, g * 0.5, b * 0.5, 0.9),
+                    (r, g, b, 0.85),
+                    (r * 1.5, g * 1.2, b * 1.3, 0.3),
+                ],
             )
-            spike_grad.addColorStop(0.0, (r * 0.5, g * 0.5, b * 0.5, 0.9))
-            spike_grad.addColorStop(0.6, (r, g, b, 0.85))
-            spike_grad.addColorStop(1.0, (r * 1.5, g * 1.2, b * 1.3, 0.3))
-            ctx.setFillWithGradient_(spike_grad)
-            ctx.fillPath()
+            CGContextDrawLinearGradient(ctx, spike_grad, (inner_x, inner_y), (outer_x, outer_y), 0)
+            CGContextFillPath(ctx)
 
     def _draw_sphere(self, ctx: Any, cx: float, cy: float) -> None:
         """Draw the main ferrofluid sphere with radial gradient."""
         r = self._sphere_radius
 
         # Sphere gradient: dark purple center to near-black edge
-        sphere_grad = ctx.createRadialGradient(
+        sphere_grad = _create_radial_gradient(
+            ctx,
             (cx - r * 0.2, cy - r * 0.2),
             r * 0.1,
-            (cx, cy),
-            r * 0.95
+            r * 0.95,
+            [
+                (0.18, 0.12, 0.30, 1.0),
+                (0.12, 0.08, 0.22, 1.0),
+                (0.06, 0.04, 0.14, 1.0),
+                (0.03, 0.02, 0.08, 1.0),
+            ],
         )
-        sphere_grad.addColorStop(0.0, (0.18, 0.12, 0.30, 1.0))
-        sphere_grad.addColorStop(0.3, (0.12, 0.08, 0.22, 1.0))
-        sphere_grad.addColorStop(0.7, (0.06, 0.04, 0.14, 1.0))
-        sphere_grad.addColorStop(1.0, (0.03, 0.02, 0.08, 1.0))
+        CGContextDrawRadialGradient(ctx, sphere_grad, (cx - r * 0.2, cy - r * 0.2), r * 0.1, (cx, cy), r * 0.95, 0)
 
         ctx.beginPath()
         ctx.addArc((cx, cy), r, 0, math.pi * 2, False)
         ctx.closePath()
-        ctx.setFillWithGradient_(sphere_grad)
-        ctx.fillPath()
+        CGContextFillPath(ctx)
 
         # Subtle surface undulation based on audio level
         level = self._audio_level
         if level > 0.01:
             undulation = level * 0.15
-            surface_grad = ctx.createRadialGradient(
-                (cx, cy), r * (1.0 - undulation),
-                (cx, cy), r * (1.0 + undulation)
+            surface_grad = _create_radial_gradient(
+                ctx,
+                (cx, cy),
+                r * (1.0 - undulation),
+                r * (1.0 + undulation),
+                [
+                    (0.0, 0.0, 0.0, 0.0),
+                    (0.15, 0.10, 0.25, 0.0),
+                    (0.20, 0.15, 0.35, level * 0.3),
+                ],
             )
-            surface_grad.addColorStop(0.0, (0.0, 0.0, 0.0, 0.0))
-            surface_grad.addColorStop(0.8, (0.15, 0.10, 0.25, 0.0))
-            surface_grad.addColorStop(1.0, (0.20, 0.15, 0.35, level * 0.3))
+            CGContextDrawRadialGradient(ctx, surface_grad, (cx, cy), r * (1.0 - undulation), (cx, cy), r * (1.0 + undulation), 0)
+
             ctx.beginPath()
             ctx.addArc((cx, cy), r * (1.0 + undulation), 0, math.pi * 2, False)
             ctx.closePath()
-            ctx.setFillWithGradient_(surface_grad)
-            ctx.fillPath()
+            CGContextFillPath(ctx)
 
     def _draw_highlight(self, ctx: Any, cx: float, cy: float) -> None:
         """Draw specular highlight on the sphere."""
@@ -301,38 +335,42 @@ class FerrofluidView(NSView):
         highlight_x = cx - self._sphere_radius * 0.25
         highlight_y = cy - self._sphere_radius * 0.25
 
-        hl_grad = ctx.createRadialGradient(
+        hl_grad = _create_radial_gradient(
+            ctx,
             (highlight_x, highlight_y),
             0,
-            (highlight_x, highlight_y),
-            highlight_r
+            highlight_r,
+            [
+                (0.45, 0.35, 0.60, 0.35),
+                (0.25, 0.18, 0.40, 0.15),
+                (0.10, 0.06, 0.20, 0.0),
+            ],
         )
-        hl_grad.addColorStop(0.0, (0.45, 0.35, 0.60, 0.35))
-        hl_grad.addColorStop(0.4, (0.25, 0.18, 0.40, 0.15))
-        hl_grad.addColorStop(1.0, (0.10, 0.06, 0.20, 0.0))
+        CGContextDrawRadialGradient(ctx, hl_grad, (highlight_x, highlight_y), 0, (highlight_x, highlight_y), highlight_r, 0)
 
         ctx.beginPath()
         ctx.addArc((highlight_x, highlight_y), highlight_r, 0, math.pi * 2, False)
         ctx.closePath()
-        ctx.setFillWithGradient_(hl_grad)
-        ctx.fillPath()
+        CGContextFillPath(ctx)
 
         # Secondary blue highlight
         blue_x = cx + self._sphere_radius * 0.3
         blue_y = cy + self._sphere_radius * 0.15
         blue_r = self._sphere_radius * 0.2
 
-        blue_grad = ctx.createRadialGradient(
+        blue_grad = _create_radial_gradient(
+            ctx,
             (blue_x, blue_y),
             0,
-            (blue_x, blue_y),
-            blue_r
+            blue_r,
+            [
+                (0.10, 0.15, 0.35, 0.15),
+                (0.05, 0.08, 0.20, 0.0),
+            ],
         )
-        blue_grad.addColorStop(0.0, (0.10, 0.15, 0.35, 0.15))
-        blue_grad.addColorStop(1.0, (0.05, 0.08, 0.20, 0.0))
+        CGContextDrawRadialGradient(ctx, blue_grad, (blue_x, blue_y), 0, (blue_x, blue_y), blue_r, 0)
 
         ctx.beginPath()
         ctx.addArc((blue_x, blue_y), blue_r, 0, math.pi * 2, False)
         ctx.closePath()
-        ctx.setFillWithGradient_(blue_grad)
-        ctx.fillPath()
+        CGContextFillPath(ctx)

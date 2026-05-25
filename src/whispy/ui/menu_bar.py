@@ -14,8 +14,6 @@ from ..core.engine import (
     MODEL_PRESETS,
     SUPPORTED_LANGUAGES,
 )
-from .audio_level import AudioLevelMonitor
-from .ferrofluid_window import FerrofluidWindow
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -44,38 +42,22 @@ class WhisperMenuBarApp(rumps.App):
         if icon_path is None:
             self.title = "\U0001f3a4"
 
-        self._recording_frame = 0
         self._idle_icon = icon_path
-        self._transcribing_icon: Optional[str] = None
-        self._load_icons()
         self._build_menu()
 
         # Register for status updates
         self.engine.on_status_change(self.update_status_display)
 
-        # Recording visualization
-        self._audio_monitor = AudioLevelMonitor()
-        self._visualization = FerrofluidWindow()
-        self._visualization.set_audio_monitor(self._audio_monitor)
-        self.engine.on_recording_start(self._on_visualization_show)
-        self.engine.on_recording_stop(self._on_visualization_hide)
-
-    def _load_icons(self) -> None:
-        """Load icon paths for animation frames."""
-        frame_names = [
-            "mic-recording-1.png",
-            "mic-recording-2.png",
-            "mic-recording-3.png",
-        ]
-        self._recording_icons = []
-        for name in frame_names:
-            path = ICONS_DIR / name
-            if path.exists():
-                self._recording_icons.append(str(path))
-
-        transcribing_path = ICONS_DIR / "mic-transcribing.png"
-        if transcribing_path.exists():
-            self._transcribing_icon = str(transcribing_path)
+        # Floating indicator window (always available, no external deps)
+        from .indicator_window import IndicatorWindow
+        self._indicator = IndicatorWindow()
+        btn = self.status_item.button() if hasattr(self.status_item, 'button') else None
+        if btn:
+            self._indicator.set_status_item_frame(btn.frame())
+        self.engine.on_fn_pressed(self._on_fn_pressed)
+        self.engine.on_fn_released(self._on_fn_released)
+        self.engine.on_recording_start(self._on_recording_start)
+        self.engine.on_recording_stop(self._on_recording_stop)
 
     def _build_menu(self) -> None:
         """Construct the full menu structure."""
@@ -133,31 +115,46 @@ class WhisperMenuBarApp(rumps.App):
             quit_item,
         ]
 
-    # -- Animation --
+    # -- Indicator window callbacks --
 
-    @rumps.timer(0.2)
-    def _animate(self, _sender: Any) -> None:
-        if self.engine.state.is_recording and self._recording_icons:
-            idx = self._recording_frame % len(self._recording_icons)
-            self.icon = self._recording_icons[idx]
-            self._recording_frame += 1
-        elif self.engine.state.is_transcribing and self._transcribing_icon:
-            self.icon = self._transcribing_icon
+    def _on_fn_pressed(self) -> None:
+        """Show indicator when FN key is pressed."""
+        if not self.engine.state.is_recording:
+            self._indicator.show("listening")
+
+    def _on_fn_released(self) -> None:
+        """Transition to transcribing indicator when FN key is released."""
+        if self.engine.state.is_transcribing:
+            self._indicator.show("transcribing")
+
+    def _on_recording_start(self) -> None:
+        """Show recording indicator when audio recording starts."""
+        self._indicator.show("recording")
+
+    def _on_recording_stop(self) -> None:
+        """Hide indicator when recording stops (transcription is async)."""
+        if not self.engine.state.is_transcribing:
+            self._indicator.hide()
+
+    # -- Status display --
+
+    def update_status_display(self) -> None:
+        """Refresh the status line in the menu."""
+        if self.engine._fn_pressed and not self.engine.state.is_recording:
+            self.status_item.title = "Listening..."
+        elif self.engine.state.model_loading:
+            model_name = self.engine.state.config["model_size"]
+            self.status_item.title = f"Loading model {model_name}..."
+        elif self.engine.state.model is None:
+            self.status_item.title = "\u26a0 Model not loaded"
+        elif self.engine.state.is_recording:
+            self.status_item.title = "\U0001f534 Recording..."
+        elif self.engine.state.is_transcribing:
+            self.status_item.title = "\u23f3 Transcribing..."
         else:
-            if self._idle_icon:
-                self.icon = self._idle_icon
-            self._recording_frame = 0
+            self.status_item.title = "Ready"
 
-    # -- Visualization callbacks --
-
-    def _on_visualization_show(self) -> None:
-        """Show the ferrofluid visualization when recording starts."""
-        if self._audio_monitor.start():
-            self._visualization.show()
-
-    def _on_visualization_hide(self) -> None:
-        """Hide the ferrofluid visualization when recording stops."""
-        self._visualization.hide()
+        self.fn_status_item.title = "Trigger: Fn \u2713"
 
     # -- Menu callbacks --
 
@@ -206,28 +203,5 @@ class WhisperMenuBarApp(rumps.App):
         rumps.quit_application()
 
     def _on_quit(self, _sender: Any) -> None:
-        self._cleanup_visualization()
+        self._indicator.destroy()
         rumps.quit_application()
-
-    def _cleanup_visualization(self) -> None:
-        """Clean up visualization resources on app quit."""
-        self._visualization.destroy()
-        self._audio_monitor.stop()
-
-    # -- Status display --
-
-    def update_status_display(self) -> None:
-        """Refresh the status line in the menu."""
-        if self.engine.state.model_loading:
-            model_name = self.engine.state.config["model_size"]
-            self.status_item.title = f"Loading model {model_name}..."
-        elif self.engine.state.model is None:
-            self.status_item.title = "\u26a0 Model not loaded"
-        elif self.engine.state.is_recording:
-            self.status_item.title = "\U0001f534 Recording..."
-        elif self.engine.state.is_transcribing:
-            self.status_item.title = "\u23f3 Transcribing..."
-        else:
-            self.status_item.title = "Ready"
-
-        self.fn_status_item.title = "Trigger: Fn \u2713"

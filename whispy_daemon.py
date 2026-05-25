@@ -10,7 +10,18 @@ This is the main entry point. All logic is in src/whispy/.
 
 import signal
 import sys
+import logging
 from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(Path.home() / ".whispy.log"),
+        logging.StreamHandler(),
+    ],
+)
 
 # Ensure src/ is on the path
 _SCRIPT_DIR = Path(__file__).resolve().parent

@@ -60,6 +60,14 @@ def generate_icons():
     img.save(path)
     print(f"  {path}")
 
+    # Waiting icon: filled circle (FN pressed, listening)
+    img = _new_image()
+    draw = ImageDraw.Draw(img)
+    draw.ellipse((3, 3, 19, 19), fill="black")
+    path = os.path.join(ICONS_DIR, "mic-waiting.png")
+    img.save(path)
+    print(f"  {path}")
+
 
 if __name__ == "__main__":
     print("Generating icons...")

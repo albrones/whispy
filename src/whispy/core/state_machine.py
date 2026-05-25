@@ -95,6 +95,8 @@ class StateMachine:
 
         Raises InvalidTransitionError for truly illegal transitions.
         """
+        import logging
+        logger = logging.getLogger(__name__)
         with self._lock:
             current = self._current_state
 
@@ -106,12 +108,15 @@ class StateMachine:
             }
 
             allowed = valid_transitions.get(current, [])
+            logger.info(f"[fsm] transition_to: {current.name} -> {target.name}, allowed={allowed}")
 
             if target == current:
                 # Already in this state — no-op, return True (idempotent)
+                logger.info(f"[fsm] Already in {target.name}, no-op")
                 return True
 
             if target not in allowed:
+                logger.warning(f"[fsm] Invalid transition from {current.name} to {target.name}")
                 raise InvalidTransitionError(
                     f"Cannot transition from {current.name} to {target.name}. "
                     f"Allowed: {[s.name for s in allowed]}"
@@ -119,6 +124,7 @@ class StateMachine:
 
             self._current_state = target
             self._transitions.append(f"{current.name} -> {target.name}")
+            logger.info(f"[fsm] Transitioned to {target.name}, notifying callbacks")
 
         # Notify outside the lock to avoid deadlocks
         self._notify_callbacks(target)

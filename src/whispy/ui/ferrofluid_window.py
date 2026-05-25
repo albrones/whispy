@@ -11,6 +11,7 @@ from AppKit import (
     NSApplication,
     NSBorderlessWindowMask,
     NSColor,
+    NSFloatingWindowLevel,
     NSPopUpMenuWindowLevel,
     NSView,
     NSWindow,
@@ -63,8 +64,8 @@ class FerrofluidWindow:
         )
         self._window = window
 
-        # Set window level to stay above most windows
-        self._window.setLevel(NSPopUpMenuWindowLevel + 1)
+        # Set window level to stay above menu bar and all other windows
+        self._window.setLevel(NSPopUpMenuWindowLevel + 2)
 
         # Collection behavior: don't appear in Mission Control/Spaces
         self._window.setCollectionBehavior_(
@@ -80,6 +81,10 @@ class FerrofluidWindow:
         self._window.setOpaque_(False)
         self._window.setBackgroundColor_(NSColor.colorWithSRGBRed_green_blue_alpha_(0.0, 0.0, 0.0, 0.0))
 
+        # Pass audio monitor to the view
+        if self._audio_level_monitor is not None:
+            view.set_audio_monitor(self._audio_level_monitor)
+
         # Set the view
         self._window.contentView().addSubview_(view)
 
@@ -92,31 +97,47 @@ class FerrofluidWindow:
         """Show the visualization window and start animation."""
         self._ensure_initialized()
         if self._window is None or self._view is None:
+            logger.warning("[ferrofluid] Window or view is None, cannot show")
             return
 
         # Center on primary display
         screen = NSApplication.sharedApplication().mainScreen()
         if screen is None:
+            logger.warning("[ferrofluid] No main screen found")
             return
 
         screen_frame = screen.visibleFrame()
         win_w = self.WINDOW_SIZE
         win_h = self.WINDOW_SIZE
-        # Position: centered horizontally, slightly above menu bar
+        # Position: centered horizontally, just below menu bar
         x = (screen_frame.size.width - win_w) / 2 + screen_frame.origin.x
         y = screen_frame.origin.y + screen_frame.size.height - win_h + 28
         self._window.setFrame_display_(
             (x, y, win_w, win_h),
-            False,
+            True,
+        )
+        logger.info(
+            "[ferrofluid] Window positioned at (%.0f, %.0f, %.0f, %.0f)",
+            x, y, win_w, win_h,
         )
 
-        # Set fade target and start animation
-        self._view.set_visible(True)
-        self._view.set_audio_level(0.0)
-        self._view.start_animation()
+        # Make window visible BEFORE setting view state
+        # Use orderFrontRegardless to bypass key window requirements
+        self._window.orderFrontRegardless_()
+        logger.info("[ferrofluid] Window ordered front")
 
-        # Make key and order front
-        self._window.makeKeyAndOrderFront_(None)
+        # Make view fully visible immediately (no fade delay)
+        self._view._current_fade = 1.0
+        self._view._fade_target = 1.0
+        self._view.set_audio_level(0.0)
+
+        # Force immediate redraw now that window is visible
+        self._window.contentView().setNeedsDisplay_(True)
+        logger.info("[ferrofluid] View marked for redraw")
+
+        # Start animation loop
+        self._view.start_animation()
+        logger.info("[ferrofluid] Animation started")
 
     def hide(self) -> None:
         """Hide the visualization window and stop animation."""

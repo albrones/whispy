@@ -84,33 +84,27 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def _sync_stop_and_transcribe(self, engine: Engine) -> Optional[str]:
         """Stop recording and transcribe synchronously (for /stop endpoint)."""
-        import subprocess
         import os
 
-        with engine.state.lock:
-            if not engine.state.is_recording:
-                return None
-            engine.state.is_recording = False
-            proc = engine.state.recording_process
-            engine.state.recording_process = None
+        # Properly transition FSM through RECORDING -> TRANSCRIBING
+        # AudioEngine.stop() handles sox termination + FSM transition
+        engine._audio_engine.stop()
 
+        engine.state.is_recording = False
         engine._notify_status_change()
-
-        if proc and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-
-        if not os.path.exists(RECORDING_PATH):
-            return None
 
         engine.state.is_transcribing = True
         engine._notify_status_change()
 
+        if not os.path.exists(RECORDING_PATH):
+            engine._state_machine.transcription_complete()
+            engine.state.is_transcribing = False
+            engine._notify_status_change()
+            return None
+
         text = engine.run_transcription()
 
+        engine._state_machine.transcription_complete()
         engine.state.is_transcribing = False
         engine._notify_status_change()
         return text

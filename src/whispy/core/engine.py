@@ -180,9 +180,12 @@ class Engine:
         self._status_callbacks: List[Callable] = []
         self._recording_start_callbacks: List[Callable] = []
         self._recording_stop_callbacks: List[Callable] = []
+        self._fn_pressed_callbacks: List[Callable] = []
+        self._fn_released_callbacks: List[Callable] = []
         self._config_path = config_path or (
             Path.home() / ".config" / "whispy" / "config.json"
         )
+        self._fn_pressed = False
 
         # Core components
         self._state_machine = StateMachine()
@@ -234,15 +237,51 @@ class Engine:
 
     def _notify_recording_start(self) -> None:
         """Notify all registered callbacks of recording start."""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[engine] _notify_recording_start called, {len(self._recording_start_callbacks)} callbacks registered")
         for cb in list(self._recording_start_callbacks):
+            try:
+                logger.info(f"[engine] Calling recording start callback: {cb.__name__}")
+                cb()
+            except Exception as exc:
+                logger.error(f"[engine] Error in recording start callback: {exc}")
+                pass
+
+    def _notify_recording_stop(self) -> None:
+        """Notify all registered callbacks of recording stop."""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[engine] _notify_recording_stop called, {len(self._recording_stop_callbacks)} callbacks registered")
+        for cb in list(self._recording_stop_callbacks):
+            try:
+                logger.info(f"[engine] Calling recording stop callback: {cb.__name__}")
+                cb()
+            except Exception as exc:
+                logger.error(f"[engine] Error in recording stop callback: {exc}")
+                pass
+
+    def on_fn_pressed(self, callback: Callable) -> None:
+        """Register a callback to be called when FN key is pressed."""
+        self._fn_pressed_callbacks.append(callback)
+
+    def on_fn_released(self, callback: Callable) -> None:
+        """Register a callback to be called when FN key is released."""
+        self._fn_released_callbacks.append(callback)
+
+    def _notify_fn_pressed(self) -> None:
+        """Notify all registered callbacks of FN key press."""
+        self._fn_pressed = True
+        for cb in list(self._fn_pressed_callbacks):
             try:
                 cb()
             except Exception:
                 pass
 
-    def _notify_recording_stop(self) -> None:
-        """Notify all registered callbacks of recording stop."""
-        for cb in list(self._recording_stop_callbacks):
+    def _notify_fn_released(self) -> None:
+        """Notify all registered callbacks of FN key release."""
+        self._fn_pressed = False
+        for cb in list(self._fn_released_callbacks):
             try:
                 cb()
             except Exception:
@@ -267,6 +306,7 @@ class Engine:
         return {
             "is_recording": self.state.is_recording,
             "is_transcribing": self.state.is_transcribing,
+            "fn_pressed": self._fn_pressed,
             "fn_listener_active": self.state.fn_listener_active,
             "model_loaded": self.state.model is not None,
             "model_loading": self.state.model_loading,
@@ -324,6 +364,7 @@ class Engine:
 
         def _on_trigger_press() -> None:
             """Handle trigger key press — start recording."""
+            self._notify_fn_pressed()
             subprocess.Popen(
                 ["afplay", "/System/Library/Sounds/Tink.aiff"],
                 stdout=subprocess.DEVNULL,
@@ -333,6 +374,7 @@ class Engine:
 
         def _on_trigger_release() -> None:
             """Handle trigger key release — stop recording asynchronously."""
+            self._notify_fn_released()
             self.stop_recording()
             self.state._stop_event.set()
 
