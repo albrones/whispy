@@ -149,6 +149,9 @@ class AudioEngine:
             except OSError:
                 pass
 
+        # Small delay to ensure sox flushes remaining audio data to disk
+        # before the transcription worker reads the file.
+        time.sleep(0.15)
         return self._sm.stop_recording()
 
     def transcribe(

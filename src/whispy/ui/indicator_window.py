@@ -66,7 +66,7 @@ class IndicatorWindow:
         self._label.setDrawsBackground_(False)
         self._label.setEditable_(False)
         self._label.setSelectable_(False)
-        self._label.setAlignment_(NSTextField.alignmentCenter())
+        self._label.setAlignment_(2)  # NSTextAlignmentCenter
         self._label.setFont_(NSFont.systemFontOfSize_(self.FONT_SIZE))
         self._label.setStringValue_(_STATE_EMOJIS["idle"])
 
@@ -102,7 +102,6 @@ class IndicatorWindow:
 
     def show(self, state: str = "listening") -> None:
         """Show the indicator window with the given state."""
-        logger.info(f"[indicator] show called with state={state}")
         self._ensure_initialized()
         if not self._window or not self._label:
             logger.warning("[indicator] Window or label is None")
@@ -112,7 +111,6 @@ class IndicatorWindow:
         emoji = _STATE_EMOJIS.get(state, "\U0001f3a4")
         self._current_state = state
         self._label.setStringValue_(emoji)
-        logger.info(f"[indicator] Emoji set to: {emoji}")
 
         # Set text color based on state
         r, g, b = _STATE_COLORS.get(state, (0.5, 0.5, 0.5))
@@ -123,15 +121,12 @@ class IndicatorWindow:
         # Position: top-right corner, below menu bar, visible in fullscreen
         screen = NSApplication.sharedApplication().screens()[0]
         screen_frame = screen.frame()
-        # Top-right corner, 16px from edges, below menu bar (24px)
         x = screen_frame.size.width - self.WINDOW_WIDTH - 16 + screen_frame.origin.x
         y = screen_frame.size.height - 24 - self.WINDOW_HEIGHT + 4
         self._window.setFrame_display_(NSMakeRect(x, y, self.WINDOW_WIDTH, self.WINDOW_HEIGHT), True)
-        logger.info(f"[indicator] Window positioned at ({x:.0f}, {y:.0f}, {self.WINDOW_WIDTH}, {self.WINDOW_HEIGHT})")
 
         # Force to front regardless of key window status
         self._window.orderFrontRegardless_()
-        logger.info("[indicator] Window ordered front")
 
     def hide(self) -> None:
         """Hide the indicator window."""

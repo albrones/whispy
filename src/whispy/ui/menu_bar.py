@@ -1,21 +1,17 @@
-"""Menu bar UI via rumps for status, animation, and settings."""
+"""Menu bar UI via rumps for status and settings."""
 
-import platform
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import rumps
 
 from ..core.engine import (
     Engine,
-    DEFAULT_CONFIG,
     MODEL_PRESETS,
     SUPPORTED_LANGUAGES,
 )
-from .audio_level import AudioLevelMonitor
-from .ferrofluid_window import FerrofluidWindow
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -53,13 +49,7 @@ class WhisperMenuBarApp(rumps.App):
         # Floating indicator window (always available, no external deps)
         from .indicator_window import IndicatorWindow
         self._indicator = IndicatorWindow()
-        # Ferrofluid visualization (replaces indicator during recording)
-        self._audio_monitor = AudioLevelMonitor()
-        self._visualization = FerrofluidWindow()
-        self._visualization.set_audio_monitor(self._audio_monitor)
-        btn = self.status_item.button() if hasattr(self.status_item, 'button') else None
-        if btn:
-            self._indicator.set_status_item_frame(btn.frame())
+
         self.engine.on_fn_pressed(self._on_fn_pressed)
         self.engine.on_fn_released(self._on_fn_released)
         self.engine.on_recording_start(self._on_recording_start)
@@ -124,29 +114,23 @@ class WhisperMenuBarApp(rumps.App):
     # -- Indicator window callbacks --
 
     def _on_fn_pressed(self) -> None:
-        """Show ferrofluid visualization when FN key is pressed."""
+        """Show recording indicator when FN key is pressed."""
         if not self.engine.state.is_recording:
-            self._indicator.hide()
-            self._visualization.show()
+            self._indicator.show("recording")
 
     def _on_fn_released(self) -> None:
-        """Transition to transcribing visualization when FN key is released."""
+        """Show transcribing indicator when FN key is released."""
         if self.engine.state.is_transcribing:
             self._indicator.show("transcribing")
-            self._visualization.hide()
 
     def _on_recording_start(self) -> None:
-        """Start recording visualization and audio monitor."""
-        self._indicator.hide()
-        self._audio_monitor.start()
-        self._visualization.show()
+        """Update indicator to recording state."""
+        self._indicator.show("recording")
 
     def _on_recording_stop(self) -> None:
-        """Stop recording visualization and audio monitor."""
-        if not self.engine.state.is_transcribing:
-            self._audio_monitor.stop()
-            self._visualization.hide()
-            self._indicator.hide()
+        """Update indicator to transcribing state."""
+        if self.engine.state.is_transcribing:
+            self._indicator.show("transcribing")
 
     # -- Status display --
 
@@ -216,6 +200,4 @@ class WhisperMenuBarApp(rumps.App):
 
     def _on_quit(self, _sender: Any) -> None:
         self._indicator.destroy()
-        self._audio_monitor.stop()
-        self._visualization.destroy()
         rumps.quit_application()

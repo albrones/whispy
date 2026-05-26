@@ -254,9 +254,10 @@ class EventTapListener:
             self._run_loop_thread.join(timeout=2)
 
     def _event_callback(
-        self, _proxy: Any, event_type: int, event: Any, _refcon: Any
+        self, _proxy: Any, _type: Any, event: Any, _refcon: Any
     ) -> Any:
-        """Callback invoked for each relevant CGEvent."""
+        """Callback invoked for each relevant CGEvent (pyobjc legacy signature)."""
+        event_type = CGEventGetType(event)
         keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
 
         # Normal mode: check against configured trigger keycode
@@ -268,6 +269,10 @@ class EventTapListener:
             # For Fn key (keycode 63), check secondary flag to distinguish press/release
             if self._trigger_keycode == 63:
                 flags = CGEventGetFlags(event)
+                # CGEventGetFlags may return a tuple on some pyobjc versions
+                if isinstance(flags, tuple):
+                    # Take the first (and usually only) meaningful element
+                    flags = flags[0] if flags else 0
                 if flags & NX_SECONDARYFNMASK:
                     if self._on_trigger_press:
                         self._on_trigger_press()

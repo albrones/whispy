@@ -131,10 +131,18 @@ class StateMachine:
         return True
 
     def start_recording(self) -> bool:
-        """Transition from IDLE to RECORDING. Returns False if already recording."""
+        """Transition from IDLE to RECORDING. Returns False if already recording.
+
+        Also handles the case where we're in TRANSCRIBING (user presses Fn
+        during transcription) by resetting to IDLE first.
+        """
         with self._lock:
             if self._current_state == State.RECORDING:
                 return False
+            # If we're in TRANSCRIBING, force-reset to IDLE first
+            if self._current_state == State.TRANSCRIBING:
+                self._current_state = State.IDLE
+
         try:
             return self.transition_to(State.RECORDING)
         except InvalidTransitionError:
