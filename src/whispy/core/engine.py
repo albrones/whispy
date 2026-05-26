@@ -16,88 +16,25 @@ from typing import Any, Callable, Dict, List, Optional
 from faster_whisper import WhisperModel
 
 from .audio import AudioEngine, RECORDING_PATH
+from .config import (
+    load_config,
+    save_config,
+    get_default_config_path,
+    DEFAULT_CONFIG,
+    MODEL_PRESETS,
+    SUPPORTED_LANGUAGES,
+)
 from .state_machine import State, StateMachine
+from .text_cleaner import clean_text
 from ..hardware.event_tap import EventTapListener, DEFAULT_TRIGGER_KEYCODE
 from ..hardware.injection import TextInjector
 
-DEFAULT_CONFIG: Dict[str, Any] = {
-    "model_size": "small",
-    "language": "fr",
-    "beam_size": 1,
-    "best_of": 2,
-    "copy_to_clipboard": False,
-    "auto_detect_min_duration": 0.5,
-}
-
-MODEL_PRESETS: Dict[str, Dict[str, str]] = {
-    "tiny": {
-        "label": "Fast (tiny)",
-        "description": "75 MB — fastest, limited quality",
-    },
-    "base": {
-        "label": "Light (base)",
-        "description": "142 MB — good speed/quality balance",
-    },
-    "small": {"label": "Normal (small)", "description": "466 MB — recommended"},
-    "medium": {"label": "Accurate (medium)", "description": "1.5 GB — best quality"},
-    "large-v3": {
-        "label": "Maximum (large)",
-        "description": "2.9 GB — maximum quality, slow",
-    },
-}
-
-SUPPORTED_LANGUAGES: Dict[str, str] = {
-    "fr": "French",
-    "en": "English",
-}
 
 
 # ---------------------------------------------------------------------------
 # Config persistence
 # ---------------------------------------------------------------------------
-def load_config(config_path: Path) -> Dict[str, Any]:
-    """Load config from disk, falling back to defaults."""
-    config = dict(DEFAULT_CONFIG)
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                saved = json.load(f)
-            config.update({k: saved[k] for k in saved if k in DEFAULT_CONFIG})
-        except (json.JSONDecodeError, OSError) as exc:
-            print(f"[config] Failed to load {config_path}: {exc}", file=sys.stderr)
-    return config
-
-
-def save_config(config: Dict[str, Any], config_path: Path) -> None:
-    """Persist config to disk atomically, filtering to known keys."""
-    filtered: Dict[str, Any] = {}
-    for key in DEFAULT_CONFIG:
-        if key in config:
-            filtered[key] = config[key]
-        else:
-            filtered[key] = DEFAULT_CONFIG[key]
-    for key in config:
-        if key not in DEFAULT_CONFIG:
-            print(
-                f"[config] Unknown config key '{key}' filtered out",
-                file=sys.stderr,
-            )
-    config_dir = config_path.parent
-    try:
-        config_dir.mkdir(parents=True, exist_ok=True)
-        tmp_path = config_path.with_suffix(".json.tmp")
-        with open(tmp_path, "w") as f:
-            json.dump(filtered, f, indent=2)
-        os.replace(tmp_path, config_path)
-    except OSError as exc:
-        print(f"[config] Failed to save {config_path}: {exc}", file=sys.stderr)
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-
-# ---------------------------------------------------------------------------
+# Config loading/saving are now in config.py with validation and migration.
 # Model loading
 # ---------------------------------------------------------------------------
 def _load_model(config: Dict[str, Any]) -> WhisperModel:
@@ -346,8 +283,11 @@ class Engine:
         )
 
         if text:
-            self.state.last_transcription = text
-            self._text_injector.inject(text)
+            # Strip Whisper watermark credits before injection
+            cleaned = clean_text(text)
+            if cleaned:
+                self.state.last_transcription = cleaned
+                self._text_injector.inject(cleaned)
             self._audio_engine.cleanup_audio_file(RECORDING_PATH)
 
         return text

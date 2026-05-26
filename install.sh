@@ -19,6 +19,14 @@ if ! command -v python3 &>/dev/null; then
     exit 1
 fi
 
+# Check for sox
+if ! command -v sox &>/dev/null; then
+    echo -e "${YELLOW}Warning: sox is not installed. Audio recording requires sox.${NC}"
+    echo -e "${YELLOW}Install it with: brew install sox${NC}"
+    echo -e "${YELLOW}Rerun this script after installing sox.${NC}"
+    exit 1
+fi
+
 # Uninstall option
 if [[ "${1:-}" == "--uninstall" ]]; then
     echo -e "${YELLOW}Removing LaunchAgent and .venv directory...${NC}"

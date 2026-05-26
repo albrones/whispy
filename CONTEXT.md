@@ -9,7 +9,12 @@ This file provides a technical map of the `whispy` codebase to help AI agents an
 
 - `/whispy/`
   - `README.md` — Project introduction, high-level overview, and basic usage instructions.
-  - `whispy.py` — Main entry point for the application.
+  - `whispy_daemon.py` — Main entry point for the application.
+  - `src/whispy/` — Python package with modular components:
+    - `core/` — Engine, state machine, audio engine, config
+    - `hardware/` — Event tap (Fn key), text injection
+    - `ui/` — Menu bar app, indicator windows, audio level monitor
+    - `api/` — HTTP API server
   - `generate_icons.py` — Script for generating and managing icon assets.
   - `icons/` — Directory containing all icon assets used by the project.
   - `.venv/` — Python virtual environment (should be ignored by tools and version control).
@@ -28,7 +33,7 @@ This file provides a technical map of the `whispy` codebase to help AI agents an
 
 ## Entry Points
 
-- **Main Application**: Run the project via `whispy.py`.
+- **Main Application**: Run the project via `whispy_daemon.py`.
 - **Icon Generation**: Use `generate_icons.py` to update or generate icon assets.
 
 ---
@@ -54,7 +59,7 @@ This file provides a technical map of the `whispy` codebase to help AI agents an
 - **Start with `README.md`** for a high-level introduction and usage instructions.
 - **Consult `AGENTS.md`** for agent architecture, responsibilities, and extension practices.
 - **Refer to `CONTEXT.md`** (this file) for a technical overview and navigation guidance.
-- **Explore `whispy.py`** for the main application logic and entry point.
+- **Explore `src/whispy/core/engine.py`** for the main application logic.
 - **Check `generate_icons.py` and `icons/`** for asset management.
 
 ---

@@ -1,5 +1,16 @@
 # Whispy — Codebase Specification
 
+> **⚠️ V1 Release Note (2026-05-26):** This specification was written before the V1 stabilization. Several sections are now outdated:
+> - `src/whispy/core/config.py` now exists (was not documented)
+> - `src/whispy/core/text_cleaner.py` now exists (was not documented)
+> - `whispy_legacy.py` has been removed
+> - Model loading has been unified (`_load_model_async` + `_load_model_on_device` → single `_load_model_async`)
+> - Config validation and migration are now implemented
+> - Text cleaning is now in `text_cleaner.py` (was inline in `engine.py`)
+> - See `CHANGELOG.md` for the full list of changes.
+>
+> Sections marked `[OBSOLETE]` below are superseded by the V1 implementation.
+
 ## 1. Overview
 
 **Whispy** is a macOS local voice dictation utility that runs as a menu bar daemon. The user holds the **Fn** key to record audio and releases it to automatically transcribe and inject text into the active text field. All processing is local — no data leaves the machine.
@@ -22,7 +33,7 @@
 ## 2. Software Architecture
 
 ```
-whispy.py                    ← Entry point
+whispy_daemon.py             ← Entry point
   │
   ├── Engine (core/engine.py) ← Central orchestrator
   │     ├── StateMachine (core/state_machine.py)  ← FSM IDLE → RECORDING → TRANSCRIBING → IDLE
@@ -64,7 +75,7 @@ whispy.py                    ← Entry point
 
 ## 3. Module Specifications
 
-### 3.1 `whispy.py` — Entry Point
+### 3.1 `whispy_daemon.py` — Entry Point
 
 **Purpose:** Initialization and startup orchestration.
 
@@ -368,7 +379,7 @@ Quit [q]
 5. Loads the LaunchAgent
 
 **LaunchAgent Plist:**
-- Program: `.venv/bin/python3 whispy.py`
+- Program: `.venv/bin/python3 whispy_daemon.py`
 - RunAtLoad: true, KeepAlive: true
 - StandardOut: `~/.whispy.log`, StandardError: `~/.whispy-error.log`
 - PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`
@@ -407,10 +418,15 @@ Quit [q]
 
 ```
 whispy/
-├── whispy.py                    # Entry point
+├── whispy_daemon.py             # Entry point
 ├── pyproject.toml               # Project config, dependencies, pytest
 ├── install.sh                   # Setup script (venv, LaunchAgent)
 ├── generate_icons.py            # Icon generation (PIL)
+├── src/whispy/                  # Python package
+│   ├── core/                    # Engine, state machine, audio, config
+│   ├── hardware/                # Event tap, text injection
+│   ├── ui/                      # Menu bar, indicators, audio level
+│   └── api/                     # HTTP server
 ├── icons/                       # Menu bar icons (5 PNG files)
 ├── src/
 │   └── whispy/

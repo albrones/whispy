@@ -170,7 +170,7 @@ A `.graphifyignore` file controls which paths are excluded from the graph (e.g.,
 
 ## Configuration
 
-You can modify the top of `whispy.py` to change:
+You can modify the top of `whispy_daemon.py` or `~/.config/whispy/config.json` to change:
 - `PORT` — HTTP port (default: 9090)
 - `WHISPER_MODEL_SIZE` — Model name (default: `small`)
 - The language is set to French (`language="fr"`).
@@ -276,12 +276,15 @@ Test files are organized by scope:
 
 | File | Scope |
 |------|-------|
-| `tests/test_core.py` | Core engine, state machine, config |
+| `tests/test_engine.py` | Core engine, state machine, config |
 | `tests/test_audio.py` | AudioEngine, transcription, language detection |
 | `tests/test_integration.py` | Multi-module integration |
 | `tests/test_e2e.py` | End-to-end workflow tests |
 | `tests/test_event_tap_e2e.py` | EventTapListener E2E tests |
 | `tests/test_api/test_server.py` | HTTP API server tests |
+| `tests/test_text_cleaning.py` | Whisper credit stripping |
+| `tests/test_config_validation.py` | Config validation and migration |
+| `tests/test_error_handling.py` | Error cases (sox, mic, model) |
 | `tests/test_stress.py` | Concurrent access stress tests |
 
 ## License

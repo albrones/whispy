@@ -53,7 +53,7 @@ This document provides high-signal context for agents working in the `whispy` re
 - **Config:** Stored in `~/.config/whispy/config.json`.
 - **Logging:** Logs are written to `~/.whispy.log` and `~/.whispy-error.log`.
 - **Language:** All code, documentation, and UI strings must be in English (though the current UI has some French).
-- **Testing:** No dedicated test suite is present in the root; verification is primarily manual via the daemon or API.
+|- **Testing:** A test suite exists in `tests/` with files for core, audio, integration, e2e, event tap, API, config validation, and stress testing. Run with `./.venv/bin/pytest`.
 
 **Language Policy**
 
@@ -69,7 +69,7 @@ All documentation, code comments, and user-facing messages in the codebase must 
 - **Python Interpreter:** The daemon uses the `.venv/bin/python3` interpreter. Ensure permissions are granted to this specific executable if required.
 
 ### 🏗️ Architecture
-- **Single File Core:** The main logic resides in `whispy.py`. It handles the UI, HTTP server, and background tasks (recording/transcription).
+|- **Modular architecture:** Main logic is in `src/whispy/core/engine.py`. Entry point is `whispy_daemon.py`. Package structure: `src/whispy/core/` (engine, state machine, audio), `src/whispy/hardware/` (event tap, text injection), `src/whispy/ui/` (menu bar, indicators), `src/whispy/api/` (HTTP server).
 - **Concurrency:** Uses `threading` for the HTTP server, model loading, and transcription workers.
 - **State Management:** A global `state` object (`DictationState`) manages recording, transcription, and model status across threads.
 
@@ -80,7 +80,7 @@ All documentation, code comments, and user-facing messages in the codebase must 
 
 ### 📝 Development Guidelines
 - **English Only:** All code, comments, and UI strings must be in English.
-- **No Tests:** There is no automated test suite. Verification is manual via the UI or API.
+|- **Testing:** A test suite exists in `tests/`. Run with `./.venv/bin/pytest`.
 - **Avoid Breaking the Loop:** The `_fn_event_callback` must be non-blocking. Use threads or async processes for heavy tasks like transcription.
 
 
