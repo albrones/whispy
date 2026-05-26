@@ -70,7 +70,7 @@ class FerrofluidView(NSView):
     """
 
     def __init__(self, frame: tuple[float, float, float, float]) -> None:
-        super().__init__()
+        super().__init__(frame)
         self._audio_level: float = 0.0
         self._target_level: float = 0.0
         self._last_frame_time: float = 0.0
@@ -105,7 +105,11 @@ class FerrofluidView(NSView):
         if self._anim_timer is not None:
             return
         self._last_frame_time = time.monotonic()
-        self._schedule_next_frame()
+        from AppKit import NSRunLoop, NSTimer
+        self._anim_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+            1.0 / 30.0, self, self._draw_frame, None, False
+        )
+        NSRunLoop.currentRunLoop().addTimer_forMode_(self._anim_timer, NSDefaultRunLoopMode)
 
     def stop_animation(self) -> None:
         """Stop the animation loop."""
@@ -156,7 +160,7 @@ class FerrofluidView(NSView):
         self._spike_phase += dt * 0.3
 
         # Trigger redraw
-        self.needsDisplay = True
+        self.setNeedsDisplay_(True)
 
         # Continue loop if visible
         if self._current_fade > 0.01:
@@ -166,6 +170,7 @@ class FerrofluidView(NSView):
 
     def drawRect_(self, rect: Any) -> None:
         """Render the ferrofluid sphere."""
+        super().drawRect_(rect)
         from AppKit import NSApplication
 
         if self._current_fade < 0.01:

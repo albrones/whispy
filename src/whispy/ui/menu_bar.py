@@ -14,6 +14,8 @@ from ..core.engine import (
     MODEL_PRESETS,
     SUPPORTED_LANGUAGES,
 )
+from .audio_level import AudioLevelMonitor
+from .ferrofluid_window import FerrofluidWindow
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -51,6 +53,10 @@ class WhisperMenuBarApp(rumps.App):
         # Floating indicator window (always available, no external deps)
         from .indicator_window import IndicatorWindow
         self._indicator = IndicatorWindow()
+        # Ferrofluid visualization (replaces indicator during recording)
+        self._audio_monitor = AudioLevelMonitor()
+        self._visualization = FerrofluidWindow()
+        self._visualization.set_audio_monitor(self._audio_monitor)
         btn = self.status_item.button() if hasattr(self.status_item, 'button') else None
         if btn:
             self._indicator.set_status_item_frame(btn.frame())
@@ -118,22 +124,28 @@ class WhisperMenuBarApp(rumps.App):
     # -- Indicator window callbacks --
 
     def _on_fn_pressed(self) -> None:
-        """Show indicator when FN key is pressed."""
+        """Show ferrofluid visualization when FN key is pressed."""
         if not self.engine.state.is_recording:
-            self._indicator.show("listening")
+            self._indicator.hide()
+            self._visualization.show()
 
     def _on_fn_released(self) -> None:
-        """Transition to transcribing indicator when FN key is released."""
+        """Transition to transcribing visualization when FN key is released."""
         if self.engine.state.is_transcribing:
             self._indicator.show("transcribing")
+            self._visualization.hide()
 
     def _on_recording_start(self) -> None:
-        """Show recording indicator when audio recording starts."""
-        self._indicator.show("recording")
+        """Start recording visualization and audio monitor."""
+        self._indicator.hide()
+        self._audio_monitor.start()
+        self._visualization.show()
 
     def _on_recording_stop(self) -> None:
-        """Hide indicator when recording stops (transcription is async)."""
+        """Stop recording visualization and audio monitor."""
         if not self.engine.state.is_transcribing:
+            self._audio_monitor.stop()
+            self._visualization.hide()
             self._indicator.hide()
 
     # -- Status display --
@@ -204,4 +216,6 @@ class WhisperMenuBarApp(rumps.App):
 
     def _on_quit(self, _sender: Any) -> None:
         self._indicator.destroy()
+        self._audio_monitor.stop()
+        self._visualization.destroy()
         rumps.quit_application()

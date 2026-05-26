@@ -160,6 +160,7 @@ class FerrofluidWindow:
         if self._view is not None:
             self._view.set_visible(False)
             self._view.stop_animation()
+            self._view.set_audio_monitor(None)
         if self._window is not None:
             self._window.orderOut_(None)
             self._window.close()

@@ -85,7 +85,7 @@ class DictationState:
         self.is_recording = False
         self.is_transcribing = False
         self.lock = threading.Lock()
-        self._stop_event = threading.Event()
+        self.stop_event = threading.Event()
         self.fn_listener_active = False
         self.last_transcription: Optional[str] = None
         self.model: Optional[WhisperModel] = None
@@ -176,27 +176,21 @@ class Engine:
         """Notify all registered callbacks of recording start."""
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"[engine] _notify_recording_start called, {len(self._recording_start_callbacks)} callbacks registered")
         for cb in list(self._recording_start_callbacks):
             try:
-                logger.info(f"[engine] Calling recording start callback: {cb.__name__}")
                 cb()
             except Exception as exc:
-                logger.error(f"[engine] Error in recording start callback: {exc}")
-                pass
+                logger.error("[engine] Error in recording start callback: %s", exc)
 
     def _notify_recording_stop(self) -> None:
         """Notify all registered callbacks of recording stop."""
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"[engine] _notify_recording_stop called, {len(self._recording_stop_callbacks)} callbacks registered")
         for cb in list(self._recording_stop_callbacks):
             try:
-                logger.info(f"[engine] Calling recording stop callback: {cb.__name__}")
                 cb()
             except Exception as exc:
-                logger.error(f"[engine] Error in recording stop callback: {exc}")
-                pass
+                logger.error("[engine] Error in recording stop callback: %s", exc)
 
     def on_fn_pressed(self, callback: Callable) -> None:
         """Register a callback to be called when FN key is pressed."""
@@ -295,7 +289,7 @@ class Engine:
     # -- Fn key listener --
 
     def _trigger_keycode_from_config(self) -> int:
-        """Always return the hardcoded Fn keycode (44)."""
+        """Always return the hardcoded Fn keycode (63)."""
         return DEFAULT_TRIGGER_KEYCODE
 
     def start_fn_listener(self) -> None:
@@ -316,7 +310,7 @@ class Engine:
             """Handle trigger key release — stop recording asynchronously."""
             self._notify_fn_released()
             self.stop_recording()
-            self.state._stop_event.set()
+            self.state.stop_event.set()
 
         self._fn_listener = EventTapListener(
             trigger_keycode=trigger_keycode,
@@ -340,18 +334,15 @@ class Engine:
 
         def _worker() -> None:
             while self._transcription_running:
-                self.state._stop_event.wait(timeout=0.1)
-                if self.state._stop_event.is_set():
-                    self.state._stop_event.clear()
-                    self.state.is_transcribing = True
+                self.state.stop_event.wait(timeout=0.1)
+                if self.state.stop_event.is_set():
+                    self.state.stop_event.clear()
                     self._notify_status_change()
 
                     text = self.run_transcription()
                     if text:
-                        self.state.last_transcription = text
+                        self._state_machine.transcription_complete()
 
-                    self._state_machine.transcription_complete()
-                    self.state.is_transcribing = False
                     self._notify_status_change()
 
                     subprocess.Popen(
@@ -368,6 +359,8 @@ class Engine:
     def stop_transcription_worker(self) -> None:
         """Stop the background transcription worker thread."""
         self._transcription_running = False
+        if self._transcription_thread and self._transcription_thread.is_alive():
+            self._transcription_thread.join(timeout=5.0)
 
     # -- Config --
 
