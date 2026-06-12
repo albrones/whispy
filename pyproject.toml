@@ -15,6 +15,7 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-mock>=3.10",
+    "ruff>=0.6",
 ]
 
 [tool.pytest.ini_options]
@@ -23,6 +24,25 @@ pythonpath = ["src"]
 markers = [
     "macos: requires macOS",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: isort, UP: pyupgrade, B: bugbear
+select = ["E", "W", "F", "I", "UP", "B"]
+ignore = [
+    "E501",  # line length handled by the formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests set up sys.path before importing whispy (E402) and use lambdas as
+# lightweight callbacks (E731); both are intentional in the test suite.
+"tests/*" = ["B011", "E402", "E731"]
+# The daemon entry point adjusts sys.path before importing the package.
+"whispy_daemon.py" = ["E402"]
 
 [tool.coverage.run]
 source = ["src/whispy"]
