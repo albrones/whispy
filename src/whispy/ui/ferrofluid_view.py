@@ -12,19 +12,10 @@ from typing import Any
 from AppKit import NSColor, NSView
 from Quartz import (
     CGColorSpaceCreateDeviceRGB,
-    CGGradientCreateWithColors,
-    CGContextAddArc,
-    CGContextAddLineToPoint,
-    CGContextBeginPath,
-    CGContextClosePath,
     CGContextDrawLinearGradient,
     CGContextDrawRadialGradient,
     CGContextFillPath,
-    CGContextMoveToPoint,
-    CGContextSetRGBFillColor,
-    CGContextSetRGBStrokeColor,
-    CGContextSetShadowWithColor,
-    CGContextTranslateCTM,
+    CGGradientCreateWithColors,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,7 +96,8 @@ class FerrofluidView(NSView):
         if self._anim_timer is not None:
             return
         self._last_frame_time = time.monotonic()
-        from AppKit import NSRunLoop, NSTimer
+        from AppKit import NSDefaultRunLoopMode, NSRunLoop, NSTimer
+
         self._anim_timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
             1.0 / 30.0, self, self._draw_frame, None, False
         )
@@ -142,12 +134,10 @@ class FerrofluidView(NSView):
         if self._audio_monitor is not None:
             raw_level = self._audio_monitor.get_level()
             self._target_level = max(self._target_level, raw_level)
-        
+
         # Smooth audio level interpolation
         lerp_speed = min(dt * 4.0, 1.0)
-        self._audio_level = (
-            self._audio_level + (self._target_level - self._audio_level) * lerp_speed
-        )
+        self._audio_level = self._audio_level + (self._target_level - self._audio_level) * lerp_speed
 
         # Fade animation
         fade_speed = min(dt * 5.0, 1.0)
@@ -209,7 +199,9 @@ class FerrofluidView(NSView):
                 (0.0, 0.0, 0.0, 0.0),
             ],
         )
-        CGContextDrawRadialGradient(ctx, glow, (cx, cy), self._sphere_radius * 0.5, (cx, cy), self._sphere_radius * 3.0, 0)
+        CGContextDrawRadialGradient(
+            ctx, glow, (cx, cy), self._sphere_radius * 0.5, (cx, cy), self._sphere_radius * 3.0, 0
+        )
 
         # Draw spikes
         self._draw_spikes(ctx, cx, cy)
@@ -229,7 +221,7 @@ class FerrofluidView(NSView):
             return
 
         # Audio-reactive intensity (non-linear for dramatic effect)
-        intensity = min(level ** 0.7, 1.0)
+        intensity = min(level**0.7, 1.0)
 
         for i in range(self._spike_count):
             angle = (2.0 * math.pi * i / self._spike_count) + self._spike_phase
@@ -239,7 +231,7 @@ class FerrofluidView(NSView):
 
             # Add organic variation per spike
             variation = math.sin(i * 1.7 + self._spike_phase * 0.5) * 0.3
-            spike_height *= (1.0 + variation * intensity)
+            spike_height *= 1.0 + variation * intensity
 
             # Calculate spike endpoints
             inner_x = cx + math.cos(angle) * (self._sphere_radius - 3.0)
@@ -327,7 +319,9 @@ class FerrofluidView(NSView):
                     (0.20, 0.15, 0.35, level * 0.3),
                 ],
             )
-            CGContextDrawRadialGradient(ctx, surface_grad, (cx, cy), r * (1.0 - undulation), (cx, cy), r * (1.0 + undulation), 0)
+            CGContextDrawRadialGradient(
+                ctx, surface_grad, (cx, cy), r * (1.0 - undulation), (cx, cy), r * (1.0 + undulation), 0
+            )
 
             ctx.beginPath()
             ctx.addArc((cx, cy), r * (1.0 + undulation), 0, math.pi * 2, False)
@@ -351,7 +345,9 @@ class FerrofluidView(NSView):
                 (0.10, 0.06, 0.20, 0.0),
             ],
         )
-        CGContextDrawRadialGradient(ctx, hl_grad, (highlight_x, highlight_y), 0, (highlight_x, highlight_y), highlight_r, 0)
+        CGContextDrawRadialGradient(
+            ctx, hl_grad, (highlight_x, highlight_y), 0, (highlight_x, highlight_y), highlight_r, 0
+        )
 
         ctx.beginPath()
         ctx.addArc((highlight_x, highlight_y), highlight_r, 0, math.pi * 2, False)

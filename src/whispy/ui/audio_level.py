@@ -6,7 +6,7 @@ a smoothed RMS amplitude value (0.0-1.0) for visualization.
 
 import logging
 import threading
-import time
+from typing import Any
 
 import sounddevice as sd
 
@@ -77,22 +77,17 @@ class AudioLevelMonitor:
                 pass
             self._stream = None
 
-    def _audio_callback(
-        self, indata: "ndarray", frames: int, time_info, status: sd.CallbackFlags
-    ) -> None:
+    def _audio_callback(self, indata: Any, frames: int, time_info, status: sd.CallbackFlags) -> None:
         """Compute RMS amplitude from audio input and apply smoothing."""
         if status:
             return
         # Compute RMS of the channel
-        rms = float((indata ** 2).mean()) ** 0.5
+        rms = float((indata**2).mean()) ** 0.5
         # Normalize to 0.0-1.0 (approximate, depends on input device gain)
         normalized = min(rms * 10.0, 1.0)
         # Exponential moving average
         with self._lock:
-            self._smoothed_level = (
-                self._smoothing * self._smoothed_level
-                + (1.0 - self._smoothing) * normalized
-            )
+            self._smoothed_level = self._smoothing * self._smoothed_level + (1.0 - self._smoothing) * normalized
 
     def get_level(self) -> float:
         """Return the current smoothed audio level (0.0-1.0).

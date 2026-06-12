@@ -5,9 +5,6 @@ visible above the menu bar and all other windows, including in fullscreen mode.
 """
 
 import logging
-from typing import Any, Optional
-
-logger = logging.getLogger(__name__)
 
 from AppKit import (
     NSApplication,
@@ -16,13 +13,13 @@ from AppKit import (
     NSFont,
     NSMakeRect,
     NSPopUpMenuWindowLevel,
-    NSScreen,
     NSTextField,
     NSWindow,
     NSWindowCollectionBehavior,
 )
 from AppKit import NSBackingStoreBuffered as NSBackingStoreType
 
+logger = logging.getLogger(__name__)
 
 # Emoji states for each mode
 _STATE_EMOJIS = {
@@ -48,8 +45,8 @@ class IndicatorWindow:
     FONT_SIZE = 18.0
 
     def __init__(self) -> None:
-        self._window: Optional[NSWindow] = None
-        self._label: Optional[NSTextField] = None
+        self._window: NSWindow | None = None
+        self._label: NSTextField | None = None
         self._current_state: str = "idle"
         self._initialized = False
 
@@ -59,9 +56,7 @@ class IndicatorWindow:
             return
 
         # Create label with emoji text
-        self._label = NSTextField.alloc().initWithFrame_(
-            NSMakeRect(0, 0, self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
-        )
+        self._label = NSTextField.alloc().initWithFrame_(NSMakeRect(0, 0, self.WINDOW_WIDTH, self.WINDOW_HEIGHT))
         self._label.setBezeled_(False)
         self._label.setDrawsBackground_(False)
         self._label.setEditable_(False)
@@ -92,9 +87,7 @@ class IndicatorWindow:
         window.setMovable_(False)
         window.setHasShadow_(False)
         window.setOpaque_(False)
-        window.setBackgroundColor_(
-            NSColor.colorWithSRGBRed_green_blue_alpha_(0.0, 0.0, 0.0, 0.0)
-        )
+        window.setBackgroundColor_(NSColor.colorWithSRGBRed_green_blue_alpha_(0.0, 0.0, 0.0, 0.0))
         window.setIgnoresMouseEvents_(True)
 
         self._window = window
@@ -114,9 +107,7 @@ class IndicatorWindow:
 
         # Set text color based on state
         r, g, b = _STATE_COLORS.get(state, (0.5, 0.5, 0.5))
-        self._label.setTextColor_(
-            NSColor.colorWithSRGBRed_green_blue_alpha_(r, g, b, 1.0)
-        )
+        self._label.setTextColor_(NSColor.colorWithSRGBRed_green_blue_alpha_(r, g, b, 1.0))
 
         # Position: top-right corner, below menu bar, visible in fullscreen
         screen = NSApplication.sharedApplication().screens()[0]

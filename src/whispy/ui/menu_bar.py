@@ -1,17 +1,19 @@
-"""Menu bar UI via rumps for status and settings."""
+"""Menu bar UI via rumps for status, animation, and settings."""
 
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import rumps
 
 from ..core.engine import (
-    Engine,
     MODEL_PRESETS,
     SUPPORTED_LANGUAGES,
+    Engine,
 )
+from .audio_level import AudioLevelMonitor
+from .ferrofluid_window import FerrofluidWindow
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -26,11 +28,7 @@ class WhisperMenuBarApp(rumps.App):
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
 
-        icon_path = (
-            str(ICONS_DIR / "mic-idle.png")
-            if (ICONS_DIR / "mic-idle.png").exists()
-            else None
-        )
+        icon_path = str(ICONS_DIR / "mic-idle.png") if (ICONS_DIR / "mic-idle.png").exists() else None
         super().__init__(
             name="Whispy",
             icon=icon_path,
@@ -48,7 +46,13 @@ class WhisperMenuBarApp(rumps.App):
 
         # Floating indicator window (always available, no external deps)
         from .indicator_window import IndicatorWindow
+
         self._indicator = IndicatorWindow()
+
+        # Audio-reactive ferrofluid visualization (replaces indicator during recording)
+        self._audio_monitor = AudioLevelMonitor()
+        self._visualization = FerrofluidWindow()
+        self._visualization.set_audio_monitor(self._audio_monitor)
 
         self.engine.on_fn_pressed(self._on_fn_pressed)
         self.engine.on_fn_released(self._on_fn_released)
@@ -64,7 +68,7 @@ class WhisperMenuBarApp(rumps.App):
 
         # Model selection
         self.model_menu = rumps.MenuItem("Model")
-        self._model_items: Dict[str, rumps.MenuItem] = {}
+        self._model_items: dict[str, rumps.MenuItem] = {}
         for key, preset in MODEL_PRESETS.items():
             item = rumps.MenuItem(preset["label"], callback=self._on_model_select)
             item._model_key = key
@@ -75,7 +79,7 @@ class WhisperMenuBarApp(rumps.App):
 
         # Language selection
         self.language_menu = rumps.MenuItem("Language")
-        self._lang_items: Dict[str, rumps.MenuItem] = {}
+        self._lang_items: dict[str, rumps.MenuItem] = {}
         for code, label in SUPPORTED_LANGUAGES.items():
             item = rumps.MenuItem(label, callback=self._on_language_select)
             item._lang_code = code
@@ -85,9 +89,7 @@ class WhisperMenuBarApp(rumps.App):
             self.language_menu.add(item)
 
         # Clipboard toggle
-        self.copy_menu = rumps.MenuItem(
-            "Copy to clipboard", callback=self._on_toggle_copy
-        )
+        self.copy_menu = rumps.MenuItem("Copy to clipboard", callback=self._on_toggle_copy)
         self.copy_menu.state = 1 if cfg.get("copy_to_clipboard", False) else 0
 
         # Fn listener status
@@ -114,23 +116,30 @@ class WhisperMenuBarApp(rumps.App):
     # -- Indicator window callbacks --
 
     def _on_fn_pressed(self) -> None:
-        """Show recording indicator when FN key is pressed."""
+        """Show ferrofluid visualization when FN key is pressed."""
         if not self.engine.state.is_recording:
-            self._indicator.show("recording")
+            self._indicator.hide()
+            self._audio_monitor.start()
+            self._visualization.show()
 
     def _on_fn_released(self) -> None:
-        """Show transcribing indicator when FN key is released."""
+        """Transition to transcribing indicator when FN key is released."""
         if self.engine.state.is_transcribing:
+            self._visualization.hide()
             self._indicator.show("transcribing")
 
     def _on_recording_start(self) -> None:
-        """Update indicator to recording state."""
-        self._indicator.show("recording")
+        """Start recording visualization and audio monitor."""
+        self._indicator.hide()
+        self._audio_monitor.start()
+        self._visualization.show()
 
     def _on_recording_stop(self) -> None:
-        """Update indicator to transcribing state."""
-        if self.engine.state.is_transcribing:
-            self._indicator.show("transcribing")
+        """Stop recording visualization and audio monitor when not transcribing."""
+        if not self.engine.state.is_transcribing:
+            self._audio_monitor.stop()
+            self._visualization.hide()
+            self._indicator.hide()
 
     # -- Status display --
 
@@ -183,10 +192,7 @@ class WhisperMenuBarApp(rumps.App):
 
                 alert = NSAlert.alloc().init()
                 alert.setMessageText_("Restart file not found")
-                alert.setInformativeText_(
-                    f"Expected restart script at:\n{script_path}\n\n"
-                    "Please reinstall Whispy."
-                )
+                alert.setInformativeText_(f"Expected restart script at:\n{script_path}\n\nPlease reinstall Whispy.")
                 alert.addButtonWithTitle_("OK")
                 alert.runModal()
             except ImportError:
@@ -199,5 +205,7 @@ class WhisperMenuBarApp(rumps.App):
         rumps.quit_application()
 
     def _on_quit(self, _sender: Any) -> None:
+        self._audio_monitor.stop()
+        self._visualization.destroy()
         self._indicator.destroy()
         rumps.quit_application()
