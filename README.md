@@ -13,7 +13,7 @@ Everything runs locally; no data is sent over the internet.
 ## Quick Installation Guide
 
 ```bash
-git clone https://github.com/<your-user>/whispy.git
+git clone https://github.com/albrones/whispy.git
 cd whispy
 ./install.sh
 ```
@@ -35,7 +35,7 @@ brew install sox
 ### 2. Clone and Run Install Script
 
 ```bash
-git clone https://github.com/<your-user>/whispy.git
+git clone https://github.com/albrones/whispy.git
 cd whispy
 ./install.sh
 ```
@@ -100,6 +100,10 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whispy.plist
 
 The default model is `small` (faster). To change it, use the command in Step 2.
 
+Models are downloaded automatically by `faster-whisper` on first use and cached under
+`~/.cache/huggingface/hub/`. Expect the model's full size (see table) to be used on disk;
+delete that folder to reclaim the space.
+
 ## Manual Commands (API)
 
 You can interact with the daemon via HTTP:
@@ -117,47 +121,14 @@ tail -f ~/.whispy.log ~/.whispy-error.log  # Live logs
 ./.venv/bin/pip install --upgrade faster-whisper
 ```
 
-## 📊 Knowledge Graph (graphify)
-
-This project includes a [graphify](https://github.com/ton-org/graphify) knowledge graph for navigating and understanding the codebase. The graph is auto-generated from the source code and provides a semantic view of the project structure.
-
-### Setup
-
-```bash
-# Install graphify (requires Python 3.10+)
-pip install graphify
-
-# Initialize the graph
-graphify update .
-
-# (Optional) Watch mode for automatic rebuilds
-graphify watch .
-```
-
-### Usage
-
-| Command | Description |
-|---------|-------------|
-| `graphify query "<question>"` | Search the codebase via BFS traversal |
-| `graphify path "A" "B"` | Find shortest path between two nodes |
-| `graphify explain "X"` | Explain a node and its neighbors |
-| `graphify update .` | Rebuild the graph from source code |
-
-### Visualization
-
-```bash
-open graphify-out/graph.html
-```
-
-The HTML file provides an interactive visualization with zoom, drag, and hover capabilities.
-
-### Configuration
-
-A `.graphifyignore` file controls which paths are excluded from the graph (e.g., `node_modules/`, `.venv/`, `__pycache__/`).
-
----
-
 ## Troubleshooting
+
+Run the built-in diagnostic first — it checks sox, the model, the three macOS
+permissions, and whether the daemon is running:
+
+```bash
+python whispy_daemon.py --doctor   # or: make doctor
+```
 
 | Symptom | Probable Cause | Solution |
 |-----------|----------------|----------|
@@ -197,7 +168,7 @@ Or simply rerun the install script:
 With the new install script, you can uninstall everything in one command:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ton-org/whispy/main/install.sh) --uninstall
+./install.sh --uninstall
 ```
 
 Or manually:
@@ -241,13 +212,16 @@ A: Edit the Python files, then reload the LaunchAgent as above.
 
 ---
 
-## 🖥️ Linux & Windows Support (Coming Soon)
+## 🖥️ Platform Support
 
-Support for Linux and Windows is planned!  
-If you want to contribute or be notified of the release, open an issue or follow the project on GitHub.
+Whispy currently targets **macOS only**. Every hardware and UI subsystem is built on
+native Apple frameworks (Quartz `CGEventTap` for the Fn key, `osascript` for text
+injection, `rumps`/`NSWindow` for the menu bar and visualization, `LaunchAgent` for the
+daemon), so the app does not run on Linux or Windows today.
 
-- **Linux**: A systemd service or autostart script will be provided.
-- **Windows**: An automatic installer (.exe) or a PowerShell script will be provided.
+**Linux support is on the roadmap** but is a substantial port (each subsystem needs a
+platform backend). It is tracked here: see the [Linux support issue](https://github.com/albrones/whispy/issues).
+Contributions and design input are welcome — start by reading [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -268,7 +242,7 @@ Run with coverage:
 Run a specific test file:
 
 ```bash
-./.venv/bin/pytest tests/test_core.py -v
+./.venv/bin/pytest tests/test_engine.py -v
 ./.venv/bin/pytest tests/test_e2e.py -v
 ```
 
