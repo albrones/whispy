@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Whispy — Private voice dictation for macOS</title>
+  <meta name="description" content="Whispy is a fast, fully local voice dictation utility for macOS. Hold the Fn key, speak, release — your words appear in any app. Nothing ever leaves your Mac." />
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
+
+  <!-- Open Graph / social -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Whispy — Private voice dictation for macOS" />
+  <meta property="og:description" content="Hold Fn, speak, release. Local Whisper transcription that types into any app. Zero data leaves your Mac." />
+  <meta property="og:image" content="assets/logo.svg" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Whispy — Private voice dictation for macOS" />
+  <meta name="twitter:description" content="Hold Fn, speak, release. Local Whisper transcription that types into any app." />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Whispy home">
+      <img src="assets/logo.svg" width="34" height="34" alt="" />
+      <span>Whispy</span>
+    </a>
+    <nav class="nav">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#privacy">Privacy</a>
+      <a class="nav-cta" href="https://github.com/albrones/whispy">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Local-first · macOS</p>
+        <h1>Speak. <span class="accent">It types.</span><br />Nothing leaves your Mac.</h1>
+        <p class="lede">
+          Whispy is a private voice-dictation utility for macOS. Hold the
+          <kbd>Fn</kbd> key, talk, and release — your words land in whatever app
+          you're using. All transcription runs locally with
+          <code>faster-whisper</code>. No cloud, no account, no telemetry.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#install">Install Whispy</a>
+          <a class="btn btn-ghost" href="https://github.com/albrones/whispy">View source</a>
+        </div>
+        <p class="hero-note">Free &amp; open source · Apple Silicon and Intel</p>
+      </div>
+
+      <div class="hero-visual" aria-hidden="true">
+        <div class="pill">
+          <canvas id="waveform" width="280" height="96"></canvas>
+          <span class="pill-key"><kbd>Fn</kbd> held</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="section">
+      <h2>Why Whispy</h2>
+      <div class="grid">
+        <article class="card">
+          <h3>100% local</h3>
+          <p>Audio is transcribed on-device with Whisper. Your voice never touches a server.</p>
+        </article>
+        <article class="card">
+          <h3>One key, anywhere</h3>
+          <p>Hold <kbd>Fn</kbd> to record, release to insert text into any focused field — terminal, browser, editor.</p>
+        </article>
+        <article class="card">
+          <h3>Live waveform</h3>
+          <p>A subtle on-screen waveform confirms Whispy is listening, then fades away.</p>
+        </article>
+        <article class="card">
+          <h3>Multilingual</h3>
+          <p>Defaults to French and handles many languages through the Whisper model you choose.</p>
+        </article>
+        <article class="card">
+          <h3>Lives in the menu bar</h3>
+          <p>Runs quietly as a background daemon. No window to manage, no dock clutter.</p>
+        </article>
+        <article class="card">
+          <h3>Tunable models</h3>
+          <p>Trade speed for accuracy by picking a Whisper model size that fits your Mac.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section id="how" class="section">
+      <h2>How it works</h2>
+      <ol class="steps">
+        <li>
+          <span class="step-num">1</span>
+          <div><h3>Hold <kbd>Fn</kbd></h3><p>A soft chime confirms Whispy is recording.</p></div>
+        </li>
+        <li>
+          <span class="step-num">2</span>
+          <div><h3>Speak</h3><p>The waveform reacts to your voice in real time.</p></div>
+        </li>
+        <li>
+          <span class="step-num">3</span>
+          <div><h3>Release</h3><p>Whispy transcribes locally and types the text into the active field.</p></div>
+        </li>
+      </ol>
+    </section>
+
+    <!-- Privacy -->
+    <section id="privacy" class="section section-privacy">
+      <div class="privacy-inner">
+        <h2>Your voice stays yours</h2>
+        <p>
+          Everything happens on your machine. There is no cloud transcription,
+          no account, and no telemetry. Whispy uses local Whisper inference, so
+          <strong>zero data leaves your computer</strong> — by design, not by promise.
+        </p>
+      </div>
+    </section>
+
+    <!-- Models -->
+    <section id="models" class="section">
+      <h2>Pick your model</h2>
+      <p class="section-lede">Models download automatically on first use. Bigger means more accurate but slower.</p>
+      <div class="table-wrap">
+        <table class="models">
+          <thead>
+            <tr><th>Model</th><th>Size</th><th>Speed</th><th>FR quality</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>tiny</td><td>75 MB</td><td>++++</td><td>--</td></tr>
+            <tr><td>base</td><td>142 MB</td><td>+++</td><td>-</td></tr>
+            <tr class="is-default"><td>small <span class="tag">default</span></td><td>466 MB</td><td>++</td><td>++</td></tr>
+            <tr><td>medium</td><td>1.5 GB</td><td>+</td><td>+++</td></tr>
+            <tr><td>large-v3</td><td>2.9 GB</td><td>-</td><td>++++</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Install -->
+    <section id="install" class="section section-install">
+      <h2>Install in three lines</h2>
+      <p class="section-lede">Requires macOS, <a href="https://brew.sh">Homebrew</a>, and <code>sox</code>.</p>
+      <pre class="codeblock"><code>git clone https://github.com/albrones/whispy.git
+cd whispy
+./install.sh</code></pre>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="https://github.com/albrones/whispy">Open the repository</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="brand">
+      <img src="assets/logo.svg" width="26" height="26" alt="" />
+      <span>Whispy</span>
+    </div>
+    <p>Private, local voice dictation for macOS.</p>
+    <a href="https://github.com/albrones/whispy">github.com/albrones/whispy</a>
+  </footer>
+
+  <script src="script.js" defer></script>
+</body>
+</html>
