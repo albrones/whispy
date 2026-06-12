@@ -125,11 +125,11 @@ class WaveformView(NSView):
             y = mid_y - bar_h / 2.0
             bar_rect = NSMakeRect(x, y, BAR_WIDTH, bar_h)
             bar = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(bar_rect, BAR_WIDTH / 2.0, BAR_WIDTH / 2.0)
-            # Brand-ish purple that brightens with level
+            # Brand green (#24bf9e) that brightens slightly with the audio level
             NSColor.colorWithSRGBRed_green_blue_alpha_(
-                0.65 + 0.25 * self._level,
-                0.55 + 0.20 * self._level,
-                0.95,
+                min(0.141 + 0.10 * self._level, 1.0),
+                min(0.749 + 0.15 * self._level, 1.0),
+                min(0.620 + 0.10 * self._level, 1.0),
                 0.95,
             ).set()
             bar.fill()
