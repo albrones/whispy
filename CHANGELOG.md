@@ -9,11 +9,12 @@
   ne débloquait jamais le thread principal quand sox échouait ou dépassait le
   timeout (`ready.set()` manquant) — le daemon pouvait freezer. `ready.set()`
   est désormais garanti via `finally`.
-- **Bug : crash de la visualisation ferrofluid.** `NSDefaultRunLoopMode`
-  utilisé sans import dans `ferrofluid_view.py` → `NameError` au démarrage de
-  l'animation. Import ajouté.
-- Ré-câblage de la visualisation ferrofluid dans le cycle de vie du menu bar
-  (débranchée par erreur), avec le correctif du crash ci-dessus.
+- **Visualisation audio remplacée.** L'ancienne visu ferrofluid ne rendait
+  jamais (renderer écrit contre des APIs inexistantes : `NSApplication.mainScreen`,
+  `NSApplication.graphicsContext`, mélange NSBezierPath/CGContext). Remplacée par
+  un indicateur **waveform** simple et fiable (`ui/waveform_window.py`) :
+  pilule centrée en bas d'écran avec barres réactives au micro, rendu en
+  NSBezierPath/NSColor. Recâblée dans le cycle de vie du menu bar.
 - Réparation de 21 tests cassés/bloquants (signature de callback event tap,
   comportement FSM de récupération, câblage ferrofluid, fixture API qui
   hangait sur la transcription).

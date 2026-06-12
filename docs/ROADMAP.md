@@ -20,7 +20,7 @@ interface) and select the implementation at runtime by platform.
 | Trigger key | Quartz `CGEventTap` (`hardware/event_tap.py`) | `evdev` (Wayland-safe, needs input group) or `pynput` (X11) | Global key capture differs sharply across X11/Wayland. |
 | Text injection | `osascript` (`hardware/injection.py`) | `wtype` (Wayland), `xdotool`/`xclip` (X11), `ydotool` (uinput) | Clipboard-paste vs synthetic keystrokes both need a backend. |
 | Menu bar | `rumps` + `NSWindow` (`ui/menu_bar.py`) | `pystray` tray icon + GTK/Qt menu | No direct rumps equivalent. |
-| Visualization | CoreGraphics ferrofluid (`ui/ferrofluid_*.py`) | GTK/Cairo or an OpenGL surface | Optional; ship a CLI/tray-only mode first. |
+| Visualization | Waveform pill, NSBezierPath (`ui/waveform_window.py`) | GTK/Cairo or a Qt widget | Optional; ship a CLI/tray-only mode first. |
 | Daemon | LaunchAgent (`install.sh`) | systemd **user** unit + install script | Autostart-on-login parity. |
 
 Cross-cutting work:
