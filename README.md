@@ -220,7 +220,8 @@ injection, `rumps`/`NSWindow` for the menu bar and visualization, `LaunchAgent` 
 daemon), so the app does not run on Linux or Windows today.
 
 **Linux support is on the roadmap** but is a substantial port (each subsystem needs a
-platform backend). It is tracked here: see the [Linux support issue](https://github.com/albrones/whispy/issues).
+platform backend). See [docs/ROADMAP.md](docs/ROADMAP.md) for the per-subsystem plan,
+and the [issues](https://github.com/albrones/whispy/issues) for tracking.
 Contributions and design input are welcome — start by reading [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
