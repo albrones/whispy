@@ -22,11 +22,13 @@ from AppKit import (
     NSColor,
     NSMakeRect,
     NSScreen,
+    NSScreenSaverWindowLevel,
     NSThread,
     NSTimer,
     NSView,
     NSWindow,
     NSWindowCollectionBehaviorCanJoinAllSpaces,
+    NSWindowCollectionBehaviorFullScreenAuxiliary,
     NSWindowCollectionBehaviorIgnoresCycle,
     NSWindowCollectionBehaviorStationary,
 )
@@ -41,7 +43,10 @@ BAR_COUNT = 11
 BAR_WIDTH = 5.0
 BAR_GAP = 6.0
 BAR_MIN_HEIGHT = 5.0
-BAR_MAX_HEIGHT = 30.0
+BAR_MAX_HEIGHT = 38.0
+# Perceptual boost: lift quiet speech so the bars are lively (gamma < 1 + gain).
+LEVEL_GAMMA = 0.5
+LEVEL_GAIN = 2.0
 BOTTOM_MARGIN = 90.0  # distance from the bottom of the screen
 FPS = 30.0
 
@@ -115,12 +120,15 @@ class WaveformView(NSView):
         start_x = (w - total_w) / 2.0
         mid_y = h / 2.0
 
+        # Boost perceived loudness so normal speech fills the bars nicely.
+        disp = min((self._level**LEVEL_GAMMA) * LEVEL_GAIN, 1.0)
+
         for i in range(BAR_COUNT):
             # Symmetric envelope (taller in the middle) + per-bar animated wobble
             envelope = 1.0 - abs(i - (BAR_COUNT - 1) / 2.0) / ((BAR_COUNT - 1) / 2.0)
             envelope = 0.45 + 0.55 * envelope
             wobble = 0.5 + 0.5 * math.sin(self._phase + i * 0.9)
-            amount = self._level * envelope * (0.5 + 0.5 * wobble)
+            amount = disp * envelope * (0.6 + 0.4 * wobble)
             bar_h = BAR_MIN_HEIGHT + (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT) * amount
 
             x = start_x + i * (BAR_WIDTH + BAR_GAP)
@@ -164,10 +172,11 @@ class WaveformWindow:
         window.setHasShadow_(True)
         window.setIgnoresMouseEvents_(True)
         window.setMovable_(False)
-        # Above the menu bar and visible across spaces / fullscreen
-        window.setLevel_(101)
+        # Float above everything, including other apps' fullscreen spaces.
+        window.setLevel_(NSScreenSaverWindowLevel)
         window.setCollectionBehavior_(
             NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehaviorFullScreenAuxiliary
             | NSWindowCollectionBehaviorStationary
             | NSWindowCollectionBehaviorIgnoresCycle
         )
