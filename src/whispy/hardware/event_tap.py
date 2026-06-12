@@ -7,7 +7,8 @@ as the trigger key.
 
 import sys
 import threading
-from typing import Any, Callable, Dict, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 QUARTZ_AVAILABLE = False
 
@@ -16,9 +17,7 @@ try:
         CFMachPortCreateRunLoopSource,
         CFRunLoopAddSource,
         CFRunLoopGetCurrent,
-        CFRunLoopRun,
         CFRunLoopRunInMode,
-        CFRunLoopStop,
         CGEventGetFlags,
         CGEventGetIntegerValueField,
         CGEventGetType,
@@ -30,7 +29,6 @@ try:
         kCGEventKeyDown,
         kCGEventKeyUp,
         kCGEventTapOptionDefault,
-        kCGEventTapOptionListenOnly,
         kCGHeadInsertEventTap,
         kCGKeyboardEventKeycode,
         kCGSessionEventTap,
@@ -42,7 +40,7 @@ except ImportError:
 
 # macOS keycodes for common keys (physical key position)
 # See: https://developer.apple.com/documentation/coregraphics/kcgkeycode
-_KEYCODE_TO_NAME: Dict[int, str] = {
+_KEYCODE_TO_NAME: dict[int, str] = {
     0: "a",
     1: "s",
     2: "d",
@@ -86,7 +84,6 @@ _KEYCODE_TO_NAME: Dict[int, str] = {
     48: ",",
     49: "/",
     50: "n",
-    51: "m",
     52: ".",
     53: "escape",
     57: "space",
@@ -120,15 +117,6 @@ _KEYCODE_TO_NAME: Dict[int, str] = {
     115: "home",
     114: "end",
     118: "insert",
-    # Function keys (extended - Apple keyboards)
-    105: "f13",
-    106: "f14",
-    107: "f15",
-    108: "f16",
-    109: "f17",
-    110: "f18",
-    111: "f19",
-    112: "f20",
     # Other keys
     45: "tab",
     55: "delete",
@@ -171,14 +159,14 @@ class EventTapListener:
     def __init__(
         self,
         trigger_keycode: int = DEFAULT_TRIGGER_KEYCODE,
-        on_trigger_press: Optional[Callable] = None,
-        on_trigger_release: Optional[Callable] = None,
+        on_trigger_press: Callable | None = None,
+        on_trigger_release: Callable | None = None,
     ) -> None:
         self._trigger_keycode = trigger_keycode
         self._on_trigger_press = on_trigger_press
         self._on_trigger_release = on_trigger_release
         self._tap = None
-        self._run_loop_thread: Optional[threading.Thread] = None
+        self._run_loop_thread: threading.Thread | None = None
         self._run_loop_source: Any = None
         self.active = False
 
@@ -194,9 +182,7 @@ class EventTapListener:
 
         # Listen for BOTH flags changed AND key down/up events
         event_mask = (
-            CGEventMaskBit(kCGEventFlagsChanged)
-            | CGEventMaskBit(kCGEventKeyDown)
-            | CGEventMaskBit(kCGEventKeyUp)
+            CGEventMaskBit(kCGEventFlagsChanged) | CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp)
         )
 
         tap = CGEventTapCreate(
@@ -222,9 +208,7 @@ class EventTapListener:
         self._stop_event = threading.Event()
 
         def _run():
-            CFRunLoopAddSource(
-                CFRunLoopGetCurrent(), self._run_loop_source, kCFRunLoopDefaultMode
-            )
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), self._run_loop_source, kCFRunLoopDefaultMode)
             CGEventTapEnable(tap, True)
             self.active = True
             key_name = _keycode_to_name(self._trigger_keycode)
@@ -233,16 +217,13 @@ class EventTapListener:
             while not self._stop_event.is_set():
                 CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.5, False)
 
-        self._run_loop_thread = threading.Thread(
-            target=_run, name="trigger-event-tap", daemon=True
-        )
+        self._run_loop_thread = threading.Thread(target=_run, name="trigger-event-tap", daemon=True)
         self._run_loop_thread.start()
         if self._ready_event.wait(timeout=5.0):
             return
         else:
             print(
-                "[event-tap] Timed out waiting for CFRunLoop to start — "
-                "Input Monitoring may not be granted to python3",
+                "[event-tap] Timed out waiting for CFRunLoop to start — Input Monitoring may not be granted to python3",
                 file=sys.stderr,
             )
 
@@ -253,9 +234,7 @@ class EventTapListener:
         if self._run_loop_thread and self._run_loop_thread.is_alive():
             self._run_loop_thread.join(timeout=2)
 
-    def _event_callback(
-        self, _proxy: Any, _type: Any, event: Any, _refcon: Any
-    ) -> Any:
+    def _event_callback(self, _proxy: Any, _type: Any, event: Any, _refcon: Any) -> Any:
         """Callback invoked for each relevant CGEvent (pyobjc legacy signature)."""
         event_type = CGEventGetType(event)
         keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
