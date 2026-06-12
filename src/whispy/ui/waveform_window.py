@@ -25,7 +25,9 @@ from AppKit import (
     NSTimer,
     NSView,
     NSWindow,
-    NSWindowCollectionBehavior,
+    NSWindowCollectionBehaviorCanJoinAllSpaces,
+    NSWindowCollectionBehaviorIgnoresCycle,
+    NSWindowCollectionBehaviorStationary,
 )
 
 logger = logging.getLogger(__name__)
@@ -163,9 +165,9 @@ class WaveformWindow:
         # Above the menu bar and visible across spaces / fullscreen
         window.setLevel_(101)
         window.setCollectionBehavior_(
-            NSWindowCollectionBehavior.canJoinAllSpaces
-            | NSWindowCollectionBehavior.stationary
-            | NSWindowCollectionBehavior.ignoresCycle
+            NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehaviorStationary
+            | NSWindowCollectionBehaviorIgnoresCycle
         )
 
         view = WaveformView.alloc().initWithFrame_(frame)
