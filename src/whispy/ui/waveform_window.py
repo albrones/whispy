@@ -51,7 +51,7 @@ LEVEL_GAMMA = 0.5
 LEVEL_GAIN = 2.0
 BOTTOM_MARGIN = 40.0  # distance from the bottom of the screen
 FPS = 30.0
-FADE_SPEED = 7.0  # higher = snappier fade in/out
+FADE_SPEED = 4.5  # higher = snappier fade in/out
 
 
 class WaveformView(NSView):
