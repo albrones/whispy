@@ -8,9 +8,9 @@ Menu bar UI via rumps for status, animation, and settings.
 This is the main entry point. All logic is in src/whispy/.
 """
 
+import logging
 import signal
 import sys
-import logging
 from pathlib import Path
 
 # Configure logging
@@ -28,10 +28,6 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR / "src") not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR / "src"))
 
-from whispy.core.engine import DictationState, Engine, load_config
-from whispy.ui.menu_bar import WhisperMenuBarApp
-from whispy.api.server import PORT, start_http_server
-
 # ---------------------------------------------------------------------------
 # Config path
 # ---------------------------------------------------------------------------
@@ -41,6 +37,12 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 
 def main():
     """Start Whispy: engine, UI, and HTTP server."""
+    # Heavy imports kept inside main() so `--doctor` can run even if the GUI
+    # stack (rumps/AppKit) fails to import on a broken setup.
+    from whispy.api.server import start_http_server
+    from whispy.core.engine import DictationState, Engine, load_config
+    from whispy.ui.menu_bar import WhisperMenuBarApp
+
     # Initialize config
     config = load_config(CONFIG_PATH)
 
@@ -79,4 +81,8 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--doctor" in sys.argv:
+        from whispy.doctor import run_doctor
+
+        sys.exit(run_doctor())
     main()
