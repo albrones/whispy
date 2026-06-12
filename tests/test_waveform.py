@@ -74,10 +74,15 @@ class TestMenuBarWaveformWiring:
         assert "start()" in body
         assert "show()" in body
 
-    def test_recording_stop_stops_when_not_transcribing(self):
+    def test_recording_stop_stops_and_hides(self):
         body = _method_body("_on_recording_stop")
-        assert "is_transcribing" in body
         assert "stop()" in body
+        assert "hide()" in body
+
+    def test_fn_released_hides(self):
+        body = _method_body("_on_fn_released")
+        assert "stop()" in body
+        assert "hide()" in body
 
     def test_fn_pressed_shows_when_not_recording(self):
         body = _method_body("_on_fn_pressed")

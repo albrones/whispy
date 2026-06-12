@@ -22,6 +22,7 @@ from AppKit import (
     NSColor,
     NSMakeRect,
     NSScreen,
+    NSThread,
     NSTimer,
     NSView,
     NSWindow,
@@ -29,6 +30,7 @@ from AppKit import (
     NSWindowCollectionBehaviorIgnoresCycle,
     NSWindowCollectionBehaviorStationary,
 )
+from PyObjCTools import AppHelper
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +182,14 @@ class WaveformWindow:
         self._initialized = True
 
     def show(self) -> None:
+        # AppKit must run on the main thread; trigger callbacks fire on the
+        # event-tap thread, so hop to the main run loop when needed.
+        if NSThread.isMainThread():
+            self._show_on_main()
+        else:
+            AppHelper.callAfter(self._show_on_main)
+
+    def _show_on_main(self) -> None:
         self._ensure_initialized()
         if self._window is None or self._view is None:
             logger.warning("[waveform] window not initialized, cannot show")
@@ -198,6 +208,12 @@ class WaveformWindow:
         self._view.start_animation()
 
     def hide(self) -> None:
+        if NSThread.isMainThread():
+            self._hide_on_main()
+        else:
+            AppHelper.callAfter(self._hide_on_main)
+
+    def _hide_on_main(self) -> None:
         if self._view is not None:
             self._view.stop_animation()
         if self._window is not None:

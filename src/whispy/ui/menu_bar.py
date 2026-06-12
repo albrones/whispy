@@ -123,10 +123,9 @@ class WhisperMenuBarApp(rumps.App):
             self._visualization.show()
 
     def _on_fn_released(self) -> None:
-        """Transition to transcribing indicator when FN key is released."""
-        if self.engine.state.is_transcribing:
-            self._visualization.hide()
-            self._indicator.show("transcribing")
+        """Hide the waveform when FN is released."""
+        self._audio_monitor.stop()
+        self._visualization.hide()
 
     def _on_recording_start(self) -> None:
         """Start recording visualization and audio monitor."""
@@ -135,11 +134,9 @@ class WhisperMenuBarApp(rumps.App):
         self._visualization.show()
 
     def _on_recording_stop(self) -> None:
-        """Stop recording visualization and audio monitor when not transcribing."""
-        if not self.engine.state.is_transcribing:
-            self._audio_monitor.stop()
-            self._visualization.hide()
-            self._indicator.hide()
+        """Stop the audio monitor and hide the waveform when recording ends."""
+        self._audio_monitor.stop()
+        self._visualization.hide()
 
     # -- Status display --
 
