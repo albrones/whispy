@@ -144,6 +144,13 @@ __pycache__/
 *$py.class
 *.pyo
 
+# Python virtual environment
+.venv/
+venv/
+
+# Generated knowledge graph (regenerate with `graphify update .`)
+graphify-out/
+
 # customs skills
 .agents/skills
 
