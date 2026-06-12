@@ -13,7 +13,7 @@ from ..core.engine import (
     Engine,
 )
 from .audio_level import AudioLevelMonitor
-from .ferrofluid_window import FerrofluidWindow
+from .waveform_window import WaveformWindow
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -49,9 +49,9 @@ class WhisperMenuBarApp(rumps.App):
 
         self._indicator = IndicatorWindow()
 
-        # Audio-reactive ferrofluid visualization (replaces indicator during recording)
+        # Audio-reactive waveform visualization (replaces indicator during recording)
         self._audio_monitor = AudioLevelMonitor()
-        self._visualization = FerrofluidWindow()
+        self._visualization = WaveformWindow()
         self._visualization.set_audio_monitor(self._audio_monitor)
 
         self.engine.on_fn_pressed(self._on_fn_pressed)
@@ -116,7 +116,7 @@ class WhisperMenuBarApp(rumps.App):
     # -- Indicator window callbacks --
 
     def _on_fn_pressed(self) -> None:
-        """Show ferrofluid visualization when FN key is pressed."""
+        """Show the waveform visualization when FN key is pressed."""
         if not self.engine.state.is_recording:
             self._indicator.hide()
             self._audio_monitor.start()
