@@ -21,6 +21,7 @@ from AppKit import (
     NSBorderlessWindowMask,
     NSColor,
     NSMakeRect,
+    NSPanel,
     NSScreen,
     NSScreenSaverWindowLevel,
     NSThread,
@@ -31,6 +32,7 @@ from AppKit import (
     NSWindowCollectionBehaviorFullScreenAuxiliary,
     NSWindowCollectionBehaviorIgnoresCycle,
     NSWindowCollectionBehaviorStationary,
+    NSWindowStyleMaskNonactivatingPanel,
 )
 from PyObjCTools import AppHelper
 
@@ -164,9 +166,18 @@ class WaveformWindow:
             return
 
         frame = NSMakeRect(0, 0, PILL_WIDTH, PILL_HEIGHT)
-        window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            frame, NSBorderlessWindowMask, NSBackingStoreBuffered, False
+        # A non-activating floating panel — an accessory (menu-bar) app can show
+        # this over another app's fullscreen space without stealing focus,
+        # which a plain NSWindow cannot do.
+        window = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+            frame,
+            NSBorderlessWindowMask | NSWindowStyleMaskNonactivatingPanel,
+            NSBackingStoreBuffered,
+            False,
         )
+        window.setFloatingPanel_(True)
+        window.setBecomesKeyOnlyIfNeeded_(True)
+        window.setHidesOnDeactivate_(False)
         window.setOpaque_(False)
         window.setBackgroundColor_(NSColor.clearColor())
         window.setHasShadow_(True)
