@@ -4,6 +4,7 @@ Integrates the StateMachine, AudioEngine, EventTapListener, and TextInjector
 into a unified interface for the UI and API layers.
 """
 
+import logging
 import os
 import subprocess
 import sys
@@ -40,6 +41,8 @@ __all__ = [
     "save_config",
     "DEFAULT_TRIGGER_KEYCODE",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -179,25 +182,19 @@ class Engine:
 
     def _notify_recording_start(self) -> None:
         """Notify all registered callbacks of recording start."""
-        import logging
-
-        logger = logging.getLogger(__name__)
         for cb in list(self._recording_start_callbacks):
             try:
                 cb()
-            except Exception as exc:
-                logger.error("[engine] Error in recording start callback: %s", exc)
+            except Exception:
+                logger.exception("[engine] Error in recording start callback")
 
     def _notify_recording_stop(self) -> None:
         """Notify all registered callbacks of recording stop."""
-        import logging
-
-        logger = logging.getLogger(__name__)
         for cb in list(self._recording_stop_callbacks):
             try:
                 cb()
-            except Exception as exc:
-                logger.error("[engine] Error in recording stop callback: %s", exc)
+            except Exception:
+                logger.exception("[engine] Error in recording stop callback")
 
     def on_fn_pressed(self, callback: Callable) -> None:
         """Register a callback to be called when FN key is pressed."""
@@ -214,7 +211,7 @@ class Engine:
             try:
                 cb()
             except Exception:
-                pass
+                logger.exception("[engine] Error in fn-pressed callback")
 
     def _notify_fn_released(self) -> None:
         """Notify all registered callbacks of FN key release."""
@@ -223,7 +220,7 @@ class Engine:
             try:
                 cb()
             except Exception:
-                pass
+                logger.exception("[engine] Error in fn-released callback")
 
     # -- Callback system --
 
@@ -237,7 +234,7 @@ class Engine:
             try:
                 cb()
             except Exception:
-                pass
+                logger.exception("[engine] Error in status-change callback")
 
     def get_status(self) -> dict[str, Any]:
         """Return current engine status as a dict."""
