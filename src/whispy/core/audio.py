@@ -13,12 +13,10 @@ import tempfile
 import threading
 import time
 import wave
-from pathlib import Path
-from typing import Optional
 
 from faster_whisper import WhisperModel
 
-from .state_machine import State, StateMachine
+from .state_machine import StateMachine
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +49,7 @@ def strip_whisper_credit(text: str) -> str:
         return text
     cleaned = WHISPER_CREDIT_RE.sub("", text).strip()
     return cleaned
+
 
 # Minimum file size (bytes) indicating sox has started writing audio
 _MIN_RECORDING_SIZE = 5120  # 5 KB
@@ -99,22 +98,25 @@ class AudioEngine:
         stop_reason = [None]
 
         def _poll():
+            # ready.set() in finally guarantees the waiter never blocks forever,
+            # even on timeout or early process exit (otherwise start() would hang).
             start = time.monotonic()
-            while not ready.is_set():
-                if self._recording_process and self._recording_process.poll() is not None:
-                    stop_reason[0] = "process_exited"
-                    return
-                try:
-                    size = os.path.getsize(RECORDING_PATH)
-                    if size >= _MIN_RECORDING_SIZE:
-                        ready.set()
+            try:
+                while True:
+                    if self._recording_process and self._recording_process.poll() is not None:
+                        stop_reason[0] = "process_exited"
                         return
-                except OSError:
-                    pass
-                if time.monotonic() - start > _RECORDING_READY_TIMEOUT:
-                    stop_reason[0] = "timeout"
-                    return
-                time.sleep(0.02)
+                    try:
+                        if os.path.getsize(RECORDING_PATH) >= _MIN_RECORDING_SIZE:
+                            return
+                    except OSError:
+                        pass
+                    if time.monotonic() - start > _RECORDING_READY_TIMEOUT:
+                        stop_reason[0] = "timeout"
+                        return
+                    time.sleep(0.02)
+            finally:
+                ready.set()
 
         threading.Thread(target=_poll, name="recording-waiter", daemon=True).start()
         ready.wait()
@@ -157,12 +159,12 @@ class AudioEngine:
     def transcribe(
         self,
         audio_path: str,
-        model: Optional[WhisperModel],
+        model: WhisperModel | None,
         language: str = "auto",
         beam_size: int = 1,
         best_of: int = 2,
         auto_detect_min_duration: float = 0.5,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Transcribe an audio file. Returns None if transcription fails."""
         if model is None:
             print(
@@ -197,7 +199,7 @@ class AudioEngine:
             print(f"[audio] Transcription error: {exc}", file=sys.stderr)
             return None
 
-    def _get_audio_duration(self, audio_path: str) -> Optional[float]:
+    def _get_audio_duration(self, audio_path: str) -> float | None:
         """Detect audio file duration in seconds using the wave module.
 
         Falls back to None if the file cannot be read as WAV.
