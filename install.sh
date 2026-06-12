@@ -45,12 +45,16 @@ VENV_DIR="$SCRIPT_DIR/.venv"
 if [ ! -d "$VENV_DIR" ]; then
     echo -e "${YELLOW}Creating Python virtual environment...${NC}"
     python3 -m venv "$VENV_DIR"
-    "$VENV_DIR/bin/pip" install --upgrade pip
-    "$VENV_DIR/bin/pip" install faster-whisper pyobjc-framework-Quartz rumps Pillow
-    echo -e "${GREEN}[OK] Virtual environment created with faster-whisper + pyobjc-framework-Quartz + rumps + Pillow${NC}"
-else
-    echo -e "${GREEN}[OK] Virtual environment already exists${NC}"
 fi
+
+# Install (or update) dependencies. Editable install pulls the runtime deps
+# declared in pyproject.toml (faster-whisper, pyobjc-framework-Quartz, rumps,
+# sounddevice); Pillow is needed by generate_icons.py. Idempotent, so rerunning
+# the script after a code update picks up any new dependencies.
+echo -e "${YELLOW}Installing dependencies...${NC}"
+"$VENV_DIR/bin/pip" install --upgrade pip
+"$VENV_DIR/bin/pip" install -e "$SCRIPT_DIR" Pillow
+echo -e "${GREEN}[OK] Dependencies installed (whispy + Pillow)${NC}"
 
 if [ ! -d "$SCRIPT_DIR/icons" ] || [ ! -f "$SCRIPT_DIR/icons/mic-idle.png" ]; then
     echo -e "${YELLOW}Generating menu bar icons...${NC}"
