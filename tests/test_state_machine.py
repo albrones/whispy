@@ -12,7 +12,6 @@ Covers:
 
 import sys
 import threading
-import time
 from pathlib import Path
 
 import pytest
@@ -30,7 +29,6 @@ from whispy.core.state_machine import (
     State,
     StateMachine,
 )
-
 
 # ---------------------------------------------------------------------------
 # Valid transitions
@@ -90,11 +88,13 @@ class TestIllegalTransitions:
         assert sm.start_recording() is False
         assert sm.is_recording is True
 
-    def test_transcribing_to_recording_via_method_returns_false(self, sm):
+    def test_transcribing_to_recording_via_method_recovers(self, sm):
         sm.start_recording()
         sm.stop_recording()
-        # start_recording() catches InvalidTransitionError and returns False
-        assert sm.start_recording() is False
+        # start_recording() recovers from a stuck TRANSCRIBING state by
+        # resetting to IDLE first, then starting a new recording.
+        assert sm.start_recording() is True
+        assert sm.is_recording is True
 
     def test_transcribing_to_idle_via_method_works(self, sm):
         sm.start_recording()
@@ -349,11 +349,13 @@ class TestConvenienceMethods:
         sm.start_recording()
         assert sm.start_recording() is False
 
-    def test_start_recording_from_transcribing_returns_false(self, sm):
+    def test_start_recording_from_transcribing_recovers(self, sm):
         sm.start_recording()
         sm.stop_recording()
-        # start_recording() catches InvalidTransitionError and returns False
-        assert sm.start_recording() is False
+        # start_recording() recovers from a stuck TRANSCRIBING state by
+        # resetting to IDLE first, then starting a new recording.
+        assert sm.start_recording() is True
+        assert sm.is_recording is True
 
     def test_stop_recording_from_recording(self, sm):
         sm.start_recording()

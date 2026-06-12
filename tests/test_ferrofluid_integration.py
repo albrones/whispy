@@ -14,8 +14,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
 # Ensure src/ is on the path, and remove project root to avoid shadowing
 _project_root = str(Path(__file__).parent.parent)
 if _project_root in sys.path:
@@ -24,26 +22,24 @@ _src = Path(__file__).parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
-# Mock macOS-only deps
+# Mock Quartz/rumps (macOS-only) without clobbering AppKit/sounddevice — the
+# ferrofluid view/monitor modules need the real AppKit/sounddevice so that
+# importing menu_bar here does not cache MagicMock-backed modules that would
+# break the visualization tests when the full suite runs.
 if "Quartz" not in sys.modules:
     sys.modules["Quartz"] = MagicMock()
-if "AppKit" not in sys.modules:
-    sys.modules["AppKit"] = MagicMock()
-if "sounddevice" not in sys.modules:
-    sys.modules["sounddevice"] = MagicMock()
 if "rumps" not in sys.modules:
     sys.modules["rumps"] = MagicMock()
 
-from whispy.ui.audio_level import AudioLevelMonitor
-from whispy.ui.ferrofluid_window import FerrofluidWindow
-
 # Import the menu_bar module to inspect source
 import whispy.ui.menu_bar as menu_bar_module
+from whispy.ui.audio_level import AudioLevelMonitor
+from whispy.ui.ferrofluid_window import FerrofluidWindow
 
 
 def _get_method_body(source_path: str, method_name: str) -> str:
     """Parse the AST of a file and return the source lines for a given method."""
-    with open(source_path, "r") as f:
+    with open(source_path) as f:
         source = f.read()
 
     tree = ast.parse(source)
@@ -87,7 +83,7 @@ class TestMenuBarFerrofluidInitLogic:
     def test_init_source_creates_audio_monitor(self):
         """__init__ source should create _audio_monitor."""
         source = menu_bar_module.__file__
-        with open(source, "r") as f:
+        with open(source) as f:
             content = f.read()
 
         assert "_audio_monitor" in content
@@ -98,7 +94,7 @@ class TestMenuBarFerrofluidInitLogic:
     def test_init_source_connects_monitor(self):
         """__init__ source should connect monitor to visualization."""
         source = menu_bar_module.__file__
-        with open(source, "r") as f:
+        with open(source) as f:
             content = f.read()
 
         assert "set_audio_monitor" in content

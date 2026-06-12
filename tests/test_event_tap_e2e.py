@@ -10,8 +10,6 @@ These tests verify:
 
 import sys
 import tempfile
-import threading
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -38,15 +36,12 @@ from whispy.core.engine import (
 )
 from whispy.core.state_machine import State, StateMachine
 from whispy.hardware.event_tap import (
-    DEFAULT_TRIGGER_KEYCODE,
-    EventTapListener,
     NX_SECONDARYFNMASK,
+    EventTapListener,
+    kCGEventFlagsChanged,
     kCGEventKeyDown,
     kCGEventKeyUp,
-    kCGEventFlagsChanged,
 )
-from whispy.hardware.injection import TextInjector
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -61,6 +56,7 @@ def tmp_config():
     config_dir.mkdir(parents=True, exist_ok=True)
     yield config_dir / "config.json"
     import shutil
+
     shutil.rmtree(d, ignore_errors=True)
 
 
@@ -155,7 +151,7 @@ class TestEventTapListenerStartStop:
         mocker.patch("whispy.hardware.event_tap.CFRunLoopAddSource")
         mocker.patch("whispy.hardware.event_tap.CGEventTapEnable")
         # CFRunLoopRunInMode must not block in tests
-        mock_run_in_mode = mocker.patch("whispy.hardware.event_tap.CFRunLoopRunInMode")
+        mocker.patch("whispy.hardware.event_tap.CFRunLoopRunInMode")
 
         listener = EventTapListener()
         listener.start()
@@ -227,17 +223,24 @@ class TestEventTapCallback:
 
         mock_event = MagicMock()
 
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=63,
-        ), patch(
-            "whispy.hardware.event_tap.CGEventGetFlags",
-            return_value=NX_SECONDARYFNMASK,
+        with (
+            patch(
+                "whispy.hardware.event_tap.CGEventGetType",
+                return_value=kCGEventKeyDown,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetIntegerValueField",
+                return_value=63,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetFlags",
+                return_value=NX_SECONDARYFNMASK,
+            ),
         ):
             listener._event_callback(None, kCGEventKeyDown, mock_event, None)
 
-        assert captured_callbacks['press_count']() == 1
-        assert captured_callbacks['release_count']() == 0
+        assert captured_callbacks["press_count"]() == 1
+        assert captured_callbacks["release_count"]() == 0
 
     def test_callback_triggers_release_for_fn_key(self, captured_callbacks):
         """Simulate a keyup event for keycode 63 → on_trigger_release."""
@@ -249,17 +252,24 @@ class TestEventTapCallback:
 
         mock_event = MagicMock()
 
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=63,
-        ), patch(
-            "whispy.hardware.event_tap.CGEventGetFlags",
-            return_value=0,
+        with (
+            patch(
+                "whispy.hardware.event_tap.CGEventGetType",
+                return_value=kCGEventKeyUp,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetIntegerValueField",
+                return_value=63,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetFlags",
+                return_value=0,
+            ),
         ):
             listener._event_callback(None, kCGEventKeyUp, mock_event, None)
 
-        assert captured_callbacks['release_count']() == 1
-        assert captured_callbacks['press_count']() == 0
+        assert captured_callbacks["release_count"]() == 1
+        assert captured_callbacks["press_count"]() == 0
 
     def test_callback_ignores_other_keys(self, captured_callbacks):
         """Keycode different from trigger should not trigger callbacks."""
@@ -277,8 +287,8 @@ class TestEventTapCallback:
         ):
             listener._event_callback(None, kCGEventKeyDown, mock_event, None)
 
-        assert captured_callbacks['press_count']() == 0
-        assert captured_callbacks['release_count']() == 0
+        assert captured_callbacks["press_count"]() == 0
+        assert captured_callbacks["release_count"]() == 0
 
     def test_callback_with_custom_trigger_keycode(self, captured_callbacks):
         """Test with a custom keycode (e.g., keycode 0 for 'a')."""
@@ -290,22 +300,34 @@ class TestEventTapCallback:
 
         mock_event = MagicMock()
 
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=0,
+        with (
+            patch(
+                "whispy.hardware.event_tap.CGEventGetType",
+                return_value=kCGEventKeyDown,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetIntegerValueField",
+                return_value=0,
+            ),
         ):
             listener._event_callback(None, kCGEventKeyDown, mock_event, None)
 
-        assert captured_callbacks['press_count']() == 1
+        assert captured_callbacks["press_count"]() == 1
 
         captured_callbacks["clear"]()
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=0,
+        with (
+            patch(
+                "whispy.hardware.event_tap.CGEventGetType",
+                return_value=kCGEventKeyUp,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetIntegerValueField",
+                return_value=0,
+            ),
         ):
             listener._event_callback(None, kCGEventKeyUp, mock_event, None)
 
-        assert captured_callbacks['release_count']() == 1
+        assert captured_callbacks["release_count"]() == 1
 
     def test_callback_flags_changed_triggers_for_non_fn_key(self, captured_callbacks):
         """For non-Fn keys, flagschanged event should also trigger press."""
@@ -317,13 +339,19 @@ class TestEventTapCallback:
 
         mock_event = MagicMock()
 
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=0,
+        with (
+            patch(
+                "whispy.hardware.event_tap.CGEventGetType",
+                return_value=kCGEventFlagsChanged,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetIntegerValueField",
+                return_value=0,
+            ),
         ):
             listener._event_callback(None, kCGEventFlagsChanged, mock_event, None)
 
-        assert captured_callbacks['press_count']() == 1
+        assert captured_callbacks["press_count"]() == 1
 
     def test_fn_key_flags_changed_with_secondary_flag(self, captured_callbacks):
         """Fn key with NX_SECONDARYFNMASK flag should trigger press."""
@@ -335,17 +363,24 @@ class TestEventTapCallback:
 
         mock_event = MagicMock()
 
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=63,
-        ), patch(
-            "whispy.hardware.event_tap.CGEventGetFlags",
-            return_value=NX_SECONDARYFNMASK,
+        with (
+            patch(
+                "whispy.hardware.event_tap.CGEventGetType",
+                return_value=kCGEventFlagsChanged,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetIntegerValueField",
+                return_value=63,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetFlags",
+                return_value=NX_SECONDARYFNMASK,
+            ),
         ):
             listener._event_callback(None, kCGEventFlagsChanged, mock_event, None)
 
-        assert captured_callbacks['press_count']() == 1
-        assert captured_callbacks['release_count']() == 0
+        assert captured_callbacks["press_count"]() == 1
+        assert captured_callbacks["release_count"]() == 0
 
     def test_fn_key_flags_changed_without_secondary_flag(self, captured_callbacks):
         """Fn key without NX_SECONDARYFNMASK flag should trigger release."""
@@ -357,29 +392,39 @@ class TestEventTapCallback:
 
         mock_event = MagicMock()
 
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=63,
-        ), patch(
-            "whispy.hardware.event_tap.CGEventGetFlags",
-            return_value=0,
+        with (
+            patch(
+                "whispy.hardware.event_tap.CGEventGetType",
+                return_value=kCGEventFlagsChanged,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetIntegerValueField",
+                return_value=63,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetFlags",
+                return_value=0,
+            ),
         ):
             listener._event_callback(None, kCGEventFlagsChanged, mock_event, None)
 
-        assert captured_callbacks['release_count']() == 1
-        assert captured_callbacks['press_count']() == 0
+        assert captured_callbacks["release_count"]() == 1
+        assert captured_callbacks["press_count"]() == 0
 
     def test_callback_returns_event(self):
         """The callback should return the event object."""
         listener = EventTapListener()
         mock_event = MagicMock()
 
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=63,
-        ), patch(
-            "whispy.hardware.event_tap.CGEventGetFlags",
-            return_value=NX_SECONDARYFNMASK,
+        with (
+            patch(
+                "whispy.hardware.event_tap.CGEventGetIntegerValueField",
+                return_value=63,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetFlags",
+                return_value=NX_SECONDARYFNMASK,
+            ),
         ):
             result = listener._event_callback(None, kCGEventKeyDown, mock_event, None)
 
@@ -404,6 +449,7 @@ class TestFullFnWorkflowIntegration:
         audio_file = tmp_path / "whispy.wav"
         audio_file.write_bytes(b"\x00" * 6000)
         import whispy.core.audio as audio_module
+
         audio_module.RECORDING_PATH = str(audio_file)
 
         engine = Engine(state, tmp_config)
@@ -421,12 +467,19 @@ class TestFullFnWorkflowIntegration:
         )
 
         mock_event = MagicMock()
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=63,
-        ), patch(
-            "whispy.hardware.event_tap.CGEventGetFlags",
-            return_value=NX_SECONDARYFNMASK,
+        with (
+            patch(
+                "whispy.hardware.event_tap.CGEventGetType",
+                return_value=kCGEventKeyDown,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetIntegerValueField",
+                return_value=63,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetFlags",
+                return_value=NX_SECONDARYFNMASK,
+            ),
         ):
             listener._event_callback(None, kCGEventKeyDown, mock_event, None)
 
@@ -443,6 +496,7 @@ class TestFullFnWorkflowIntegration:
         audio_file = tmp_path / "whispy.wav"
         audio_file.write_bytes(b"\x00" * 6000)
         import whispy.core.audio as audio_module
+
         audio_module.RECORDING_PATH = str(audio_file)
 
         engine = Engine(state, tmp_config)
@@ -463,12 +517,19 @@ class TestFullFnWorkflowIntegration:
         )
 
         mock_event = MagicMock()
-        with patch(
-            "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-            return_value=63,
-        ), patch(
-            "whispy.hardware.event_tap.CGEventGetFlags",
-            return_value=0,
+        with (
+            patch(
+                "whispy.hardware.event_tap.CGEventGetType",
+                return_value=kCGEventKeyUp,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetIntegerValueField",
+                return_value=63,
+            ),
+            patch(
+                "whispy.hardware.event_tap.CGEventGetFlags",
+                return_value=0,
+            ),
         ):
             listener._event_callback(None, kCGEventKeyUp, mock_event, None)
 
@@ -485,6 +546,7 @@ class TestFullFnWorkflowIntegration:
         audio_file = tmp_path / "whispy.wav"
         audio_file.write_bytes(b"\x00" * 6000)
         import whispy.core.audio as audio_module
+
         audio_module.RECORDING_PATH = str(audio_file)
 
         assert engine._state_machine.is_idle is True
@@ -518,8 +580,8 @@ class TestFullFnWorkflowIntegration:
         audio_file = tmp_path / "whispy.wav"
         audio_file.write_bytes(b"\x00" * 160)
 
-        import whispy.core.engine as engine_module
         import whispy.core.audio as audio_module
+        import whispy.core.engine as engine_module
 
         original_path = engine_module.RECORDING_PATH
         engine_module.RECORDING_PATH = str(audio_file)
@@ -549,8 +611,8 @@ class TestFullFnWorkflowIntegration:
         mock_model.transcribe.return_value = (iter(mock_segments), MagicMock())
         state.model = mock_model
 
-        import whispy.core.engine as engine_module
         import whispy.core.audio as audio_module
+        import whispy.core.engine as engine_module
 
         original_path = engine_module.RECORDING_PATH
         engine_module.RECORDING_PATH = str(audio_file)
@@ -567,9 +629,7 @@ class TestFullFnWorkflowIntegration:
         finally:
             engine_module.RECORDING_PATH = original_path
 
-    def test_full_callback_chain_from_eventtap_to_engine(
-        self, state, tmp_path, mocker, tmp_config
-    ):
+    def test_full_callback_chain_from_eventtap_to_engine(self, state, tmp_path, mocker, tmp_config):
         """End-to-end: EventTapListener callback → Engine methods → text injection."""
         # Patch RECORDING_PATH before Engine init so AudioEngine uses the temp path
         audio_file = tmp_path / "whispy.wav"
@@ -577,6 +637,7 @@ class TestFullFnWorkflowIntegration:
 
         import whispy.core.audio as audio_module
         import whispy.core.engine as engine_module
+
         original_audio_path = audio_module.RECORDING_PATH
         original_engine_path = engine_module.RECORDING_PATH
         audio_module.RECORDING_PATH = str(audio_file)
@@ -607,12 +668,19 @@ class TestFullFnWorkflowIntegration:
                 )
 
                 mock_event = MagicMock()
-                with patch(
-                    "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-                    return_value=63,
-                ), patch(
-                    "whispy.hardware.event_tap.CGEventGetFlags",
-                    return_value=NX_SECONDARYFNMASK,
+                with (
+                    patch(
+                        "whispy.hardware.event_tap.CGEventGetType",
+                        return_value=kCGEventKeyDown,
+                    ),
+                    patch(
+                        "whispy.hardware.event_tap.CGEventGetIntegerValueField",
+                        return_value=63,
+                    ),
+                    patch(
+                        "whispy.hardware.event_tap.CGEventGetFlags",
+                        return_value=NX_SECONDARYFNMASK,
+                    ),
                 ):
                     listener._event_callback(None, kCGEventKeyDown, mock_event, None)
 
@@ -626,12 +694,19 @@ class TestFullFnWorkflowIntegration:
                     engine.stop_recording()
 
                 listener._on_trigger_release = on_release_real
-                with patch(
-                    "whispy.hardware.event_tap.CGEventGetIntegerValueField",
-                    return_value=63,
-                ), patch(
-                    "whispy.hardware.event_tap.CGEventGetFlags",
-                    return_value=0,
+                with (
+                    patch(
+                        "whispy.hardware.event_tap.CGEventGetType",
+                        return_value=kCGEventKeyUp,
+                    ),
+                    patch(
+                        "whispy.hardware.event_tap.CGEventGetIntegerValueField",
+                        return_value=63,
+                    ),
+                    patch(
+                        "whispy.hardware.event_tap.CGEventGetFlags",
+                        return_value=0,
+                    ),
                 ):
                     listener._event_callback(None, kCGEventKeyUp, mock_event, None)
 
@@ -656,6 +731,7 @@ class TestFullFnWorkflowIntegration:
         audio_file = tmp_path / "whispy.wav"
         audio_file.write_bytes(b"\x00" * 6000)
         import whispy.core.audio as audio_module
+
         audio_module.RECORDING_PATH = str(audio_file)
 
         assert state.is_recording is False
@@ -676,6 +752,7 @@ class TestFullFnWorkflowIntegration:
         audio_file = tmp_path / "whispy.wav"
         audio_file.write_bytes(b"\x00" * 6000)
         import whispy.core.audio as audio_module
+
         audio_module.RECORDING_PATH = str(audio_file)
 
         assert engine.start_recording() is True

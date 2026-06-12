@@ -1,20 +1,13 @@
 """Tests for Engine, DictationState, config loading/saving, and status reporting."""
 
 import json
-import os
-import tempfile
-from pathlib import Path
-
-import pytest
 
 from whispy.core.engine import (
     DEFAULT_CONFIG,
     DictationState,
-    Engine,
     load_config,
     save_config,
 )
-
 
 # ---------------------------------------------------------------------------
 # Config loading
@@ -200,7 +193,7 @@ class TestEngineConfigUpdate:
     """Test Engine.update_config behavior."""
 
     def test_update_applies_changes(self, engine):
-        result = engine.update_config({"model_size": "base"})
+        engine.update_config({"model_size": "base"})
         assert engine.state.config["model_size"] == "base"
 
     def test_update_saves_to_disk(self, engine, config_path):

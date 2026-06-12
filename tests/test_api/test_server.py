@@ -7,14 +7,14 @@ import json
 import socket
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import HTTPServer
 from unittest.mock import MagicMock
 
 import pytest
-import urllib.request
-import urllib.error
 
-from whispy.api.server import PORT, RequestHandler
+from whispy.api.server import RequestHandler
 from whispy.core.engine import DictationState, Engine
 
 
@@ -26,8 +26,17 @@ def _find_free_port():
 
 
 @pytest.fixture
-def test_server(mocker):
+def test_server(mocker, tmp_path):
     """Start a test HTTP server with a mock Engine."""
+    # Point recording at a temp file that already exceeds the readiness
+    # threshold so AudioEngine.start() returns immediately instead of waiting
+    # the full cold-start timeout.
+    import whispy.core.audio as audio_module
+
+    recording_file = tmp_path / "whispy.wav"
+    recording_file.write_bytes(b"\x00" * 6000)
+    mocker.patch.object(audio_module, "RECORDING_PATH", str(recording_file))
+
     ds = DictationState()
     engine = Engine(ds)
 
