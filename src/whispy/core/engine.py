@@ -4,31 +4,42 @@ Integrates the StateMachine, AudioEngine, EventTapListener, and TextInjector
 into a unified interface for the UI and API layers.
 """
 
-import json
 import os
 import subprocess
 import sys
-import tempfile
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from faster_whisper import WhisperModel
 
-from .audio import AudioEngine, RECORDING_PATH
+from ..hardware.event_tap import DEFAULT_TRIGGER_KEYCODE, EventTapListener
+from ..hardware.injection import TextInjector
+from .audio import RECORDING_PATH, AudioEngine
 from .config import (
-    load_config,
-    save_config,
-    get_default_config_path,
     DEFAULT_CONFIG,
     MODEL_PRESETS,
     SUPPORTED_LANGUAGES,
+    load_config,
+    save_config,
 )
 from .state_machine import State, StateMachine
 from .text_cleaner import clean_text
-from ..hardware.event_tap import EventTapListener, DEFAULT_TRIGGER_KEYCODE
-from ..hardware.injection import TextInjector
 
+# Public API — re-exported for the UI and API layers (and kept out of ruff's
+# unused-import sweep). Consumers import config constants from here.
+__all__ = [
+    "Engine",
+    "DictationState",
+    "load_model_async",
+    "DEFAULT_CONFIG",
+    "MODEL_PRESETS",
+    "SUPPORTED_LANGUAGES",
+    "load_config",
+    "save_config",
+    "DEFAULT_TRIGGER_KEYCODE",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +48,7 @@ from ..hardware.injection import TextInjector
 # Config loading/saving are now in config.py with validation and migration.
 # Model loading
 # ---------------------------------------------------------------------------
-def _load_model(config: Dict[str, Any]) -> WhisperModel:
+def _load_model(config: dict[str, Any]) -> WhisperModel:
     """Instantiate WhisperModel from config dict. Always uses CPU int8."""
     cpu_threads = 0
     try:
@@ -87,10 +98,10 @@ class DictationState:
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.fn_listener_active = False
-        self.last_transcription: Optional[str] = None
-        self.model: Optional[WhisperModel] = None
+        self.last_transcription: str | None = None
+        self.model: WhisperModel | None = None
         self.model_loading = False
-        self.config: Dict[str, Any] = dict(DEFAULT_CONFIG)
+        self.config: dict[str, Any] = dict(DEFAULT_CONFIG)
         self.app: Any = None
 
 
@@ -111,38 +122,32 @@ class Engine:
     def __init__(
         self,
         state: DictationState,
-        config_path: Optional[Path] = None,
+        config_path: Path | None = None,
     ) -> None:
         self.state = state
-        self._status_callbacks: List[Callable] = []
-        self._recording_start_callbacks: List[Callable] = []
-        self._recording_stop_callbacks: List[Callable] = []
-        self._fn_pressed_callbacks: List[Callable] = []
-        self._fn_released_callbacks: List[Callable] = []
-        self._config_path = config_path or (
-            Path.home() / ".config" / "whispy" / "config.json"
-        )
+        self._status_callbacks: list[Callable] = []
+        self._recording_start_callbacks: list[Callable] = []
+        self._recording_stop_callbacks: list[Callable] = []
+        self._fn_pressed_callbacks: list[Callable] = []
+        self._fn_released_callbacks: list[Callable] = []
+        self._config_path = config_path or (Path.home() / ".config" / "whispy" / "config.json")
         self._fn_pressed = False
 
         # Core components
         self._state_machine = StateMachine()
         self._audio_engine = AudioEngine(self._state_machine)
-        self._text_injector = TextInjector(
-            copy_to_clipboard=state.config.get("copy_to_clipboard", True)
-        )
+        self._text_injector = TextInjector(copy_to_clipboard=state.config.get("copy_to_clipboard", True))
 
         # Hardware listener (wired up later via start_fn_listener)
-        self._fn_listener: Optional[EventTapListener] = None
+        self._fn_listener: EventTapListener | None = None
 
         # Transcription worker thread
-        self._transcription_thread: Optional[threading.Thread] = None
+        self._transcription_thread: threading.Thread | None = None
         self._transcription_running = False
 
         # Register FSM callbacks to keep DictationState in sync
         self._state_machine.on_state_change(State.RECORDING, self._on_fsm_recording)
-        self._state_machine.on_state_change(
-            State.TRANSCRIBING, self._on_fsm_transcribing
-        )
+        self._state_machine.on_state_change(State.TRANSCRIBING, self._on_fsm_transcribing)
         self._state_machine.on_state_change(State.IDLE, self._on_fsm_idle)
 
     def _on_fsm_recording(self, _state: State) -> None:
@@ -175,6 +180,7 @@ class Engine:
     def _notify_recording_start(self) -> None:
         """Notify all registered callbacks of recording start."""
         import logging
+
         logger = logging.getLogger(__name__)
         for cb in list(self._recording_start_callbacks):
             try:
@@ -185,6 +191,7 @@ class Engine:
     def _notify_recording_stop(self) -> None:
         """Notify all registered callbacks of recording stop."""
         import logging
+
         logger = logging.getLogger(__name__)
         for cb in list(self._recording_stop_callbacks):
             try:
@@ -232,7 +239,7 @@ class Engine:
             except Exception:
                 pass
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Return current engine status as a dict."""
         return {
             "is_recording": self.state.is_recording,
@@ -256,7 +263,7 @@ class Engine:
 
     # -- Transcription --
 
-    def run_transcription(self) -> Optional[str]:
+    def run_transcription(self) -> str | None:
         """Execute transcription synchronously (called from worker thread)."""
         if self.state.model is None:
             print("[transcribe] Model not loaded, skipping", file=sys.stderr)
@@ -271,9 +278,7 @@ class Engine:
             language=self.state.config.get("language", "fr"),
             beam_size=self.state.config.get("beam_size", 1),
             best_of=self.state.config.get("best_of", 2),
-            auto_detect_min_duration=self.state.config.get(
-                "auto_detect_min_duration", 0.5
-            ),
+            auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
         )
 
         if text:
@@ -351,9 +356,7 @@ class Engine:
                         stderr=subprocess.DEVNULL,
                     )
 
-        self._transcription_thread = threading.Thread(
-            target=_worker, name="transcription-worker", daemon=True
-        )
+        self._transcription_thread = threading.Thread(target=_worker, name="transcription-worker", daemon=True)
         self._transcription_thread.start()
 
     def stop_transcription_worker(self) -> None:
@@ -364,7 +367,7 @@ class Engine:
 
     # -- Config --
 
-    def update_config(self, updates: Dict[str, Any]) -> bool:
+    def update_config(self, updates: dict[str, Any]) -> bool:
         """Apply config updates. Returns True if model reload was triggered."""
         needs_reload = False
         for key, value in updates.items():

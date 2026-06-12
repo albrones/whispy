@@ -9,14 +9,11 @@ Provides RESTful endpoints for:
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ..core.audio import RECORDING_PATH
 from ..core.engine import (
     Engine,
-    DEFAULT_CONFIG,
-    load_config,
-    save_config,
 )
 
 PORT = 9090
@@ -73,16 +70,14 @@ class RequestHandler(BaseHTTPRequestHandler):
                     from ..core.engine import load_model_async
 
                     load_model_async(engine)
-                self._json_response(
-                    200, {"status": "ok", "config": engine.state.config}
-                )
+                self._json_response(200, {"status": "ok", "config": engine.state.config})
             except (json.JSONDecodeError, ValueError) as exc:
                 self._json_response(400, {"error": str(exc)})
 
         else:
             self._json_response(404, {"error": "not found"})
 
-    def _sync_stop_and_transcribe(self, engine: Engine) -> Optional[str]:
+    def _sync_stop_and_transcribe(self, engine: Engine) -> str | None:
         """Stop recording and transcribe synchronously (for /stop endpoint)."""
         import os
 
@@ -122,7 +117,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             daemon=True,
         ).start()
 
-    def _json_response(self, code: int, data: Dict[str, Any]) -> None:
+    def _json_response(self, code: int, data: dict[str, Any]) -> None:
         """Send a JSON HTTP response."""
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
@@ -141,9 +136,9 @@ def start_http_server(engine: Engine, start_port: int = PORT, max_attempts: int 
             server = HTTPServer(("127.0.0.1", port), RequestHandler)
             server.engine = engine
 
-            def _serve(p=port):
+            def _serve(p=port, srv=server):
                 print(f"[http] Listening on 127.0.0.1:{p}")
-                server.serve_forever()
+                srv.serve_forever()
 
             threading.Thread(target=_serve, name="http-server", daemon=True).start()
             return server
