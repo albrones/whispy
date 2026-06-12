@@ -148,6 +148,9 @@ __pycache__/
 .venv/
 venv/
 
+# Editable-install / build metadata
+*.egg-info/
+
 # Generated knowledge graph (regenerate with `graphify update .`)
 graphify-out/
 
