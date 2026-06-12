@@ -10,11 +10,8 @@ These tests verify the complete integration of all modules:
 """
 
 import json
-import os
 import socket
-import subprocess
 import sys
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -40,7 +37,6 @@ from whispy.core.engine import (
 )
 from whispy.core.state_machine import State, StateMachine
 from whispy.hardware.injection import TextInjector
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -116,9 +112,7 @@ def mock_whisper_model(mocker):
 class TestFullWorkflow:
     """Test the complete recording -> transcription -> injection workflow."""
 
-    def test_complete_workflow_with_mocked_audio(
-        self, state, engine, mock_subprocess, tmp_path, mocker
-    ):
+    def test_complete_workflow_with_mocked_audio(self, state, engine, mock_subprocess, tmp_path, mocker):
         """Test the full workflow: engine init -> start recording -> stop -> transcribe -> inject."""
         # 1. Engine is created and initialized
         assert engine.state is state
@@ -135,8 +129,8 @@ class TestFullWorkflow:
         audio_file.write_bytes(b"\x00" * 6000)  # Must exceed _MIN_RECORDING_SIZE (5120)
 
         # Patch module-level RECORDING_PATH in both engine and audio modules
-        import whispy.core.engine as engine_module
         import whispy.core.audio as audio_module
+        import whispy.core.engine as engine_module
 
         engine_module.RECORDING_PATH = str(audio_file)
         audio_module.RECORDING_PATH = str(audio_file)
@@ -153,10 +147,12 @@ class TestFullWorkflow:
         # 4. Set up mock model for transcription
         mock_model = MagicMock()
         mock_model.transcribe.return_value = (
-            iter([
-                MagicMock(text="hello world"),
-                MagicMock(text="test phrase"),
-            ]),
+            iter(
+                [
+                    MagicMock(text="hello world"),
+                    MagicMock(text="test phrase"),
+                ]
+            ),
             {},
         )
         state.model = mock_model
@@ -173,18 +169,18 @@ class TestFullWorkflow:
         # 7. Audio file was cleaned up
         assert not audio_file.exists()
 
-    def test_workflow_with_clipboard_disabled(
-        self, state, engine, mock_subprocess, tmp_path, mocker
-    ):
+    def test_workflow_with_clipboard_disabled(self, state, engine, mock_subprocess, tmp_path, mocker):
         """Test workflow when copy_to_clipboard is disabled (keystroke mode)."""
         engine.update_config({"copy_to_clipboard": False})
 
         mock_model = MagicMock()
         mock_model.transcribe.return_value = (
-            iter([
-                MagicMock(text="hello world"),
-                MagicMock(text="test phrase"),
-            ]),
+            iter(
+                [
+                    MagicMock(text="hello world"),
+                    MagicMock(text="test phrase"),
+                ]
+            ),
             {},
         )
         state.model = mock_model
@@ -193,8 +189,8 @@ class TestFullWorkflow:
         audio_file.write_bytes(b"\x00" * 160)  # Minimal WAV header
 
         # Patch module-level RECORDING_PATH in both engine and audio modules
-        import whispy.core.engine as engine_module
         import whispy.core.audio as audio_module
+        import whispy.core.engine as engine_module
 
         engine_module.RECORDING_PATH = str(audio_file)
         audio_module.RECORDING_PATH = str(audio_file)
@@ -315,8 +311,8 @@ class TestHTTPAPIWithEngine:
         engine = Engine(state, tmp_path / "config.json")
         port = _find_free_port()
 
-        from whispy.api.server import PORT, RequestHandler
         import whispy.api.server as server_module
+        from whispy.api.server import PORT, RequestHandler
 
         server_module.PORT = port
 
@@ -358,9 +354,7 @@ class TestHTTPAPIWithEngine:
     def test_post_config_updates_and_persists(self, test_server, tmp_path):
         """Test POST /config updates engine config and persists to disk."""
         _, port, engine = test_server
-        status, body = _http_post(
-            port, "/config", {"model_size": "medium", "language": "fr"}
-        )
+        status, body = _http_post(port, "/config", {"model_size": "medium", "language": "fr"})
         assert status == 200
         assert body["status"] == "ok"
         assert engine.state.config["model_size"] == "medium"
@@ -389,6 +383,7 @@ class TestHTTPAPIWithEngine:
         audio_file = tmp_path / "whispy.wav"
         audio_file.write_bytes(b"\x00" * 6000)  # Must exceed _MIN_RECORDING_SIZE (5120)
         import whispy.core.audio as audio_module
+
         audio_module.RECORDING_PATH = str(audio_file)
         # Mock subprocess for sound and recording
         with patch("subprocess.Popen") as mock_popen:
@@ -414,8 +409,8 @@ class TestHTTPAPIWithEngine:
         state.model = mock_model
 
         # Patch RECORDING_PATH
-        import whispy.core.engine as engine_module
         import whispy.core.audio as audio_module
+        import whispy.core.engine as engine_module
 
         original_path = engine_module.RECORDING_PATH
         engine_module.RECORDING_PATH = str(audio_file)
@@ -767,8 +762,8 @@ def _find_free_port():
 
 def _http_get(port, path):
     """Make a GET request and return (status_code, body_dict)."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     url = f"http://127.0.0.1:{port}{path}"
     try:
@@ -782,8 +777,8 @@ def _http_get(port, path):
 
 def _http_post(port, path, body=None):
     """Make a POST request and return (status_code, body_dict)."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     url = f"http://127.0.0.1:{port}{path}"
     data = json.dumps(body).encode() if body else b""

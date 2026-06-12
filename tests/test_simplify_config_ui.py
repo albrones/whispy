@@ -1,11 +1,8 @@
 """Tests for simplified configuration UI — no trigger_key or compute_key."""
 
-import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 # Ensure src/ is on the path and mock macOS-only deps
 _src = Path(__file__).parent.parent / "src"
@@ -22,7 +19,7 @@ if "Quartz" not in sys.modules:
 if "rumps" not in sys.modules:
     sys.modules["rumps"] = MagicMock()
 
-from whispy.core.engine import DEFAULT_CONFIG, Engine, DictationState
+from whispy.core.engine import DEFAULT_CONFIG, DictationState, Engine
 
 
 class TestDefaultConfigNoDeprecatedKeys:
@@ -71,16 +68,19 @@ class TestEventTapNoLearningMode:
 
     def test_no_start_learning_method(self):
         from whispy.hardware.event_tap import EventTapListener
+
         listener = EventTapListener()
         assert not hasattr(listener, "start_learning")
 
     def test_no_stop_learning_method(self):
         from whispy.hardware.event_tap import EventTapListener
+
         listener = EventTapListener()
         assert not hasattr(listener, "stop_learning")
 
     def test_no_is_learning_property(self):
         from whispy.hardware.event_tap import EventTapListener
+
         listener = EventTapListener()
         assert not hasattr(listener, "is_learning")
 
@@ -90,8 +90,10 @@ class TestLanguageOnlyFrEn:
 
     def test_only_fr_and_en(self):
         from whispy.core.engine import SUPPORTED_LANGUAGES
+
         assert set(SUPPORTED_LANGUAGES.keys()) == {"fr", "en"}
 
     def test_no_auto_language(self):
         from whispy.core.engine import SUPPORTED_LANGUAGES
+
         assert "auto" not in SUPPORTED_LANGUAGES

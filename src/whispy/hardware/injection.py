@@ -6,7 +6,6 @@ using clipboard paste or direct keystroke simulation.
 
 import subprocess
 import threading
-from typing import Optional
 
 
 class TextInjector:

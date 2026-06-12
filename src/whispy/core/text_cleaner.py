@@ -5,7 +5,6 @@ preventing them from being injected into the active text field.
 """
 
 import re
-from typing import Optional
 
 # French credit phrases (Whisper watermark)
 _FRENCH_CREDITS = [
@@ -34,7 +33,7 @@ _CREDIT_PATTERN = re.compile(
 )
 
 
-def clean_text(text: Optional[str]) -> Optional[str]:
+def clean_text(text: str | None) -> str | None:
     """Strip Whisper credit prefixes from transcribed text.
 
     Removes known Whisper watermark phrases (French and English) from the

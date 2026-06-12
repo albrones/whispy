@@ -4,9 +4,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 # Ensure src/ is on the path, and remove project root to avoid whispy.py shadowing
 _project_root = str(Path(__file__).parent.parent)
@@ -17,8 +15,6 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 from whispy.core.audio import AudioEngine
-from whispy.core.state_machine import State
-
 
 # ---------------------------------------------------------------------------
 # start()
@@ -86,9 +82,7 @@ class TestAudioStop:
     def test_stop_kills_on_timeout(self, sm, mock_subprocess):
         _, popen_mock, popen_instance = mock_subprocess
         popen_instance.poll.return_value = None
-        popen_instance.wait.side_effect = subprocess.TimeoutExpired(
-            cmd="sox", timeout=2
-        )
+        popen_instance.wait.side_effect = subprocess.TimeoutExpired(cmd="sox", timeout=2)
         audio = AudioEngine(sm)
         audio.start()
         audio.stop()

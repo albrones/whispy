@@ -7,14 +7,11 @@ only a credit, and text without credit being returned unchanged.
 import sys
 from pathlib import Path
 
-import pytest
-
 _src = Path(__file__).parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 from whispy.core.audio import strip_whisper_credit
-
 
 # ---------------------------------------------------------------------------
 # French credit stripping

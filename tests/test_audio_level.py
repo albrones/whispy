@@ -1,7 +1,6 @@
 """Tests for the audio level monitor module."""
 
 import threading
-import time
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -95,9 +94,7 @@ class TestAudioLevelMonitor:
                 indata = np.ones((1024, 1))
                 for _ in range(100):
                     try:
-                        monitor._audio_callback(
-                            indata, 1024, {}, type("Status", (), {})()
-                        )
+                        monitor._audio_callback(indata, 1024, {}, type("Status", (), {})())
                     except Exception as e:
                         errors.append(e)
 

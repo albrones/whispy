@@ -6,8 +6,9 @@ and prevents illegal transitions (e.g., starting recording while transcribing).
 
 import threading
 from collections import deque
+from collections.abc import Callable
 from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 
 class State(Enum):
@@ -42,7 +43,7 @@ class StateMachine:
         self._current_state = State.IDLE
         self._lock = threading.Lock()
         self._transitions: deque[str] = deque(maxlen=1000)
-        self._callbacks: Dict[State, List[Callable]] = {}
+        self._callbacks: dict[State, list[Callable]] = {}
 
     def on_state_change(self, state: State, callback: Callable) -> None:
         """Register a callback for when the FSM enters a specific state."""
@@ -77,7 +78,7 @@ class StateMachine:
     def is_transcribing(self) -> bool:
         return self.current_state == State.TRANSCRIBING
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return current state as a dictionary."""
         with self._lock:
             return {
@@ -96,6 +97,7 @@ class StateMachine:
         Raises InvalidTransitionError for truly illegal transitions.
         """
         import logging
+
         logger = logging.getLogger(__name__)
         with self._lock:
             current = self._current_state
@@ -118,8 +120,7 @@ class StateMachine:
             if target not in allowed:
                 logger.warning(f"[fsm] Invalid transition from {current.name} to {target.name}")
                 raise InvalidTransitionError(
-                    f"Cannot transition from {current.name} to {target.name}. "
-                    f"Allowed: {[s.name for s in allowed]}"
+                    f"Cannot transition from {current.name} to {target.name}. Allowed: {[s.name for s in allowed]}"
                 )
 
             self._current_state = target
@@ -169,7 +170,7 @@ class StateMachine:
             return False
 
     @property
-    def transition_history(self) -> List[str]:
+    def transition_history(self) -> list[str]:
         """Return the history of state transitions."""
         with self._lock:
             return list(self._transitions)

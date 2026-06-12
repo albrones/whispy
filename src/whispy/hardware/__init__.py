@@ -1,9 +1,9 @@
 """Hardware module."""
 
 from .event_tap import (
-    EventTapListener,
     DEFAULT_TRIGGER_KEYCODE,
     QUARTZ_AVAILABLE,
+    EventTapListener,
 )
 from .injection import TextInjector
 

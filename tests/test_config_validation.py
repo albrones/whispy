@@ -3,9 +3,6 @@
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 # Ensure src/ is on the path
 _src = Path(__file__).parent.parent / "src"
@@ -19,7 +16,6 @@ from whispy.core.engine import (
     DEFAULT_CONFIG,
     save_config,
 )
-
 
 # ---------------------------------------------------------------------------
 # save_config filtering

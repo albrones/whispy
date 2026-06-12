@@ -13,8 +13,6 @@ import wave
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
 # Ensure src/ is on the path, and remove project root to avoid whispy.py shadowing
 _project_root = str(Path(__file__).parent.parent)
 if _project_root in sys.path:
@@ -26,13 +24,9 @@ if str(_src) not in sys.path:
 from whispy.core.audio import AudioEngine
 from whispy.core.engine import (
     DEFAULT_CONFIG,
-    DictationState,
-    Engine,
     load_config,
     save_config,
 )
-from whispy.core.state_machine import StateMachine
-
 
 # ---------------------------------------------------------------------------
 # transcribe() with language="auto"
@@ -56,9 +50,7 @@ class TestAutoDetectTranscription:
         call_kwargs = mock_whisper_model.transcribe.call_args
         assert call_kwargs[1]["language"] == "auto"
 
-    def test_auto_detect_min_duration_config_passed(
-        self, sm, mock_whisper_model, tmp_path
-    ):
+    def test_auto_detect_min_duration_config_passed(self, sm, mock_whisper_model, tmp_path):
         audio = AudioEngine(sm)
         audio_path = str(tmp_path / "test.wav")
         with open(audio_path, "wb") as f:
@@ -232,9 +224,7 @@ class TestLanguageConfigPersistence:
 class TestShortAudioHandling:
     """Test that short audio (< 1s) is handled gracefully."""
 
-    def test_transcribe_short_audio_with_auto_does_not_crash(
-        self, sm, mock_whisper_model, tmp_path
-    ):
+    def test_transcribe_short_audio_with_auto_does_not_crash(self, sm, mock_whisper_model, tmp_path):
         """Short audio with language='auto' should not crash."""
         audio = AudioEngine(sm)
         wav_path = str(tmp_path / "short.wav")
@@ -259,9 +249,7 @@ class TestShortAudioHandling:
         )
         assert result is None  # Empty text returns None
 
-    def test_transcribe_short_audio_with_fixed_language(
-        self, sm, mock_whisper_model, tmp_path
-    ):
+    def test_transcribe_short_audio_with_fixed_language(self, sm, mock_whisper_model, tmp_path):
         """Short audio with fixed language should work normally."""
         audio = AudioEngine(sm)
         wav_path = str(tmp_path / "short.wav")
@@ -284,9 +272,7 @@ class TestShortAudioHandling:
         )
         assert result == "bonjour"
 
-    def test_transcribe_above_threshold_with_auto(
-        self, sm, mock_whisper_model, tmp_path
-    ):
+    def test_transcribe_above_threshold_with_auto(self, sm, mock_whisper_model, tmp_path):
         """Audio above threshold with language='auto' should work normally."""
         audio = AudioEngine(sm)
         wav_path = str(tmp_path / "long.wav")

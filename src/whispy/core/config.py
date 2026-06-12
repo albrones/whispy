@@ -7,19 +7,19 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 # Valid model sizes for faster-whisper
-VALID_MODEL_SIZES: List[str] = ["tiny", "base", "small", "medium", "large-v3"]
+VALID_MODEL_SIZES: list[str] = ["tiny", "base", "small", "medium", "large-v3"]
 
 # Supported languages with display names
-SUPPORTED_LANGUAGES: Dict[str, str] = {
+SUPPORTED_LANGUAGES: dict[str, str] = {
     "fr": "French",
     "en": "English",
 }
 
 # Model presets for UI display
-MODEL_PRESETS: Dict[str, Dict[str, str]] = {
+MODEL_PRESETS: dict[str, dict[str, str]] = {
     "tiny": {
         "label": "Fast (tiny)",
         "description": "75 MB — fastest, limited quality",
@@ -37,7 +37,7 @@ MODEL_PRESETS: Dict[str, Dict[str, str]] = {
 }
 
 # Default configuration values
-DEFAULT_CONFIG: Dict[str, Any] = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "model_size": "small",
     "language": "fr",
     "beam_size": 1,
@@ -50,7 +50,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 CONFIG_VERSION = 1
 
 
-def _validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
+def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
     """Validate and normalize config values. Returns a cleaned copy with only known keys."""
     # Start fresh with defaults — discard any unknown keys from input
     validated = dict(DEFAULT_CONFIG)
@@ -76,8 +76,7 @@ def _validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     # Validate language
     if validated.get("language") not in SUPPORTED_LANGUAGES:
         print(
-            f"[config] Invalid language '{validated.get('language')}', "
-            f"defaulting to '{DEFAULT_CONFIG['language']}'",
+            f"[config] Invalid language '{validated.get('language')}', defaulting to '{DEFAULT_CONFIG['language']}'",
             file=sys.stderr,
         )
         validated["language"] = DEFAULT_CONFIG["language"]
@@ -121,7 +120,7 @@ def _validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return validated
 
 
-def _migrate_config(config: Dict[str, Any], config_path: Path) -> Dict[str, Any]:
+def _migrate_config(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
     """Migrate config from older versions to the current version.
 
     Adds any missing keys with defaults, and handles known migration paths.
@@ -148,7 +147,7 @@ def _migrate_config(config: Dict[str, Any], config_path: Path) -> Dict[str, Any]
     return migrated
 
 
-def load_config(config_path: Path) -> Dict[str, Any]:
+def load_config(config_path: Path) -> dict[str, Any]:
     """Load config from disk, falling back to defaults.
 
     Args:
@@ -181,14 +180,14 @@ def load_config(config_path: Path) -> Dict[str, Any]:
     return config
 
 
-def save_config(config: Dict[str, Any], config_path: Path) -> None:
+def save_config(config: dict[str, Any], config_path: Path) -> None:
     """Persist config to disk atomically, filtering to known keys.
 
     Args:
         config: Config dict to save.
         config_path: Path to write to.
     """
-    filtered: Dict[str, Any] = {}
+    filtered: dict[str, Any] = {}
     for key in DEFAULT_CONFIG:
         if key in config:
             filtered[key] = config[key]

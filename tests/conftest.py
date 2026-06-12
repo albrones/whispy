@@ -4,7 +4,6 @@ Mocks macOS-only dependencies (Quartz, rumps) so tests can run on any platform.
 Provides shared fixtures for Engine, DictationState, and temporary directories.
 """
 
-import os
 import shutil
 import sys
 import tempfile
@@ -58,8 +57,8 @@ def state():
 @pytest.fixture
 def engine(state, config_path, tmp_dir):
     """Create a fresh Engine instance with a DictationState."""
-    from whispy.core.engine import Engine
     import whispy.core.audio as audio_module
+    from whispy.core.engine import Engine
 
     # Patch RECORDING_PATH before Engine/AudioEngine init so the audio engine
     # uses a temp path instead of /tmp/whispy.wav

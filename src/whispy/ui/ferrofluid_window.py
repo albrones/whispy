@@ -5,15 +5,13 @@ Creates an NSWindow that stays above regular windows, ignores mouse events
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from AppKit import (
     NSApplication,
     NSBorderlessWindowMask,
     NSColor,
-    NSFloatingWindowLevel,
     NSPopUpMenuWindowLevel,
-    NSView,
     NSWindow,
     NSWindowCollectionBehavior,
 )
@@ -31,8 +29,8 @@ class FerrofluidWindow:
     MIN_SIZE = 180
 
     def __init__(self) -> None:
-        self._window: Optional[NSWindow] = None
-        self._view: Optional[FerrofluidView] = None
+        self._window: NSWindow | None = None
+        self._view: FerrofluidView | None = None
         self._audio_level_monitor: Any = None
         self._initialized = False
 
@@ -118,7 +116,10 @@ class FerrofluidWindow:
         )
         logger.info(
             "[ferrofluid] Window positioned at (%.0f, %.0f, %.0f, %.0f)",
-            x, y, win_w, win_h,
+            x,
+            y,
+            win_w,
+            win_h,
         )
 
         # Make window visible BEFORE setting view state

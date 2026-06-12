@@ -1,13 +1,8 @@
 """Integration tests for multi-module interactions."""
 
-import json
 import sys
 import threading
-import time
 from pathlib import Path
-from unittest.mock import MagicMock
-
-import pytest
 
 # Ensure src/ is on the path, and remove project root to avoid whispy.py shadowing
 _project_root = str(Path(__file__).parent.parent)
@@ -20,8 +15,6 @@ if str(_src) not in sys.path:
 from whispy.core.audio import AudioEngine
 from whispy.core.engine import DictationState, Engine
 from whispy.core.state_machine import State
-from whispy.hardware.injection import TextInjector
-
 
 # ---------------------------------------------------------------------------
 # Full Engine lifecycle
@@ -208,9 +201,7 @@ class TestEngineAudioWithMocks:
         result = engine.run_transcription()
         assert result is None
 
-    def test_run_transcription_with_no_audio_file(
-        self, state, mock_whisper_model, tmp_dir
-    ):
+    def test_run_transcription_with_no_audio_file(self, state, mock_whisper_model, tmp_dir):
         engine = Engine(state)
         state.model = mock_whisper_model
         # RECORDING_PATH doesn't exist

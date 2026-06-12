@@ -23,7 +23,6 @@ if str(_src) not in sys.path:
 from whispy.ui.audio_level import AudioLevelMonitor
 from whispy.ui.ferrofluid_view import FerrofluidView
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -92,9 +91,7 @@ class TestFerrofluidViewAudioIntegration:
         view._draw_frame()
 
         # _audio_level should have moved toward 1.0 (target = 1.0 from monitor)
-        assert view._audio_level > 0.0, (
-            f"Expected audio_level > 0 after audio input, got {view._audio_level}"
-        )
+        assert view._audio_level > 0.0, f"Expected audio_level > 0 after audio input, got {view._audio_level}"
 
     def test_draw_frame_with_no_monitor_keeps_zero(self):
         """Without a monitor, _audio_level should stay at 0 (no spikes)."""
@@ -159,39 +156,31 @@ class TestFerrofluidWindowViewChain:
             mock_view = MagicMock()
             MockView.alloc().initWithFrame_.return_value = mock_view
 
-            window = __import__(
-                "whispy.ui.ferrofluid_window", fromlist=["FerrofluidWindow"]
-            ).FerrofluidWindow()
+            window = __import__("whispy.ui.ferrofluid_window", fromlist=["FerrofluidWindow"]).FerrofluidWindow()
             window.set_audio_monitor(monitor)
             window._initialized = False
 
             # Patch the NSWindow and NSWindowCollectionBehavior to avoid
             # pyobjc NewType issues during mock
             mock_window = MagicMock()
-            with patch(
-                "whispy.ui.ferrofluid_window.NSWindow"
-            ) as MockWindow, \
-                 patch(
-                     "whispy.ui.ferrofluid_window.NSWindowCollectionBehavior"
-                 ) as MockBehavior, \
-                 patch(
-                     "whispy.ui.ferrofluid_window.NSBorderlessWindowMask",
-                     default=0,
-                 ), \
-                 patch(
-                     "whispy.ui.ferrofluid_window.NSBackingStoreType",
-                     new=1,
-                 ), \
-                 patch(
-                     "whispy.ui.ferrofluid_window.NSPopUpMenuWindowLevel",
-                     default=20,
-                 ), \
-                 patch(
-                     "whispy.ui.ferrofluid_window.NSColor"
-                 ) as MockColor, \
-                 patch(
-                     "whispy.ui.ferrofluid_window.NSApplication"
-                 ) as MockApp:
+            with (
+                patch("whispy.ui.ferrofluid_window.NSWindow") as MockWindow,
+                patch("whispy.ui.ferrofluid_window.NSWindowCollectionBehavior") as MockBehavior,
+                patch(
+                    "whispy.ui.ferrofluid_window.NSBorderlessWindowMask",
+                    default=0,
+                ),
+                patch(
+                    "whispy.ui.ferrofluid_window.NSBackingStoreType",
+                    new=1,
+                ),
+                patch(
+                    "whispy.ui.ferrofluid_window.NSPopUpMenuWindowLevel",
+                    default=20,
+                ),
+                patch("whispy.ui.ferrofluid_window.NSColor") as MockColor,
+                patch("whispy.ui.ferrofluid_window.NSApplication") as MockApp,
+            ):
                 MockWindow.alloc().initWithContentRect_styleMask_backing_defer_.return_value = mock_window
                 MockBehavior.canJoinAllSpaces = 1
                 MockBehavior.stationary = 2
@@ -232,9 +221,7 @@ class TestFullVisualizationPipeline:
         view._draw_frame()
 
         # 4. Verify the audio level propagated
-        assert view._audio_level > 0.0, (
-            f"Audio level should be > 0 after moderate audio input, got {view._audio_level}"
-        )
+        assert view._audio_level > 0.0, f"Audio level should be > 0 after moderate audio input, got {view._audio_level}"
 
     def test_full_pipeline_with_varying_audio(self):
         """Test that the view responds to changing audio levels over multiple frames."""
@@ -262,9 +249,7 @@ class TestFullVisualizationPipeline:
         view._draw_frame()
         level_loud = view._audio_level
 
-        assert level_with_audio > level_silent, (
-            f"Audio should increase level: {level_with_audio} vs {level_silent}"
-        )
+        assert level_with_audio > level_silent, f"Audio should increase level: {level_with_audio} vs {level_silent}"
         assert level_loud >= level_with_audio, (
             f"Louder audio should not decrease level: {level_loud} vs {level_with_audio}"
         )

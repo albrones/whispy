@@ -3,8 +3,6 @@
 import sys
 from pathlib import Path
 
-import pytest
-
 # Ensure src/ is on the path, and remove project root to avoid whispy.py shadowing
 _project_root = str(Path(__file__).parent.parent)
 if _project_root in sys.path:
@@ -14,7 +12,6 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 from whispy.hardware.injection import TextInjector
-
 
 # ---------------------------------------------------------------------------
 # Clipboard injection mode
@@ -176,5 +173,3 @@ class TestUpdateConfig:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-from unittest.mock import MagicMock
