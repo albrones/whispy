@@ -49,8 +49,9 @@ BAR_MAX_HEIGHT = 38.0
 # Perceptual boost: lift quiet speech so the bars are lively (gamma < 1 + gain).
 LEVEL_GAMMA = 0.5
 LEVEL_GAIN = 2.0
-BOTTOM_MARGIN = 90.0  # distance from the bottom of the screen
+BOTTOM_MARGIN = 40.0  # distance from the bottom of the screen
 FPS = 30.0
+FADE_SPEED = 7.0  # higher = snappier fade in/out
 
 
 class WaveformView(NSView):
@@ -66,6 +67,8 @@ class WaveformView(NSView):
         self._last_frame_time = 0.0
         self._audio_monitor = None
         self._anim_timer = None
+        self._fade = 0.0  # current window opacity (0..1)
+        self._fade_target = 0.0  # 1 while shown, 0 while hiding
         return self
 
     # -- public API --
@@ -102,7 +105,20 @@ class WaveformView(NSView):
         # Smooth toward the target level
         self._level += (self._target_level - self._level) * min(dt * 8.0, 1.0)
         self._phase += dt * 6.0
+
+        # Fade the whole panel in/out
+        self._fade += (self._fade_target - self._fade) * min(dt * FADE_SPEED, 1.0)
+        win = self.window()
+        if win is not None:
+            win.setAlphaValue_(self._fade)
+
         self.setNeedsDisplay_(True)
+
+        # Once fully faded out, hide the window and stop the loop
+        if self._fade_target == 0.0 and self._fade < 0.02:
+            if win is not None:
+                win.orderOut_(None)
+            self.stop_animation()
 
     # -- drawing --
 
@@ -224,6 +240,9 @@ class WaveformWindow:
         y = vf.origin.y + BOTTOM_MARGIN
         self._window.setFrameOrigin_((x, y))
 
+        # Start transparent and fade in via the animation loop.
+        self._window.setAlphaValue_(0.0)
+        self._view._fade_target = 1.0
         self._window.orderFrontRegardless()
         self._view.start_animation()
 
@@ -234,10 +253,9 @@ class WaveformWindow:
             AppHelper.callAfter(self._hide_on_main)
 
     def _hide_on_main(self) -> None:
+        # Fade out; the animation loop hides the window once alpha reaches 0.
         if self._view is not None:
-            self._view.stop_animation()
-        if self._window is not None:
-            self._window.orderOut_(None)
+            self._view._fade_target = 0.0
 
     def destroy(self) -> None:
         if self._view is not None:
