@@ -46,6 +46,7 @@ class TestMinRecordingDuration:
         validated = _validate_config({"min_recording_duration": True})
         assert validated["min_recording_duration"] == 0.3
 
+
 # ---------------------------------------------------------------------------
 # save_config filtering
 # ---------------------------------------------------------------------------
@@ -100,6 +101,30 @@ class TestSaveConfigFiltering:
         saved = json.loads(config_path.read_text())
         for key in DEFAULT_CONFIG:
             assert saved[key] == DEFAULT_CONFIG[key]
+
+
+# ---------------------------------------------------------------------------
+# custom_vocabulary validation
+# ---------------------------------------------------------------------------
+
+
+class TestCustomVocabulary:
+    """Test validation of the custom_vocabulary config key."""
+
+    def test_default_is_empty_list(self):
+        assert DEFAULT_CONFIG["custom_vocabulary"] == []
+
+    def test_valid_list_preserved(self):
+        validated = _validate_config({"custom_vocabulary": ["Whispy", "ctranslate2"]})
+        assert validated["custom_vocabulary"] == ["Whispy", "ctranslate2"]
+
+    def test_non_list_falls_back_to_empty(self):
+        validated = _validate_config({"custom_vocabulary": "Whispy"})
+        assert validated["custom_vocabulary"] == []
+
+    def test_non_string_entries_filtered_and_stripped(self):
+        validated = _validate_config({"custom_vocabulary": ["  Whispy  ", 42, "", None, "sox"]})
+        assert validated["custom_vocabulary"] == ["Whispy", "sox"]
 
 
 # ---------------------------------------------------------------------------

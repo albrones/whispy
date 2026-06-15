@@ -307,6 +307,44 @@ class TestTranscriptionWorkerFsm:
 
 
 # ---------------------------------------------------------------------------
+# custom_vocabulary -> initial_prompt wiring
+# ---------------------------------------------------------------------------
+
+
+class TestCustomVocabularyWiring:
+    """run_transcription builds an initial_prompt from custom_vocabulary."""
+
+    def _prep(self, engine, mocker, tmp_path):
+        """Point RECORDING_PATH at a real file and stub the I/O side effects."""
+        import whispy.core.engine as engine_module
+
+        rec = tmp_path / "whispy.wav"
+        rec.write_bytes(b"\x00" * 100)
+        mocker.patch.object(engine_module, "RECORDING_PATH", str(rec))
+        engine.state.model = MagicMock()
+        transcribe = mocker.patch.object(engine._audio_engine, "transcribe", return_value="hi")
+        mocker.patch.object(engine._text_injector, "inject")
+        mocker.patch.object(engine._audio_engine, "cleanup_audio_file")
+        return transcribe
+
+    def test_vocabulary_builds_initial_prompt(self, engine, mocker, tmp_path):
+        transcribe = self._prep(engine, mocker, tmp_path)
+        engine.state.config["custom_vocabulary"] = ["Whispy", "ctranslate2"]
+
+        engine.run_transcription()
+
+        assert transcribe.call_args[1]["initial_prompt"] == "Whispy, ctranslate2"
+
+    def test_empty_vocabulary_passes_none(self, engine, mocker, tmp_path):
+        transcribe = self._prep(engine, mocker, tmp_path)
+        engine.state.config["custom_vocabulary"] = []
+
+        engine.run_transcription()
+
+        assert transcribe.call_args[1]["initial_prompt"] is None
+
+
+# ---------------------------------------------------------------------------
 # copy_to_clipboard default
 # ---------------------------------------------------------------------------
 

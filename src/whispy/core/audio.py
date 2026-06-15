@@ -165,8 +165,13 @@ class AudioEngine:
         best_of: int = 2,
         auto_detect_min_duration: float = 0.5,
         min_recording_duration: float = 0.3,
+        initial_prompt: str | None = None,
     ) -> str | None:
-        """Transcribe an audio file. Returns None if transcription fails."""
+        """Transcribe an audio file. Returns None if transcription fails.
+
+        ``initial_prompt`` biases the decoder toward a custom vocabulary; when
+        None the call behaves exactly as without it.
+        """
         if model is None:
             print(
                 "[audio] Model not loaded, skipping transcription",
@@ -184,8 +189,7 @@ class AudioEngine:
         # d'Amara.org"). Discard such clips so nothing gets injected.
         if duration is not None and duration < min_recording_duration:
             logger.info(
-                "[audio] Recording too short (%.2fs < %.1fs) — discarding "
-                "to avoid hallucination on silence.",
+                "[audio] Recording too short (%.2fs < %.1fs) — discarding to avoid hallucination on silence.",
                 duration,
                 min_recording_duration,
             )
@@ -208,6 +212,7 @@ class AudioEngine:
                 vad_filter=True,
                 condition_on_previous_text=False,
                 temperature=0,
+                initial_prompt=initial_prompt,
             )
             text_parts = [seg.text.strip() for seg in segments]
             text = " ".join(text_parts)

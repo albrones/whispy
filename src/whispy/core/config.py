@@ -45,6 +45,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "copy_to_clipboard": False,
     "auto_detect_min_duration": 0.5,
     "min_recording_duration": 0.3,
+    # User-curated terms (names, jargon) used to bias transcription toward the
+    # words the user habitually says. Empty by default.
+    "custom_vocabulary": [],
 }
 
 # Config version for migration tracking
@@ -126,6 +129,19 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
             file=sys.stderr,
         )
         validated["min_recording_duration"] = DEFAULT_CONFIG["min_recording_duration"]
+
+    # Validate custom_vocabulary (must be a list of non-empty strings).
+    vocab = validated.get("custom_vocabulary")
+    if not isinstance(vocab, list):
+        if vocab is not None:
+            print(
+                f"[config] Invalid custom_vocabulary '{vocab}', defaulting to []",
+                file=sys.stderr,
+            )
+        validated["custom_vocabulary"] = []
+    else:
+        cleaned = [term.strip() for term in vocab if isinstance(term, str) and term.strip()]
+        validated["custom_vocabulary"] = cleaned
 
     return validated
 

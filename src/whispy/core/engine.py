@@ -269,6 +269,10 @@ class Engine:
         if not os.path.exists(RECORDING_PATH):
             return None
 
+        # Bias the decoder toward the user's habitual terms, if any.
+        vocab = self.state.config.get("custom_vocabulary") or []
+        initial_prompt = ", ".join(vocab) if vocab else None
+
         text = self._audio_engine.transcribe(
             audio_path=RECORDING_PATH,
             model=self.state.model,
@@ -277,6 +281,7 @@ class Engine:
             best_of=self.state.config.get("best_of", 2),
             auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
             min_recording_duration=self.state.config.get("min_recording_duration", 0.3),
+            initial_prompt=initial_prompt,
         )
 
         if text:

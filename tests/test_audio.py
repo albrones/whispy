@@ -185,6 +185,34 @@ class TestTranscribe:
         call_kwargs = mock_whisper_model.transcribe.call_args
         assert call_kwargs[1]["best_of"] == 4
 
+    def test_initial_prompt_passed_through(self, sm, mock_whisper_model, tmp_path):
+        audio = AudioEngine(sm)
+        audio_path = str(tmp_path / "test.wav")
+        with open(audio_path, "wb") as f:
+            f.write(b"\x00" * 100)
+
+        mock_segment = MagicMock()
+        mock_segment.text = "hello"
+        mock_whisper_model.transcribe.return_value = ([mock_segment], MagicMock())
+
+        audio.transcribe(audio_path, mock_whisper_model, initial_prompt="Whispy, ctranslate2")
+        call_kwargs = mock_whisper_model.transcribe.call_args
+        assert call_kwargs[1]["initial_prompt"] == "Whispy, ctranslate2"
+
+    def test_initial_prompt_defaults_to_none(self, sm, mock_whisper_model, tmp_path):
+        audio = AudioEngine(sm)
+        audio_path = str(tmp_path / "test.wav")
+        with open(audio_path, "wb") as f:
+            f.write(b"\x00" * 100)
+
+        mock_segment = MagicMock()
+        mock_segment.text = "hello"
+        mock_whisper_model.transcribe.return_value = ([mock_segment], MagicMock())
+
+        audio.transcribe(audio_path, mock_whisper_model)
+        call_kwargs = mock_whisper_model.transcribe.call_args
+        assert call_kwargs[1]["initial_prompt"] is None
+
     def test_empty_result_returns_none(self, sm, mock_whisper_model, tmp_path):
         audio = AudioEngine(sm)
         audio_path = str(tmp_path / "test.wav")
@@ -205,9 +233,7 @@ class TestTranscribe:
         result = audio.transcribe(audio_path, mock_whisper_model)
         assert result is None
 
-    def test_short_recording_discarded_without_transcribing(
-        self, sm, mock_whisper_model, tmp_path
-    ):
+    def test_short_recording_discarded_without_transcribing(self, sm, mock_whisper_model, tmp_path):
         """A misclick-length clip is discarded before model.transcribe runs."""
         audio = AudioEngine(sm)
         audio_path = str(tmp_path / "test.wav")
@@ -215,15 +241,11 @@ class TestTranscribe:
             f.write(b"\x00" * 100)
 
         audio._get_audio_duration = MagicMock(return_value=0.1)
-        result = audio.transcribe(
-            audio_path, mock_whisper_model, min_recording_duration=0.3
-        )
+        result = audio.transcribe(audio_path, mock_whisper_model, min_recording_duration=0.3)
         assert result is None
         mock_whisper_model.transcribe.assert_not_called()
 
-    def test_long_enough_recording_passes_vad_filter(
-        self, sm, mock_whisper_model, tmp_path
-    ):
+    def test_long_enough_recording_passes_vad_filter(self, sm, mock_whisper_model, tmp_path):
         """A clip above the threshold is transcribed with vad_filter enabled."""
         audio = AudioEngine(sm)
         audio_path = str(tmp_path / "test.wav")
@@ -235,9 +257,7 @@ class TestTranscribe:
         mock_segment.text = "bonjour"
         mock_whisper_model.transcribe.return_value = ([mock_segment], MagicMock())
 
-        result = audio.transcribe(
-            audio_path, mock_whisper_model, min_recording_duration=0.3
-        )
+        result = audio.transcribe(audio_path, mock_whisper_model, min_recording_duration=0.3)
         assert result == "bonjour"
         call_kwargs = mock_whisper_model.transcribe.call_args[1]
         assert call_kwargs["vad_filter"] is True
