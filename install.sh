@@ -56,7 +56,7 @@ echo -e "${YELLOW}Installing dependencies...${NC}"
 "$VENV_DIR/bin/pip" install -e "$SCRIPT_DIR" Pillow
 echo -e "${GREEN}[OK] Dependencies installed (whispy + Pillow)${NC}"
 
-if [ ! -d "$SCRIPT_DIR/icons" ] || [ ! -f "$SCRIPT_DIR/icons/mic-idle.png" ]; then
+if [ ! -d "$SCRIPT_DIR/icons" ] || [ ! -f "$SCRIPT_DIR/icons/whispy.png" ]; then
     echo -e "${YELLOW}Generating menu bar icons...${NC}"
     "$VENV_DIR/bin/python" "$SCRIPT_DIR/generate_icons.py"
     echo -e "${GREEN}[OK] Icons generated${NC}"

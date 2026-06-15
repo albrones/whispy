@@ -79,3 +79,27 @@
   }
   animate();
 })();
+
+// Copy-to-clipboard for the install command blocks.
+(function () {
+  "use strict";
+
+  document.querySelectorAll(".btn-copy").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const target = document.getElementById(btn.dataset.copyTarget);
+      if (!target || !navigator.clipboard) return;
+      try {
+        await navigator.clipboard.writeText(target.textContent.trim());
+        const original = btn.textContent;
+        btn.textContent = "Copied";
+        btn.classList.add("copied");
+        setTimeout(() => {
+          btn.textContent = original;
+          btn.classList.remove("copied");
+        }, 1600);
+      } catch (err) {
+        /* clipboard unavailable — silently ignore */
+      }
+    });
+  });
+})();

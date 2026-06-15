@@ -12,10 +12,38 @@ Everything runs locally; no data is sent over the internet.
 
 ## Quick Installation Guide
 
+**One-liner (recommended):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash
+```
+
+Downloads Whispy into `~/.local/share/whispy` and runs the installer (virtualenv,
+icons, LaunchAgent). Pick a model with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | WHISPER_MODEL=medium bash
+```
+
+**Homebrew:**
+
+```bash
+brew install albrones/whispy/whispy
+brew services start whispy
+```
+
+**Manual (for development):**
+
 ```bash
 git clone https://github.com/albrones/whispy.git
 cd whispy
 ./install.sh
+```
+
+To uninstall a one-liner install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash -s -- --uninstall
 ```
 
 ## Prerequisites

@@ -143,13 +143,23 @@
 
     <!-- Install -->
     <section id="install" class="section section-install">
-      <h2>Install in three lines</h2>
+      <h2>Install in one line</h2>
       <p class="section-lede">Requires macOS, <a href="https://brew.sh">Homebrew</a>, and <code>sox</code>.</p>
-      <pre class="codeblock"><code>git clone https://github.com/albrones/whispy.git
-cd whispy
-./install.sh</code></pre>
+
+      <div class="install-block">
+        <pre class="codeblock" id="install-curl"><code>curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash</code></pre>
+        <button class="btn btn-copy" type="button" data-copy-target="install-curl" aria-label="Copy install command">Copy</button>
+      </div>
+
+      <p class="install-alt">Prefer Homebrew?</p>
+      <div class="install-block">
+        <pre class="codeblock" id="install-brew"><code>brew install albrones/whispy/whispy
+brew services start whispy</code></pre>
+        <button class="btn btn-copy" type="button" data-copy-target="install-brew" aria-label="Copy Homebrew command">Copy</button>
+      </div>
+
       <div class="hero-actions">
-        <a class="btn btn-primary" href="https://github.com/albrones/whispy">Open the repository</a>
+        <a class="btn btn-ghost" href="https://github.com/albrones/whispy">Open the repository</a>
       </div>
     </section>
   </main>
