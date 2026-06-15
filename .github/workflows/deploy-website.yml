@@ -1,0 +1,72 @@
+name: Deploy Website
+
+# Deploys the static promotional site under website/ to Vercel.
+#   - pull_request touching website/  -> preview deployment
+#   - push to main touching website/  -> production deployment
+# Path-filtered to website/** so app-only commits never deploy the site, and
+# v* tag pushes are not in the trigger set at all (those go to release.yml).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+  pull_request:
+    paths:
+      - "website/**"
+
+# Cancel a superseded run on the same ref so only the latest deploy wins.
+concurrency:
+  group: deploy-website-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate website
+        # Dependency-free sanity check, mirroring tests/test_website.py: the
+        # entry page must exist and its core local assets must resolve. Gates
+        # the deploy steps below so a broken page fails before reaching Vercel.
+        run: |
+          set -euo pipefail
+          test -f website/index.html || { echo "website/index.html missing"; exit 1; }
+          for asset in styles.css script.js assets/logo.svg; do
+            test -f "website/$asset" || { echo "missing asset: website/$asset"; exit 1; }
+          done
+          echo "website validation OK"
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel environment
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          ENV=${{ github.event_name == 'push' && 'production' || 'preview' }}
+          vercel pull --yes --environment="$ENV" --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Build
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+          else
+            vercel build --token="${{ secrets.VERCEL_TOKEN }}"
+          fi
+
+      - name: Deploy
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          # Production only on push to main; pull requests get a preview URL.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+          else
+            vercel deploy --prebuilt --token="${{ secrets.VERCEL_TOKEN }}"
+          fi
