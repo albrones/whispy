@@ -12,6 +12,44 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 from whispy.core.audio import strip_whisper_credit
+from whispy.core.text_cleaner import clean_text
+
+
+# ---------------------------------------------------------------------------
+# Hallucination phrase stripping (clean_text)
+# ---------------------------------------------------------------------------
+
+
+class TestHallucinationStripping:
+    """Test that known Whisper hallucination phrases are stripped."""
+
+    def test_amara_only_returns_empty(self):
+        assert clean_text("Sous-titres réalisés par la communauté d'Amara.org") == ""
+
+    def test_amara_short_form_only_returns_empty(self):
+        assert clean_text("la communauté d'Amara.org") == ""
+
+    def test_amara_case_insensitive(self):
+        assert clean_text("LA COMMUNAUTÉ D'AMARA.ORG") == ""
+
+    def test_amara_embedded_mid_text_removed(self):
+        text = "Bonjour la communauté d'Amara.org merci"
+        assert clean_text(text) == "Bonjour merci"
+
+    def test_radio_canada_removed(self):
+        assert clean_text("Sous-titrage Société Radio-Canada") == ""
+
+    def test_merci_davoir_regarde_removed(self):
+        assert clean_text("Merci d'avoir regardé cette vidéo") == ""
+
+    def test_plain_text_unchanged(self):
+        assert clean_text("Bonjour le monde") == "Bonjour le monde"
+
+    def test_none_returns_none(self):
+        assert clean_text(None) is None
+
+    def test_empty_returns_empty(self):
+        assert clean_text("") == ""
 
 # ---------------------------------------------------------------------------
 # French credit stripping

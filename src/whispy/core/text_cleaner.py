@@ -32,6 +32,28 @@ _CREDIT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Known Whisper hallucination phrases (training-corpus artifacts) emitted on
+# silence or near-empty audio. Unlike credits these can appear anywhere in the
+# output, so they are stripped wherever they occur, not only as a prefix.
+_HALLUCINATION_PHRASES = [
+    "Sous-titres réalisés par la communauté d'Amara.org",
+    "Sous-titrage Société Radio-Canada",
+    "la communauté d'Amara.org",
+    "Merci d'avoir regardé cette vidéo",
+    "Merci d'avoir regardé la vidéo",
+    "❤️ par SousTitreur.com",
+    "par SousTitreur.com",
+]
+
+# Ordered longest-first so a longer phrase wins over a substring of itself.
+_HALLUCINATION_PATTERN = re.compile(
+    "|".join(
+        re.escape(p)
+        for p in sorted(_HALLUCINATION_PHRASES, key=len, reverse=True)
+    ),
+    re.IGNORECASE,
+)
+
 
 def clean_text(text: str | None) -> str | None:
     """Strip Whisper credit prefixes from transcribed text.
@@ -72,4 +94,8 @@ def clean_text(text: str | None) -> str | None:
         return ""
 
     cleaned = _CREDIT_PATTERN.sub("", text)
+    # Strip known hallucination phrases anywhere in the text, then collapse the
+    # whitespace they leave behind. If nothing meaningful remains, return "".
+    cleaned = _HALLUCINATION_PATTERN.sub(" ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned

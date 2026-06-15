@@ -276,6 +276,7 @@ class Engine:
             beam_size=self.state.config.get("beam_size", 1),
             best_of=self.state.config.get("best_of", 2),
             auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
+            min_recording_duration=self.state.config.get("min_recording_duration", 0.3),
         )
 
         if text:

@@ -44,6 +44,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "best_of": 2,
     "copy_to_clipboard": False,
     "auto_detect_min_duration": 0.5,
+    "min_recording_duration": 0.3,
 }
 
 # Config version for migration tracking
@@ -116,6 +117,15 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
             file=sys.stderr,
         )
         validated["auto_detect_min_duration"] = DEFAULT_CONFIG["auto_detect_min_duration"]
+
+    # Validate min_recording_duration (must be a non-negative number)
+    mrd = validated.get("min_recording_duration")
+    if not isinstance(mrd, (int, float)) or isinstance(mrd, bool) or mrd < 0:
+        print(
+            f"[config] Invalid min_recording_duration '{mrd}', defaulting to {DEFAULT_CONFIG['min_recording_duration']}",
+            file=sys.stderr,
+        )
+        validated["min_recording_duration"] = DEFAULT_CONFIG["min_recording_duration"]
 
     return validated
 

@@ -164,6 +164,7 @@ class AudioEngine:
         beam_size: int = 1,
         best_of: int = 2,
         auto_detect_min_duration: float = 0.5,
+        min_recording_duration: float = 0.3,
     ) -> str | None:
         """Transcribe an audio file. Returns None if transcription fails."""
         if model is None:
@@ -173,16 +174,30 @@ class AudioEngine:
             )
             return None
 
-        # Detect audio duration for auto-detect language handling
-        if language == "auto":
-            duration = self._get_audio_duration(audio_path)
-            if duration is not None and duration < auto_detect_min_duration:
-                logger.warning(
-                    "[audio] Audio too short (%.2fs < %.1fs) for reliable "
-                    "auto-detect language. Proceeding with best effort.",
-                    duration,
-                    auto_detect_min_duration,
-                )
+        # Read the duration once and use it for two purposes:
+        # 1. Discard misclick-length recordings before they can be hallucinated on.
+        # 2. Warn about audio too short for reliable language auto-detection.
+        duration = self._get_audio_duration(audio_path)
+
+        # A quick Fn tap records a near-silent clip; faster-whisper then
+        # hallucinates training-corpus artifacts (e.g. "...la communauté
+        # d'Amara.org"). Discard such clips so nothing gets injected.
+        if duration is not None and duration < min_recording_duration:
+            logger.info(
+                "[audio] Recording too short (%.2fs < %.1fs) — discarding "
+                "to avoid hallucination on silence.",
+                duration,
+                min_recording_duration,
+            )
+            return None
+
+        if language == "auto" and duration is not None and duration < auto_detect_min_duration:
+            logger.warning(
+                "[audio] Audio too short (%.2fs < %.1fs) for reliable "
+                "auto-detect language. Proceeding with best effort.",
+                duration,
+                auto_detect_min_duration,
+            )
 
         try:
             segments, _info = model.transcribe(
@@ -190,6 +205,9 @@ class AudioEngine:
                 language=language,
                 beam_size=beam_size,
                 best_of=best_of,
+                vad_filter=True,
+                condition_on_previous_text=False,
+                temperature=0,
             )
             text_parts = [seg.text.strip() for seg in segments]
             text = " ".join(text_parts)

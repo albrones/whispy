@@ -12,10 +12,39 @@ if _project_root in sys.path:
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
+from whispy.core.config import _validate_config
 from whispy.core.engine import (
     DEFAULT_CONFIG,
     save_config,
 )
+
+
+# ---------------------------------------------------------------------------
+# min_recording_duration validation
+# ---------------------------------------------------------------------------
+
+
+class TestMinRecordingDuration:
+    """Test validation of the min_recording_duration config key."""
+
+    def test_default_present(self):
+        assert DEFAULT_CONFIG["min_recording_duration"] == 0.3
+
+    def test_valid_value_preserved(self):
+        validated = _validate_config({"min_recording_duration": 0.5})
+        assert validated["min_recording_duration"] == 0.5
+
+    def test_negative_value_reset_to_default(self):
+        validated = _validate_config({"min_recording_duration": -1})
+        assert validated["min_recording_duration"] == 0.3
+
+    def test_non_numeric_reset_to_default(self):
+        validated = _validate_config({"min_recording_duration": "fast"})
+        assert validated["min_recording_duration"] == 0.3
+
+    def test_bool_reset_to_default(self):
+        validated = _validate_config({"min_recording_duration": True})
+        assert validated["min_recording_duration"] == 0.3
 
 # ---------------------------------------------------------------------------
 # save_config filtering
