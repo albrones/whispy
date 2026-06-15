@@ -13,7 +13,9 @@
 class Whispy < Formula
   desc "Private, local voice dictation for macOS (hold Fn, speak, release)"
   homepage "https://github.com/albrones/whispy"
-  # After tagging a release on the whispy repo, set the matching sha256:
+  # url + sha256 below are auto-bumped per release by .github/workflows/release.yml
+  # (triggered on a `v*` tag push) and pushed to the homebrew-whispy tap. To set
+  # them by hand instead:
   #   curl -fsSL https://github.com/albrones/whispy/archive/refs/tags/v0.1.0.tar.gz | shasum -a 256
   url "https://github.com/albrones/whispy/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "REPLACE_WITH_TARBALL_SHA256"

@@ -150,6 +150,7 @@ venv/
 
 # Editable-install / build metadata
 *.egg-info/
+build/
 
 # Generated knowledge graph (regenerate with `graphify update .`)
 graphify-out/
