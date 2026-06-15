@@ -93,6 +93,12 @@ code { font-family: var(--mono); color: var(--green); }
   margin: 0 0 14px;
   font-weight: 600;
 }
+.eyebrow::before {
+  content: "⠿⠶ ";
+  font-family: var(--mono);
+  letter-spacing: 0;
+  opacity: 0.7;
+}
 
 .hero h1 {
   font-size: clamp(2.1rem, 5vw, 3.4rem);
@@ -123,20 +129,45 @@ code { font-family: var(--mono); color: var(--green); }
 
 .hero-note { color: var(--muted); font-size: 0.85rem; }
 
-/* Hero visual */
-.hero-visual { display: flex; justify-content: center; }
-.pill {
-  background: rgba(18, 18, 23, 0.92);
-  border: 1px solid var(--border);
-  border-radius: 22px;
-  padding: 22px 26px 18px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+/* Hero visual — macOS menu bar mock */
+.hero-visual {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
 }
-#waveform { display: block; width: 280px; height: 96px; }
+.menubar-mock {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  background: rgba(18, 18, 23, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  font-size: 0.92rem;
+}
+.menubar-mock .mb-app {
+  margin-right: auto; /* push system items to the right */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  border-radius: 7px;
+  background: rgba(36, 191, 158, 0.1);
+}
+.menubar-mock .braille {
+  font-family: var(--mono);
+  color: var(--green);
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 10px rgba(36, 191, 158, 0.55);
+}
+.menubar-mock .mb-name { color: var(--text); font-weight: 600; font-size: 0.85rem; }
+.menubar-mock .mb-sys { color: var(--muted); font-size: 0.8rem; opacity: 0.8; }
+.menubar-mock .mb-clock { color: var(--text); font-variant-numeric: tabular-nums; }
 .pill-key { color: var(--muted); font-size: 0.82rem; }
 
 /* Sections */
