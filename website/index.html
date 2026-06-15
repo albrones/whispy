@@ -25,6 +25,7 @@
       <span>Whispy</span>
     </a>
     <nav class="nav">
+      <a href="#demo">Demo</a>
       <a href="#features">Features</a>
       <a href="#how">How it works</a>
       <a href="#privacy">Privacy</a>
@@ -36,7 +37,7 @@
     <!-- Hero -->
     <section class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">Local-first · macOS</p>
+        <p class="eyebrow"><span class="eyebrow-dots" data-braille-drift="wave">⠿⠶</span> Open source · Free · Local-first</p>
         <h1>Speak. <span class="accent">It types.</span><br />Nothing leaves your Mac.</h1>
         <p class="lede">
           Whispy is a private voice-dictation utility for macOS. Hold the
@@ -62,6 +63,87 @@
           <span class="mb-sys mb-clock">10:24</span>
         </div>
         <p class="pill-key">Whispy, live in your menu bar</p>
+      </div>
+    </section>
+
+    <!-- Interactive demo -->
+    <section id="demo" class="section section-demo">
+      <h2>See it work</h2>
+      <p class="section-lede">
+        Hold <kbd>Fn</kbd>, speak, release — Whispy types into whatever field
+        has focus. Switch languages right from the menu bar. Here's the whole loop.
+      </p>
+
+      <div class="demo-stage" data-demo aria-hidden="true">
+        <!-- macOS menu bar -->
+        <div class="demo-menubar">
+          <div class="dm-left">
+            <span class="dm-apple"></span>
+            <span class="dm-app">TextEdit</span>
+            <span class="dm-menu">File</span>
+            <span class="dm-menu">Edit</span>
+            <span class="dm-menu">Format</span>
+          </div>
+          <div class="dm-right">
+            <button class="dm-status dm-whispy" type="button" data-demo-trigger tabindex="-1">
+              <span class="braille" data-demo-braille>⣀⣤⣶⣤</span>
+            </button>
+            <span class="dm-status">📶</span>
+            <span class="dm-status">🔋</span>
+            <span class="dm-status dm-clock">10:24</span>
+          </div>
+        </div>
+
+        <!-- Whispy menu (opens from the menu bar) -->
+        <div class="demo-dropdown" data-demo-dropdown role="menu">
+          <div class="dd-header">Whispy · voice dictation</div>
+          <div class="dd-item dd-status"><span class="dd-dot"></span>Ready</div>
+          <div class="dd-sep"></div>
+          <div class="dd-section">Settings</div>
+          <div class="dd-item dd-sub"><span>Model</span><span class="dd-val">Normal (small) ›</span></div>
+          <div class="dd-item dd-sub is-langrow" data-demo-lang-row>
+            <span>Language</span><span class="dd-val"><span data-demo-lang>French</span> ›</span>
+            <div class="dd-submenu" data-demo-submenu role="menu">
+              <div class="dd-item dd-check is-checked" data-demo-sub="fr"><span class="dd-tick">✓</span>French</div>
+              <div class="dd-item dd-check" data-demo-sub="en"><span class="dd-tick">✓</span>English</div>
+            </div>
+          </div>
+          <div class="dd-item dd-check is-checked"><span class="dd-tick">✓</span>Copy to clipboard</div>
+          <div class="dd-sep"></div>
+          <div class="dd-item dd-hint">Hold Fn to dictate</div>
+          <div class="dd-sep"></div>
+          <div class="dd-item">Restart</div>
+          <div class="dd-item">Quit<span class="dd-val">⌘Q</span></div>
+        </div>
+
+        <!-- Focused app window -->
+        <div class="demo-window">
+          <div class="dw-bar">
+            <span class="dw-traffic"><i></i><i></i><i></i></span>
+            <span class="dw-title">Untitled — TextEdit</span>
+          </div>
+          <div class="dw-body" data-demo-editor>
+            <p class="dw-text"><span data-demo-output></span><span class="dw-caret"></span></p>
+          </div>
+        </div>
+
+        <!-- Audio-reactive pill — mirrors Whispy's on-screen recording indicator -->
+        <div class="demo-pill" data-demo-pill aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+
+        <!-- Status chip + Fn key -->
+        <div class="demo-hud">
+          <span class="demo-caption" data-demo-caption data-mode="idle">Hold Fn to dictate</span>
+          <span class="demo-fn" data-demo-fn><kbd>Fn</kbd></span>
+        </div>
+
+        <!-- Fake pointer -->
+        <svg class="demo-cursor" data-demo-cursor viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path d="M5 2.5 L5 19 L9.2 15 L11.8 21 L14.4 19.8 L11.8 13.8 L17.5 13.6 Z"
+                fill="#fff" stroke="#0a0a0e" stroke-width="1.3" stroke-linejoin="round"/>
+        </svg>
       </div>
     </section>
 
@@ -115,15 +197,33 @@
       </ol>
     </section>
 
-    <!-- Privacy -->
+    <!-- Privacy / open source / free -->
     <section id="privacy" class="section section-privacy">
       <div class="privacy-inner">
-        <h2>Your voice stays yours</h2>
+        <h2>Free, open source, and 100% yours</h2>
         <p>
-          Everything happens on your machine. There is no cloud transcription,
-          no account, and no telemetry. Whispy uses local Whisper inference, so
-          <strong>zero data leaves your computer</strong> — by design, not by promise.
+          Whispy exists for one reason: dictation that never ships your voice to
+          the cloud. No servers, no accounts, no subscriptions — just open tools
+          running on your own Mac. <strong>Zero data leaves your computer</strong>
+          — by design, not by promise.
         </p>
+        <div class="pillars">
+          <article class="pillar">
+            <span class="pillar-ico" data-braille-drift="shimmer">⠿</span>
+            <h3>Open source</h3>
+            <p>MIT-licensed and fully auditable. Read every line, fork it, make it yours.</p>
+          </article>
+          <article class="pillar">
+            <span class="pillar-ico" data-braille-drift="shimmer">⠶</span>
+            <h3>Free forever</h3>
+            <p>No subscription, no paywall, no “pro” tier. Install it once and it's yours.</p>
+          </article>
+          <article class="pillar">
+            <span class="pillar-ico" data-braille-drift="shimmer">⣿</span>
+            <h3>Runs on your Mac</h3>
+            <p>Self-hosted by default — local Whisper inference, nothing to upload, nothing to trust.</p>
+          </article>
+        </div>
       </div>
     </section>
 
