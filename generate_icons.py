@@ -1,75 +1,109 @@
 #!/usr/bin/env python3
-"""Generate menu bar icons for Whispy.
+"""Generate the Whispy menu bar icon.
 
-Creates 22x22 template-style PNGs (black on transparent) in icons/ directory.
+Creates the brand waveform glyph (icons/whispy.png): 5 rounded bars (center-tall,
+mirrors website/assets/logo.svg) painted with a vertical mint->teal gradient,
+faded edge bars, and a soft glow. Rendered at 2x (44x44) so it stays crisp when
+AppKit scales it down to the menu bar height.
 Run once after install: python generate_icons.py
 """
 
 import os
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 ICONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
-SIZE = 22
+
+# Logical menu bar size is ~22pt; render at 2x for retina sharpness.
+SCALE = 2
+SIZE = 22 * SCALE
+
+# Brand gradient: mint-green (top) -> teal (bottom). Brand green is #24bf9e.
+GRAD_TOP = (63, 224, 189)   # #3fe0bd
+GRAD_BOTTOM = (23, 168, 176)  # #17a8b0
+
+NUM_BARS = 5
 
 
 def _new_image():
     return Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
 
 
-def _draw_mic(draw):
-    draw.rounded_rectangle((6, 3, 12, 13), radius=3, fill="black")
-    draw.arc((4, 8, 14, 18), start=0, end=180, fill="black", width=2)
-    draw.line((9, 18, 9, 20), fill="black", width=2)
-    draw.line((6, 20, 12, 20), fill="black", width=2)
+def _vertical_gradient(top, bottom):
+    """Full-canvas RGBA image with a vertical top->bottom color ramp."""
+    grad = Image.new("RGBA", (SIZE, SIZE))
+    px = grad.load()
+    for y in range(SIZE):
+        t = y / (SIZE - 1)
+        r = round(top[0] + (bottom[0] - top[0]) * t)
+        g = round(top[1] + (bottom[1] - top[1]) * t)
+        b = round(top[2] + (bottom[2] - top[2]) * t)
+        for x in range(SIZE):
+            px[x, y] = (r, g, b, 255)
+    return grad
 
 
-def _draw_wave_arc(draw, index):
-    offsets = [(2, 2, 16, 16), (-1, -1, 19, 19), (-4, -4, 22, 22)]
-    if index < len(offsets):
-        bbox = offsets[index]
-        draw.arc(bbox, start=315, end=45, fill="black", width=2)
+def _waveform_mask(heights, alphas):
+    """Grayscale mask: 5 rounded vertical bars, per-bar opacity via gray level.
+
+    heights: 5 floats in [0, 1] (fraction of usable height).
+    alphas:  5 floats in [0, 1] mapped to mask gray (edge fade).
+    """
+    mask = Image.new("L", (SIZE, SIZE), 0)
+    draw = ImageDraw.Draw(mask)
+
+    margin = 3 * SCALE
+    usable_w = SIZE - 2 * margin
+    gap = 2 * SCALE
+    bar_w = (usable_w - gap * (NUM_BARS - 1)) / NUM_BARS
+    radius = bar_w / 2
+    usable_h = SIZE - 2 * margin
+    center_y = SIZE / 2
+
+    for i in range(NUM_BARS):
+        h = max(bar_w, heights[i] * usable_h)  # never thinner than a dot
+        x0 = margin + i * (bar_w + gap)
+        x1 = x0 + bar_w
+        y0 = center_y - h / 2
+        y1 = center_y + h / 2
+        gray = int(255 * alphas[i])
+        draw.rounded_rectangle((x0, y0, x1, y1), radius=radius, fill=gray)
+    return mask
+
+
+def _render(mask):
+    """Paint the gradient through `mask` and add a soft glow behind it."""
+    gradient = _vertical_gradient(GRAD_TOP, GRAD_BOTTOM)
+
+    # Sharp shape: gradient masked by the glyph.
+    shape = gradient.copy()
+    shape.putalpha(mask)
+
+    # Glow: blurred copy of the shape, dimmed, composited underneath.
+    glow = shape.filter(ImageFilter.GaussianBlur(radius=1.5 * SCALE))
+    glow_alpha = glow.getchannel("A").point(lambda a: int(a * 0.5))
+    glow.putalpha(glow_alpha)
+
+    out = _new_image()
+    out = Image.alpha_composite(out, glow)
+    out = Image.alpha_composite(out, shape)
+    return out
 
 
 def generate_icons():
     os.makedirs(ICONS_DIR, exist_ok=True)
 
-    img = _new_image()
-    _draw_mic(ImageDraw.Draw(img))
-    path = os.path.join(ICONS_DIR, "mic-idle.png")
-    img.save(path)
-    print(f"  {path}")
-
-    for frame in range(1, 4):
-        img = _new_image()
-        draw = ImageDraw.Draw(img)
-        _draw_mic(draw)
-        for i in range(frame):
-            _draw_wave_arc(draw, i)
-        path = os.path.join(ICONS_DIR, f"mic-recording-{frame}.png")
-        img.save(path)
-        print(f"  {path}")
-
-    img = _new_image()
-    draw = ImageDraw.Draw(img)
-    _draw_mic(draw)
-    draw.ellipse((13, 16, 15, 18), fill="black")
-    draw.ellipse((16, 16, 18, 18), fill="black")
-    draw.ellipse((19, 16, 21, 18), fill="black")
-    path = os.path.join(ICONS_DIR, "mic-transcribing.png")
-    img.save(path)
-    print(f"  {path}")
-
-    # Waiting icon: filled circle (FN pressed, listening)
-    img = _new_image()
-    draw = ImageDraw.Draw(img)
-    draw.ellipse((3, 3, 19, 19), fill="black")
-    path = os.path.join(ICONS_DIR, "mic-waiting.png")
-    img.save(path)
+    # Single brand icon: calm waveform, edges faded (matches logo opacity falloff).
+    icon = _render(_waveform_mask(
+        heights=[0.30, 0.55, 1.0, 0.65, 0.40],
+        alphas=[0.55, 1.0, 1.0, 1.0, 0.70],
+    ))
+    path = os.path.join(ICONS_DIR, "whispy.png")
+    icon.save(path)
     print(f"  {path}")
 
 
 if __name__ == "__main__":
-    print("Generating icons...")
+    print("Generating icon...")
     generate_icons()
     print("Done.")
