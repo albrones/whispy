@@ -49,7 +49,9 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         elif self.path == "/stop-async":
             engine.stop_recording()
-            engine.state._stop_event.set()
+            # Wake the transcription worker. The attribute is `stop_event`
+            # (not `_stop_event`); the old name raised AttributeError -> 500.
+            engine.state.stop_event.set()
             self._json_response(200, {"status": "stopping"})
 
         elif self.path == "/config":

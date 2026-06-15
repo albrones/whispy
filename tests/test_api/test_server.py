@@ -198,6 +198,17 @@ class TestPostStartStop:
         assert status == 200
         assert body["status"] == "done"
 
+    def test_post_stop_async(self, test_server):
+        # Regression: /stop-async used to call engine.state._stop_event (wrong
+        # attribute name), raising AttributeError -> 500 and never waking the
+        # worker. It must return 200 and set the public stop_event.
+        _, port, engine = test_server
+        engine.state.stop_event.clear()
+        status, body = _post(port, "/stop-async")
+        assert status == 200
+        assert body["status"] == "stopping"
+        assert engine.state.stop_event.is_set()
+
 
 class TestUnknownEndpoints:
     """Test unknown endpoint handling."""

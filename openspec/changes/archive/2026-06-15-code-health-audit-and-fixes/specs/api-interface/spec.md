@@ -1,8 +1,5 @@
-# api-interface Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change architectural-retrospective-and-stabilization. Update Purpose after archive.
-## Requirements
 ### Requirement: HTTP API Interface
 The API interface SHALL provide a set of RESTful endpoints to allow external control and status monitoring of the daemon. The asynchronous stop endpoint (`/stop-async`) SHALL signal the transcription worker via the engine's public stop event so that transcription proceeds in the background, and SHALL return a success response rather than an error.
 
@@ -17,11 +14,3 @@ The API interface SHALL provide a set of RESTful endpoints to allow external con
 #### Scenario: Async stop signals the worker
 - **WHEN** a POST request is made to `/stop-async`
 - **THEN** the API SHALL stop recording, set the engine's stop event so the transcription worker wakes, and return a 200 response with `{"status": "stopping"}` (without raising)
-
-### Requirement: Configuration Management via API
-The API SHALL allow for remote configuration updates (e.g., changing model size or language) through specific endpoints.
-
-#### Scenario: Remote Config Update
-- **WHEN** a POST request with new configuration parameters is sent to `/config`
-- **THEN** the API SHALL update the local configuration and trigger any necessary engine reloads (e.g., model reloading)
-

@@ -248,6 +248,82 @@ class TestDictationState:
 
 
 # ---------------------------------------------------------------------------
+# Transcription worker FSM completion
+# ---------------------------------------------------------------------------
+
+import time
+
+from whispy.core.state_machine import State
+
+
+def _drive_to_transcribing(engine):
+    """Move the FSM IDLE -> RECORDING -> TRANSCRIBING."""
+    engine._state_machine.start_recording()
+    engine._state_machine.stop_recording()
+    assert engine._state_machine.current_state == State.TRANSCRIBING
+
+
+def _run_worker_once(engine, mocker, transcription_side_effect):
+    """Run the real worker through a single stop signal and stop it.
+
+    transcription_side_effect is assigned to run_transcription (return value or
+    an exception instance to raise).
+    """
+    mocker.patch("subprocess.Popen")  # silence the success sound
+    if isinstance(transcription_side_effect, Exception):
+        mocker.patch.object(engine, "run_transcription", side_effect=transcription_side_effect)
+    else:
+        mocker.patch.object(engine, "run_transcription", return_value=transcription_side_effect)
+
+    engine.start_transcription_worker()
+    try:
+        engine.state.stop_event.set()
+        # Wait for the worker to drive the FSM back to IDLE.
+        deadline = time.time() + 2.0
+        while engine._state_machine.current_state != State.IDLE and time.time() < deadline:
+            time.sleep(0.02)
+    finally:
+        engine.stop_transcription_worker()
+
+
+class TestTranscriptionWorkerFsm:
+    """The worker must always return the FSM to IDLE after a stop signal."""
+
+    def test_empty_transcription_completes_fsm(self, engine, mocker):
+        _drive_to_transcribing(engine)
+        _run_worker_once(engine, mocker, "")  # no usable text
+        assert engine._state_machine.current_state == State.IDLE
+
+    def test_transcription_exception_does_not_wedge_fsm(self, engine, mocker):
+        _drive_to_transcribing(engine)
+        _run_worker_once(engine, mocker, RuntimeError("boom"))
+        # FSM recovered to IDLE and the worker survived (no thread crash).
+        assert engine._state_machine.current_state == State.IDLE
+
+    def test_successful_transcription_completes_fsm(self, engine, mocker):
+        _drive_to_transcribing(engine)
+        _run_worker_once(engine, mocker, "hello world")
+        assert engine._state_machine.current_state == State.IDLE
+
+
+# ---------------------------------------------------------------------------
+# copy_to_clipboard default
+# ---------------------------------------------------------------------------
+
+
+class TestClipboardDefault:
+    """The TextInjector fallback must match DEFAULT_CONFIG (False)."""
+
+    def test_injector_default_is_false_when_key_absent(self, config_path):
+        from whispy.core.engine import Engine
+
+        ds = DictationState()
+        ds.config.pop("copy_to_clipboard", None)  # simulate a config missing the key
+        eng = Engine(ds, config_path)
+        assert eng._text_injector._copy_to_clipboard is False
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

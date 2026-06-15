@@ -139,7 +139,7 @@ class Engine:
         # Core components
         self._state_machine = StateMachine()
         self._audio_engine = AudioEngine(self._state_machine)
-        self._text_injector = TextInjector(copy_to_clipboard=state.config.get("copy_to_clipboard", True))
+        self._text_injector = TextInjector(copy_to_clipboard=state.config.get("copy_to_clipboard", False))
 
         # Hardware listener (wired up later via start_fn_listener)
         self._fn_listener: EventTapListener | None = None
@@ -342,17 +342,27 @@ class Engine:
                     self.state.stop_event.clear()
                     self._notify_status_change()
 
-                    text = self.run_transcription()
-                    if text:
+                    text = None
+                    try:
+                        text = self.run_transcription()
+                    except Exception:
+                        # A transcription failure must not kill the worker or
+                        # wedge the FSM in TRANSCRIBING — log and recover below.
+                        logging.getLogger(__name__).exception("transcription failed")
+                    finally:
+                        # Always return the FSM to IDLE, even on empty output
+                        # or error. transcription_complete() no-ops if the FSM
+                        # is not in TRANSCRIBING, so this is safe.
                         self._state_machine.transcription_complete()
+                        self._notify_status_change()
 
-                    self._notify_status_change()
-
-                    subprocess.Popen(
-                        ["afplay", "/System/Library/Sounds/Pop.aiff"],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
+                    # Success sound only on a real transcription.
+                    if text:
+                        subprocess.Popen(
+                            ["afplay", "/System/Library/Sounds/Pop.aiff"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
 
         self._transcription_thread = threading.Thread(target=_worker, name="transcription-worker", daemon=True)
         self._transcription_thread.start()
