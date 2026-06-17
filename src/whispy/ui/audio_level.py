@@ -4,11 +4,19 @@ Reads real-time audio from the default input device and exposes
 a smoothed RMS amplitude value (0.0-1.0) for visualization.
 """
 
+from __future__ import annotations
+
 import logging
 import threading
 from typing import Any
 
-import sounddevice as sd
+# ``sounddevice`` loads libportaudio at import time, absent on headless boxes.
+# Guard it (mirroring core/audio.py) so the module imports everywhere; the
+# monitor degrades to a no-op when the backend is unavailable.
+try:
+    import sounddevice as sd
+except Exception:  # pragma: no cover - depends on the host audio stack
+    sd = None
 
 from .level_math import rms_to_level
 
@@ -49,6 +57,9 @@ class AudioLevelMonitor:
     def start(self) -> bool:
         """Start monitoring the microphone. Returns False if already started."""
         if self._running:
+            return False
+        if sd is None:
+            logger.error("[audio-level] sounddevice backend unavailable — level monitor disabled.")
             return False
         self._running = True
         try:

@@ -1,24 +1,37 @@
 """Audio recording and transcription logic.
 
-Handles audio capture via sox and transcription via faster-whisper,
-integrating with the state machine for lifecycle management.
+Captures audio via the cross-platform ``sounddevice`` (PortAudio) backend and
+transcribes via faster-whisper, integrating with the state machine for
+lifecycle management. The same recorder serves macOS and Linux.
 """
 
 import logging
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import threading
-import time
 import wave
 
 from faster_whisper import WhisperModel
 
 from .state_machine import StateMachine
 
+# ``sounddevice`` loads libportaudio at import time, which is absent on headless
+# CI boxes. Guard the import (mirroring the Quartz pattern) so the module always
+# imports; capture degrades gracefully when the backend is unavailable.
+try:
+    import sounddevice as sd
+except Exception:  # pragma: no cover - depends on the host audio stack
+    sd = None
+
 logger = logging.getLogger(__name__)
+
+# Capture format — 16 kHz mono 16-bit PCM WAV. Kept identical to the previous
+# sox output so the transcription path is unaffected.
+SAMPLE_RATE = 16000
+CHANNELS = 1
+SAMPLE_WIDTH = 2  # int16
 
 # Regex to strip Whisper credit/watermark prefixes (French and English variants)
 WHISPER_CREDIT_RE = re.compile(
@@ -51,78 +64,89 @@ def strip_whisper_credit(text: str) -> str:
     return cleaned
 
 
-# Minimum file size (bytes) indicating sox has started writing audio
+# Minimum file size (bytes) indicating audio was actually captured.
 _MIN_RECORDING_SIZE = 5120  # 5 KB
-# Timeout for waiting for sox to become ready (seconds)
+# Timeout for waiting for the capture stream to start delivering audio (seconds)
 _RECORDING_READY_TIMEOUT = 2.0
 
 
 class AudioEngine:
     """Manages audio recording and transcription operations.
 
-    Integrates with the StateMachine to ensure proper lifecycle:
-    IDLE -> RECORDING (start) -> TRANSCRIBING (stop) -> IDLE (complete)
+    Capture goes through ``sounddevice`` (PortAudio): a ``RawInputStream``
+    delivers int16 frames to a callback that streams them into the WAV file at
+    ``RECORDING_PATH``. Integrates with the StateMachine to ensure proper
+    lifecycle: IDLE -> RECORDING (start) -> TRANSCRIBING (stop) -> IDLE.
     """
 
     def __init__(self, state_machine: StateMachine):
         self._sm = state_machine
-        self._recording_process = None
+        self._stream = None
+        self._wave = None
+        self._frames_written = 0
+        self._ready = threading.Event()
 
     def start(self) -> bool:
         """Start recording audio. Returns False if already recording.
 
-        Waits for sox to be ready and writing audio before returning,
-        preventing the cold-start issue where the audio device needs
-        time to wake up after idle.
+        Opens a ``sounddevice`` capture stream and waits until it begins
+        delivering audio (the device cold-start delay) before returning, so the
+        first recording is not empty. The wait terminates on first audio, on a
+        stream-open failure, or on a readiness timeout — never blocking forever.
         """
         if not self._sm.start_recording():
             return False
 
-        self._recording_process = subprocess.Popen(
-            ["sox", "-d", "-r", "16000", "-c", "1", RECORDING_PATH],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        self._frames_written = 0
+        self._ready = threading.Event()
+        self._wave = None
+
+        if sd is None:
+            logger.warning("[audio] sounddevice backend unavailable — cannot capture audio.")
+            self._ready.set()
+            return True
+
+        def _callback(indata, frames, _time_info, status) -> None:
+            if status:
+                logger.debug("[audio] stream status: %s", status)
+            # Open the WAV lazily on first audio so a failed stream never
+            # truncates a prior recording, and write incoming int16 frames.
+            if self._wave is None:
+                self._wave = wave.open(RECORDING_PATH, "wb")
+                self._wave.setnchannels(CHANNELS)
+                self._wave.setsampwidth(SAMPLE_WIDTH)
+                self._wave.setframerate(SAMPLE_RATE)
+            self._wave.writeframes(bytes(indata))
+            self._frames_written += frames
+            self._ready.set()
+
+        try:
+            self._stream = sd.RawInputStream(
+                samplerate=SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype="int16",
+                callback=_callback,
+            )
+            self._stream.start()
+        except Exception as exc:
+            # No device / device busy: stop the readiness wait and warn rather
+            # than block. The recording will be empty; transcription discards it.
+            logger.warning("[audio] Could not open capture stream: %s", exc)
+            self._stream = None
+            self._ready.set()
+            return True
 
         self._wait_for_recording_ready()
         return True
 
     def _wait_for_recording_ready(self) -> None:
-        """Wait for sox to start writing audio to the output file.
+        """Wait until the stream delivers its first audio, or the timeout fires.
 
-        Polls the file size until it exceeds _MIN_RECORDING_SIZE or
-        the timeout expires. This handles the cold-start delay where
-        the audio device takes time to initialize after being idle.
+        ``_ready`` is set by the stream callback on the first frames (or
+        immediately on a failed/absent backend), so this never blocks
+        indefinitely — at worst it returns after the readiness timeout.
         """
-        ready = threading.Event()
-        stop_reason = [None]
-
-        def _poll():
-            # ready.set() in finally guarantees the waiter never blocks forever,
-            # even on timeout or early process exit (otherwise start() would hang).
-            start = time.monotonic()
-            try:
-                while True:
-                    if self._recording_process and self._recording_process.poll() is not None:
-                        stop_reason[0] = "process_exited"
-                        return
-                    try:
-                        if os.path.getsize(RECORDING_PATH) >= _MIN_RECORDING_SIZE:
-                            return
-                    except OSError:
-                        pass
-                    if time.monotonic() - start > _RECORDING_READY_TIMEOUT:
-                        stop_reason[0] = "timeout"
-                        return
-                    time.sleep(0.02)
-            finally:
-                ready.set()
-
-        threading.Thread(target=_poll, name="recording-waiter", daemon=True).start()
-        ready.wait()
-        if stop_reason[0] == "process_exited":
-            logger.warning("[audio] Recording process exited before writing data")
-        elif stop_reason[0] == "timeout":
+        if not self._ready.wait(timeout=_RECORDING_READY_TIMEOUT):
             logger.warning(
                 "[audio] Timeout waiting for recording to start — "
                 "audio device may not be ready. First recording may be empty."
@@ -130,14 +154,20 @@ class AudioEngine:
 
     def stop(self) -> bool:
         """Stop recording and transition to TRANSCRIBING. Returns False if not recording."""
-        if self._recording_process and self._recording_process.poll() is None:
-            self._recording_process.terminate()
+        if self._stream is not None:
             try:
-                self._recording_process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                self._recording_process.kill()
+                self._stream.stop()
+                self._stream.close()
+            except Exception as exc:
+                logger.debug("[audio] stream close error: %s", exc)
+            self._stream = None
 
-        self._recording_process = None
+        if self._wave is not None:
+            try:
+                self._wave.close()
+            except Exception as exc:
+                logger.debug("[audio] wave close error: %s", exc)
+            self._wave = None
 
         if os.path.exists(RECORDING_PATH):
             try:
@@ -145,15 +175,12 @@ class AudioEngine:
                 if size < _MIN_RECORDING_SIZE:
                     logger.warning(
                         f"[audio] Recording file too small ({size} bytes) — "
-                        "sox may not have been ready when recording stopped. "
-                        "Try pressing Fn again once the daemon is awake."
+                        "the audio device may not have been ready when recording stopped. "
+                        "Try pressing the trigger key again once the daemon is awake."
                     )
             except OSError:
                 pass
 
-        # Small delay to ensure sox flushes remaining audio data to disk
-        # before the transcription worker reads the file.
-        time.sleep(0.15)
         return self._sm.stop_recording()
 
     def transcribe(
@@ -244,14 +271,6 @@ class AudioEngine:
                 os.remove(audio_path)
         except OSError:
             pass
-
-    def play_sound(self, sound_name: str = "Pop.aiff") -> None:
-        """Play a system sound."""
-        subprocess.Popen(
-            ["afplay", f"/System/Library/Sounds/{sound_name}"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
 
     @property
     def is_recording(self) -> bool:
