@@ -28,8 +28,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# Real-model / live-hardware tests are marked `macos` and excluded from the
+# default run (slow, model download, macOS-only). Run them with `pytest -m macos`.
+addopts = "-m 'not macos'"
 markers = [
-    "macos: requires macOS",
+    "macos: requires macOS (real Whisper model, say/sox, live hardware)",
 ]
 
 [tool.ruff]
