@@ -1,7 +1,9 @@
 # text-injection Specification
 
 ## Purpose
-TBD - created by archiving change architectural-retrospective-and-stabilization. Update Purpose after archive.
+Injecting transcribed text into the focused application behind a per-OS
+`TextInjector` port: `osascript` on macOS, `xdotool` on Linux/X11, with an
+identical clipboard-paste vs keystroke contract.
 
 Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
 
@@ -11,13 +13,19 @@ empty-text no-op, clipboard/keystroke mode switch (`test_injection.py`,
 
 ## Requirements
 ### Requirement: Text Injection via System Services
-The injection engine SHALL provide a mechanism to input transcribed text into the active application using system-level automation (e.g., via `osascript`).
+The injection engine SHALL provide a mechanism to input transcribed text into the active application using system-level automation, **behind a `TextInjector` port with a per-OS adapter**: `osascript` on macOS and `xdotool` on Linux/X11. The injected result and the clipboard-vs-keystroke configuration contract SHALL be identical across adapters.
 
 #### Scenario: Successful Text Injection
 - **WHEN** a transcription is completed and text injection is enabled
-- **THEN** the engine SHALL inject the transcribed text into the currently focused application field
+- **THEN** the active platform's injector adapter SHALL inject the transcribed text into the currently focused application field
 
-_Tier: macos-real — `test_injection.py` mocks `subprocess`, so `osascript` never actually runs; green does NOT prove text reaches the focused app. Deferred to step A._
+_Tier: platform-real — `subprocess` mocked on macOS; the real seam (osascript / xdotool) is not exercised in CI. Deferred to the per-OS smoke tier._
+
+#### Scenario: Adapter selected by platform
+- **WHEN** the engine injects text
+- **THEN** it SHALL use the `osascript` adapter on macOS and the `xdotool` adapter on Linux, selected via the platform factory rather than a direct import
+
+_Tier: unit-mocked — `sys.platform`/factory patched._
 
 ### Requirement: Clipboard Integration
 The injection engine SHALL support an option to copy the transcribed text to the system clipboard instead of (or in addition to) direct keystroke injection.

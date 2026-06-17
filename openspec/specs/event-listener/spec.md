@@ -1,25 +1,34 @@
 # event-listener Specification
 
 ## Purpose
-TBD - created by archiving change architectural-retrospective-and-stabilization. Update Purpose after archive.
+Hardware-level trigger-key detection and the pure event-decoding logic behind it.
+The trigger is configurable (Fn keycode default on macOS, a push-to-talk key on
+Linux/X11); the macOS CGEventTap and Linux pynput shells delegate the press/release
+decision to pure decode functions.
 
 Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
 
 ## Requirements
 ### Requirement: Hardware Event Detection
-The listener SHALL monitor hardware-level events (specifically the Fn key) and notify the core engine of state changes.
+The listener SHALL monitor hardware-level keyboard events for a **configurable trigger key** and notify the core engine of state changes. The trigger SHALL default to the Fn key on macOS (preserving current behavior) and to a documented push-to-talk key on Linux. The trigger SHALL be resolvable from configuration.
 
-#### Scenario: Fn Key Press (Start Recording)
-- **WHEN** a hardware event corresponding to the Fn key is detected with the appropriate flags
+#### Scenario: Trigger Press (Start Recording)
+- **WHEN** a hardware event corresponding to the configured trigger key is detected as a press
 - **THEN** the listener SHALL trigger a "start recording" event to the core engine
 
-_Tier: macos-real — `test_event_tap_e2e.py` exercises this with Quartz MOCKED, so a green run does NOT prove the real event tap fires. Real-seam coverage deferred to step A; pure flag-decoding logic extractable in step C._
+_Tier: platform-real — Quartz mocked on macOS, X11 session required on Linux; green in CI does NOT prove the real seam fires._
 
-#### Scenario: Fn Key Release (Stop Recording)
-- **WHEN** a hardware event corresponding to theFn key release is detected
+#### Scenario: Trigger Release (Stop Recording)
+- **WHEN** a hardware event corresponding to the configured trigger key is detected as a release
 - **THEN** the listener SHALL trigger a "stop recording" event to the core engine
 
-_Tier: macos-real — same caveat: Quartz mocked in CI. Deferred to step A._
+_Tier: platform-real — same caveat; real seam deferred to the per-OS smoke tier._
+
+#### Scenario: macOS default is Fn
+- **WHEN** no trigger override is configured on macOS
+- **THEN** the listener SHALL use the Fn key (keycode 63) as the trigger, unchanged from prior behavior
+
+_Tier: unit-pure — default resolution verifiable without a live tap._
 
 ### Requirement: Event Loop Integration
 The listener SHALL run in a dedicated, non-blocking thread to ensure hardware events are captured reliably without interfering with the UI or core engine.
@@ -31,7 +40,7 @@ The listener SHALL run in a dedicated, non-blocking thread to ensure hardware ev
 _Tier: macos-real — requires a live CGEventTap; not verifiable in CI. Deferred to step A._
 
 ### Requirement: Pure trigger-event decoding
-The decision of whether a keyboard event represents a trigger-key press, a trigger-key release, or is irrelevant SHALL be computed by a pure function of `(event_type, keycode, flags, trigger_keycode)` that does not depend on the live event tap. The function SHALL handle the Fn-key secondary-flag convention (keycode 63: flag set = press, flag clear = release) and SHALL unwrap the pyobjc tuple form of the flags value. Keycode-to-name resolution SHALL likewise be a pure function. The event-tap callback SHALL delegate to these functions.
+The decision of whether a keyboard event represents a trigger-key press, a trigger-key release, or is irrelevant SHALL be computed by a pure function that does not depend on any live event source. The function SHALL support two decode paths: the macOS Fn-key secondary-flag convention (keycode 63: flag set = press, flag clear = release, unwrapping the pyobjc tuple form of the flags value) **and** a platform-neutral key-match path where a configured key/combo maps key-down to "press" and key-up to "release". Keycode-to-name resolution SHALL likewise be a pure function. The OS-shell callbacks (macOS event tap and Linux listener) SHALL delegate to these functions.
 
 #### Scenario: Fn press decoded
 - **WHEN** the decode function receives a flags-changed event for keycode 63 with the secondary-Fn flag set
@@ -51,8 +60,14 @@ _Tier: unit-pure — `test_event_decode.py`._
 
 _Tier: unit-pure — `test_event_decode.py`._
 
+#### Scenario: Configured key match decoded
+- **WHEN** the decode function receives a key-down for the configured trigger key on the key-match path
+- **THEN** it SHALL return "press", and SHALL return "release" for the corresponding key-up
+
+_Tier: unit-pure — `test_event_decode.py` (new key-match cases)._
+
 #### Scenario: Non-trigger keycode ignored
-- **WHEN** the decode function receives an event whose keycode is not the trigger keycode
+- **WHEN** the decode function receives an event whose key is not the configured trigger
 - **THEN** it SHALL return none (no press, no release)
 
 _Tier: unit-pure — `test_event_decode.py`._

@@ -4,31 +4,33 @@
 Recording lifecycle and pre-transcription guards in `core/audio.py`: recording
 readiness, audio duration detection, short-clip discard, auto-detect-language
 warning, temporary-file cleanup, audio-layer Whisper credit stripping, and
-transcription failure isolation. Created by change `define-test-perimeter`.
+transcription failure isolation. Capture is performed through the cross-platform
+`sounddevice` (PortAudio) backend, writing a 16 kHz mono WAV at the established
+recording path. Created by change `define-test-perimeter`.
 
 Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
 
 ## Requirements
 ### Requirement: Recording readiness wait
-The audio engine SHALL wait for the recording process (`sox`) to begin writing audio before returning from start, so that the audio device's cold-start delay does not produce an empty first recording. The wait SHALL terminate when the output file exceeds a minimum size, when the recording process exits early, or when a readiness timeout elapses — and SHALL never block indefinitely.
+The audio engine SHALL capture audio via the cross-platform `sounddevice` (PortAudio) backend rather than a `sox` subprocess, writing the same 16 kHz mono WAV at the established recording path so transcription is unaffected. The engine SHALL wait for the capture stream to begin delivering audio before returning from start, so that the audio device's cold-start delay does not produce an empty first recording. The wait SHALL terminate when capture has started, when the stream fails to open, or when a readiness timeout elapses — and SHALL never block indefinitely.
 
 #### Scenario: Recording becomes ready
-- **WHEN** `sox` starts and the output file grows past the minimum recording size
+- **WHEN** the `sounddevice` capture stream starts and begins delivering audio frames
 - **THEN** the start call SHALL return with recording active
 
-_Tier: macos-real — no test yet (deferred to step A; needs a real audio device)._
+_Tier: platform-real — needs a real audio device; deferred to the per-OS smoke tier._
 
 #### Scenario: Readiness times out
-- **WHEN** the output file never reaches the minimum size within the readiness timeout
+- **WHEN** capture never begins delivering audio within the readiness timeout
 - **THEN** the start call SHALL return anyway and SHALL log a warning that the first recording may be empty
 
-_Tier: macos-real — no test yet (deferred to step A)._
+_Tier: platform-real — deferred to the per-OS smoke tier._
 
-#### Scenario: Recording process exits early
-- **WHEN** the `sox` process exits before writing any audio
+#### Scenario: Capture stream fails to open
+- **WHEN** the `sounddevice` stream cannot be opened (no device / busy)
 - **THEN** the readiness wait SHALL stop and SHALL log a warning rather than block
 
-_Tier: macos-real — no test yet (deferred to step A)._
+_Tier: platform-real — deferred to the per-OS smoke tier._
 
 ### Requirement: Audio duration detection
 The audio engine SHALL determine the duration of a recorded WAV file using frame count and sample rate. When the file cannot be read as WAV, duration detection SHALL return no value rather than raise.
