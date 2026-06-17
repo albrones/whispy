@@ -644,10 +644,9 @@ class TestFullFnWorkflowIntegration:
         engine_module.RECORDING_PATH = str(audio_file)
 
         try:
-            with patch("whispy.core.audio.subprocess.Popen") as mock_popen:
-                mock_popen.return_value.poll.return_value = None
-                mocker.patch("whispy.core.engine.load_model_async")
-
+            # Audio capture is faked by the autouse fixture; just stop the
+            # background model load from racing the assertions below.
+            with patch("whispy.core.engine.load_model_async"):
                 engine = Engine(state, tmp_config)
 
                 mock_model = MagicMock()
@@ -717,8 +716,10 @@ class TestFullFnWorkflowIntegration:
             engine_module.RECORDING_PATH = original_engine_path
 
     def test_trigger_keycode_from_config_fn(self, state, tmp_config):
-        """Engine should resolve 'fn' trigger_key to keycode 63."""
-        engine = Engine(state, tmp_config)
+        """Engine resolves the macOS default trigger to the Fn keycode (63)."""
+        from whispy.platform.detect import detect
+
+        engine = Engine(state, tmp_config, adapters=detect("darwin"))
         keycode = engine._trigger_keycode_from_config()
         assert keycode == 63
 

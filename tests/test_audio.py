@@ -1,7 +1,6 @@
-"""Tests for AudioEngine with mocked subprocess calls."""
+"""Tests for AudioEngine with a faked sounddevice capture backend."""
 
 import os
-import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -14,7 +13,46 @@ _src = Path(__file__).parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
+import whispy.core.audio as audio_module
 from whispy.core.audio import AudioEngine
+
+
+class _SpyStream:
+    """Records start/stop/close and fires the capture callback once on start."""
+
+    instances: list["_SpyStream"] = []
+
+    def __init__(self, samplerate, channels, dtype, callback, **_kw):
+        self.samplerate = samplerate
+        self.channels = channels
+        self.dtype = dtype
+        self._callback = callback
+        self.started = False
+        self.stopped = False
+        self.closed = False
+        _SpyStream.instances.append(self)
+
+    def start(self):
+        self.started = True
+        frames = self.samplerate  # ~1 second of int16 silence
+        data = bytes(frames * self.channels * audio_module.SAMPLE_WIDTH)
+        if self._callback:
+            self._callback(data, frames, None, None)
+
+    def stop(self):
+        self.stopped = True
+
+    def close(self):
+        self.closed = True
+
+
+def _install_spy_sd(mocker):
+    """Patch the audio module's sounddevice with a spy stream factory."""
+    _SpyStream.instances = []
+    fake_sd = MagicMock()
+    fake_sd.RawInputStream = _SpyStream
+    mocker.patch.object(audio_module, "sd", fake_sd)
+    return _SpyStream
 
 # ---------------------------------------------------------------------------
 # start()
@@ -38,14 +76,25 @@ class TestAudioStart:
         audio.start()
         assert audio.start() is False
 
-    def test_start_spawns_sox_process(self, sm, mock_subprocess):
-        _, popen_mock, _ = mock_subprocess
+    def test_start_opens_sounddevice_stream(self, sm, mocker):
+        spy = _install_spy_sd(mocker)
         audio = AudioEngine(sm)
         audio.start()
-        assert popen_mock.called
-        call_args = popen_mock.call_args
-        cmd = call_args[0][0]
-        assert cmd[0] == "sox"
+        assert len(spy.instances) == 1
+        stream = spy.instances[0]
+        assert stream.started is True
+        assert stream.samplerate == audio_module.SAMPLE_RATE
+        assert stream.channels == audio_module.CHANNELS
+
+    def test_start_graceful_when_stream_open_fails(self, sm, mocker):
+        """A failed stream open stops the readiness wait and does not raise."""
+        fake_sd = MagicMock()
+        fake_sd.RawInputStream.side_effect = RuntimeError("no device")
+        mocker.patch.object(audio_module, "sd", fake_sd)
+        audio = AudioEngine(sm)
+        # Should return True (FSM already RECORDING) without blocking or raising.
+        assert audio.start() is True
+        assert sm.is_recording is True
 
 
 # ---------------------------------------------------------------------------
@@ -56,21 +105,24 @@ class TestAudioStart:
 class TestAudioStop:
     """Test AudioEngine.stop() behavior."""
 
-    def test_stop_terminates_process(self, sm, mock_subprocess):
-        _, popen_mock, popen_instance = mock_subprocess
-        popen_instance.poll.return_value = None
+    def test_stop_closes_stream(self, sm, mocker):
+        spy = _install_spy_sd(mocker)
         audio = AudioEngine(sm)
         audio.start()
         audio.stop()
-        assert popen_instance.terminate.called
+        stream = spy.instances[0]
+        assert stream.stopped is True
+        assert stream.closed is True
 
-    def test_stop_transitions_fsm_to_transcribing(self, sm):
+    def test_stop_transitions_fsm_to_transcribing(self, sm, mocker):
+        _install_spy_sd(mocker)
         audio = AudioEngine(sm)
         audio.start()
         audio.stop()
         assert sm.is_transcribing is True
 
-    def test_stop_returns_true_when_recording(self, sm):
+    def test_stop_returns_true_when_recording(self, sm, mocker):
+        _install_spy_sd(mocker)
         audio = AudioEngine(sm)
         audio.start()
         assert audio.stop() is True
@@ -78,15 +130,6 @@ class TestAudioStop:
     def test_stop_returns_false_when_not_recording(self, sm):
         audio = AudioEngine(sm)
         assert audio.stop() is False
-
-    def test_stop_kills_on_timeout(self, sm, mock_subprocess):
-        _, popen_mock, popen_instance = mock_subprocess
-        popen_instance.poll.return_value = None
-        popen_instance.wait.side_effect = subprocess.TimeoutExpired(cmd="sox", timeout=2)
-        audio = AudioEngine(sm)
-        audio.start()
-        audio.stop()
-        assert popen_instance.kill.called
 
 
 # ---------------------------------------------------------------------------

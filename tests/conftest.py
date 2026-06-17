@@ -30,6 +30,50 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 
+@pytest.fixture(autouse=True)
+def fake_audio_capture(request):
+    """Replace the sounddevice backend with a fake for the default test tier.
+
+    The real PortAudio device is only used by the per-OS real-seam tiers
+    (`macos`/`linux` markers). Everywhere else, the fake stream synchronously
+    delivers ~1 second of int16 silence to the capture callback on ``start()``
+    so readiness resolves instantly (no device, no 2s timeout) and the WAV at
+    RECORDING_PATH is well-formed.
+    """
+    if request.node.get_closest_marker("macos") or request.node.get_closest_marker("linux"):
+        yield
+        return
+
+    import whispy.core.audio as audio_module
+
+    class _FakeStream:
+        def __init__(self, samplerate, channels, dtype, callback, **_kw):
+            self._sr = samplerate
+            self._ch = channels
+            self._cb = callback
+
+        def start(self):
+            frames = self._sr  # ~1 second
+            data = bytes(frames * self._ch * audio_module.SAMPLE_WIDTH)
+            if self._cb:
+                self._cb(data, frames, None, None)
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    fake_sd = MagicMock()
+    fake_sd.RawInputStream = _FakeStream
+    original = audio_module.sd
+    audio_module.sd = fake_sd
+    try:
+        yield
+    finally:
+        audio_module.sd = original
+
+
 @pytest.fixture
 def tmp_dir():
     """Create a temporary directory that is cleaned up after the test."""

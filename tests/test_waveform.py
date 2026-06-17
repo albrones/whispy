@@ -11,6 +11,15 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
+# The waveform overlay is a macOS-only surface (AppKit/objc). Skip the whole
+# module where AppKit is unavailable (e.g. the Linux default tier) and mark it
+# as the macOS real-seam tier.
+pytestmark = pytest.mark.macos
+pytest.importorskip("AppKit")
+pytest.importorskip("objc")
+
 from AppKit import NSMakeRect
 
 import whispy.ui.menu_bar as menu_bar_module

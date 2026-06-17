@@ -157,14 +157,16 @@ class TestFullWorkflow:
         )
         state.model = mock_model
 
-        # 5. Run transcription
+        # 5. Run transcription (spy the injector port — injection backend is
+        # platform-specific; here we assert the engine drives the port).
+        inject_spy = mocker.patch.object(engine._text_injector, "inject")
         text = engine.run_transcription()
         assert text is not None
         assert "hello world" in text
 
-        # 6. Text was injected (subprocess.Popen was called by TextInjector)
-        _, mock_popen, _ = mock_subprocess
-        assert mock_popen.call_count > 0
+        # 6. Text was injected through the TextInjector port
+        assert inject_spy.called
+        assert "hello world" in inject_spy.call_args[0][0]
 
         # 7. Audio file was cleaned up
         assert not audio_file.exists()
@@ -195,12 +197,12 @@ class TestFullWorkflow:
         engine_module.RECORDING_PATH = str(audio_file)
         audio_module.RECORDING_PATH = str(audio_file)
 
+        inject_spy = mocker.patch.object(engine._text_injector, "inject")
         text = engine.run_transcription()
         assert text is not None
 
-        # Verify keystroke injection was used
-        _, mock_popen, _ = mock_subprocess
-        assert mock_popen.call_count > 0
+        # Verify text was injected through the TextInjector port
+        assert inject_spy.called
 
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ if "rumps" not in sys.modules:
     sys.modules["rumps"] = MagicMock()
 
 from whispy.core.engine import DEFAULT_CONFIG, DictationState, Engine
+from whispy.platform.detect import detect
 
 
 class TestDefaultConfigNoDeprecatedKeys:
@@ -32,19 +33,26 @@ class TestDefaultConfigNoDeprecatedKeys:
         assert "trigger_key" not in DEFAULT_CONFIG
 
 
-class TestTriggerKeycodeAlwaysFn:
-    """Engine._trigger_keycode_from_config must always return 63."""
+class TestTriggerResolution:
+    """Trigger resolves to the platform default (macOS Fn = 63) when unset, and
+    the deprecated ``trigger_key`` config key has no effect."""
 
-    def test_returns_63_with_empty_state(self, tmp_path):
+    def test_macos_default_is_fn_keycode(self, tmp_path):
         state = DictationState()
-        engine = Engine(state, tmp_path / "config.json")
+        engine = Engine(state, tmp_path / "config.json", adapters=detect("darwin"))
         assert engine._trigger_keycode_from_config() == 63
 
-    def test_returns_63_even_if_trigger_key_in_config(self, tmp_path):
+    def test_deprecated_trigger_key_ignored(self, tmp_path):
         state = DictationState()
-        state.config["trigger_key"] = "ampersand"
-        engine = Engine(state, tmp_path / "config.json")
+        state.config["trigger_key"] = "ampersand"  # legacy key — must be ignored
+        engine = Engine(state, tmp_path / "config.json", adapters=detect("darwin"))
         assert engine._trigger_keycode_from_config() == 63
+
+    def test_explicit_trigger_overrides_default(self, tmp_path):
+        state = DictationState()
+        state.config["trigger"] = "ctrl_r"
+        engine = Engine(state, tmp_path / "config.json", adapters=detect("darwin"))
+        assert engine._trigger_keycode_from_config() == "ctrl_r"
 
 
 class TestUpdateConfigIgnoresDeprecatedKeys:

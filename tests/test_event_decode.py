@@ -10,9 +10,11 @@ if str(_src) not in sys.path:
 from whispy.hardware.event_decode import (
     DEFAULT_TRIGGER_KEYCODE,
     NX_SECONDARYFNMASK,
+    decode_key_match,
     decode_trigger_event,
     keycode_to_name,
 )
+from whispy.platform.detect import LINUX_DEFAULT_TRIGGER, detect
 
 FN = DEFAULT_TRIGGER_KEYCODE  # 63
 
@@ -67,3 +69,36 @@ class TestKeycodeToName:
 
     def test_unknown_keycode_fallback(self):
         assert keycode_to_name(9999) == "key9999"
+
+
+class TestDecodeKeyMatch:
+    """Platform-neutral key-match decode path (Linux/pynput)."""
+
+    def test_configured_key_down_is_press(self):
+        assert decode_key_match("key_down", "ctrl_r", "ctrl_r") == "press"
+
+    def test_configured_key_up_is_release(self):
+        assert decode_key_match("key_up", "ctrl_r", "ctrl_r") == "release"
+
+    def test_non_trigger_key_ignored(self):
+        assert decode_key_match("key_down", "a", "ctrl_r") is None
+
+    def test_missing_key_name_ignored(self):
+        assert decode_key_match("key_down", None, "ctrl_r") is None
+
+    def test_empty_trigger_ignored(self):
+        assert decode_key_match("key_down", "ctrl_r", "") is None
+
+    def test_char_key_match(self):
+        assert decode_key_match("key_down", "z", "z") == "press"
+        assert decode_key_match("key_up", "z", "z") == "release"
+
+
+class TestPlatformDefaultTrigger:
+    """The platform default trigger resolution (macOS Fn / Linux push-to-talk)."""
+
+    def test_macos_default_is_fn_keycode(self):
+        assert detect("darwin").default_trigger == DEFAULT_TRIGGER_KEYCODE == 63
+
+    def test_linux_default_is_documented_key(self):
+        assert detect("linux").default_trigger == LINUX_DEFAULT_TRIGGER

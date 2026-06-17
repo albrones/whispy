@@ -1,8 +1,9 @@
 """Unattended real-seam smoke tests (tier: macos-real).
 
 Exercises the three OS seams that mocks and logic-extraction can never cover:
-real `sox` microphone capture, real `osascript` clipboard automation, and a live
-`CGEventTap`. Marked ``macos`` and excluded from the default run; opt in with::
+real `sounddevice` microphone capture, real `osascript` clipboard automation,
+and a live `CGEventTap`. Marked ``macos`` and excluded from the default run; opt
+in with::
 
     pytest -m macos tests/test_e2e_smoke.py
 
@@ -31,8 +32,8 @@ if str(_src) not in sys.path:
 
 pytestmark = pytest.mark.macos
 
-if shutil.which("sox") is None or shutil.which("osascript") is None or shutil.which("pbpaste") is None:
-    pytest.skip("requires `sox`, `osascript`, and `pbpaste`", allow_module_level=True)
+if shutil.which("osascript") is None or shutil.which("pbpaste") is None:
+    pytest.skip("requires `osascript` and `pbpaste`", allow_module_level=True)
 
 from whispy.core.audio import _MIN_RECORDING_SIZE  # noqa: E402
 

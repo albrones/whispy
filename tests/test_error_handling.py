@@ -1,59 +1,42 @@
-"""Tests for error handling: missing sox, unavailable microphone.
+"""Tests for error handling: capture backend failures, unavailable microphone.
 
 Covers graceful degradation when system dependencies are unavailable.
 """
 
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
-import pytest
+import whispy.core.audio as audio_module
+from whispy.core.audio import AudioEngine
+from whispy.core.engine import DictationState, Engine
+from whispy.core.state_machine import StateMachine
 
 _src = Path(__file__).parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
-from whispy.core.audio import AudioEngine
-from whispy.core.engine import DictationState, Engine
-from whispy.core.state_machine import StateMachine
 
+class TestCaptureBackendFailure:
+    """The capture stream failing to open degrades gracefully (never raises).
 
-class TestSoxNotInstalled:
-    """Test graceful handling when sox is not available.
-
-    NOTE: Current implementation lets exceptions propagate from sox calls.
-    These tests verify the exceptions are raised (not swallowed silently).
+    The cross-platform contract: a failed/unavailable audio device stops the
+    readiness wait and warns, rather than blocking or propagating an exception.
     """
 
-    def test_start_raises_when_sox_missing(self):
-        """AudioEngine.start() should raise when sox is not found."""
+    def test_start_graceful_when_stream_open_fails(self, mocker):
         sm = StateMachine()
         engine = AudioEngine(sm)
-        with patch("subprocess.Popen", side_effect=FileNotFoundError):
-            with pytest.raises(FileNotFoundError):
-                engine.start()
+        mocker.patch.object(audio_module.sd, "RawInputStream", side_effect=OSError("no device"))
+        assert engine.start() is True
+        assert sm.is_recording is True
 
-    def test_start_raises_when_sox_not_in_path(self):
-        """AudioEngine.start() should raise OSError when sox not in PATH."""
+    def test_start_graceful_when_backend_absent(self, mocker):
+        """With no sounddevice backend at all, start() still returns gracefully."""
         sm = StateMachine()
         engine = AudioEngine(sm)
-        with patch(
-            "subprocess.Popen",
-            side_effect=OSError("executable not found"),
-        ):
-            with pytest.raises(OSError):
-                engine.start()
-
-    def test_start_raises_on_permission_error(self):
-        """AudioEngine.start() should raise on permission errors from sox."""
-        sm = StateMachine()
-        engine = AudioEngine(sm)
-        with patch(
-            "subprocess.Popen",
-            side_effect=PermissionError("permission denied"),
-        ):
-            with pytest.raises(PermissionError):
-                engine.start()
+        mocker.patch.object(audio_module, "sd", None)
+        assert engine.start() is True
+        assert sm.is_recording is True
 
 
 class TestMicrophoneUnavailable:
