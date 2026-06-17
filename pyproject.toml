@@ -5,13 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "whispy"
 version = "0.1.0"
-description = "macOS menu bar speech-to-text daemon"
+description = "Cross-platform (macOS / Linux-X11) speech-to-text daemon"
 requires-python = ">=3.10"
 dependencies = [
     "faster-whisper",
-    "pyobjc-framework-Quartz",
-    "rumps",
+    # Cross-platform audio capture (PortAudio). Hard runtime dependency.
     "sounddevice",
+    # macOS-only: CGEventTap hotkey + rumps menu bar.
+    "pyobjc-framework-Quartz; sys_platform=='darwin'",
+    "rumps; sys_platform=='darwin'",
+    # Linux/X11-only: pynput hotkey + pystray tray (Pillow renders the icon).
+    # Text injection additionally needs the `xdotool` system binary — see README.
+    "pynput; sys_platform=='linux'",
+    "pystray; sys_platform=='linux'",
+    "Pillow; sys_platform=='linux'",
 ]
 
 [project.optional-dependencies]
@@ -28,11 +35,13 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-# Real-model / live-hardware tests are marked `macos` and excluded from the
-# default run (slow, model download, macOS-only). Run them with `pytest -m macos`.
-addopts = "-m 'not macos'"
+# Real-model / live-hardware tests are marked per-OS and excluded from the
+# default run (slow, model download, live hardware). Run them with
+# `pytest -m macos` or `pytest -m linux`.
+addopts = "-m 'not macos and not linux'"
 markers = [
-    "macos: requires macOS (real Whisper model, say/sox, live hardware)",
+    "macos: requires macOS (real Whisper model, live hardware, CGEventTap/rumps)",
+    "linux: requires a live Linux/X11 session (pynput, xdotool, pystray, real audio)",
 ]
 
 [tool.ruff]
@@ -65,6 +74,11 @@ omit = [
     "src/whispy/ui/indicator_window.py",
     "src/whispy/ui/audio_level.py",
     "src/whispy/hardware/event_tap.py",
+    # Real-seam platform adapters (live OS bindings, exercised in per-OS tiers).
+    "src/whispy/platform/macos/notifier.py",
+    "src/whispy/platform/linux/hotkey.py",
+    "src/whispy/platform/linux/tray.py",
+    "src/whispy/platform/linux/notifier.py",
 ]
 
 [tool.coverage.report]

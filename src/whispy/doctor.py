@@ -1,9 +1,9 @@
 """Environment diagnostic for Whispy.
 
 Run via ``python whispy_daemon.py --doctor`` (or ``make doctor``). Checks the
-things that most often block a fresh install — sox, the Whisper model, the
-three macOS permissions, and whether the daemon is already running — and prints
-an actionable report.
+things that most often block a fresh install — the audio backend, the Whisper
+model, the platform permissions/prerequisites, and whether the daemon is
+already running — and prints an actionable report.
 
 Each check is a small function returning a :class:`CheckResult`, so the report
 logic can be unit-tested with injected checks.
@@ -12,6 +12,7 @@ logic can be unit-tested with injected checks.
 from __future__ import annotations
 
 import shutil
+import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -35,12 +36,27 @@ class CheckResult:
     detail: str
 
 
-def check_sox() -> CheckResult:
-    """sox is required for audio capture."""
-    path = shutil.which("sox")
+def check_audio_backend() -> CheckResult:
+    """sounddevice (PortAudio) is required for cross-platform audio capture."""
+    try:
+        import sounddevice  # noqa: F401
+    except Exception as exc:
+        return CheckResult(
+            "audio backend",
+            FAIL,
+            f"sounddevice unavailable ({exc}) — `pip install sounddevice` and ensure PortAudio is present",
+        )
+    return CheckResult("audio backend", OK, "sounddevice (PortAudio) available")
+
+
+def check_xdotool() -> CheckResult:
+    """On Linux/X11, xdotool is required for text injection."""
+    if sys.platform != "linux":
+        return CheckResult("xdotool", OK, "not required on this platform")
+    path = shutil.which("xdotool")
     if path:
-        return CheckResult("sox", OK, path)
-    return CheckResult("sox", FAIL, "not found — install with `brew install sox`")
+        return CheckResult("xdotool", OK, path)
+    return CheckResult("xdotool", FAIL, "not found — install with your package manager (e.g. `apt install xdotool`)")
 
 
 def check_model(config_path: Path | None = None) -> CheckResult:
@@ -120,7 +136,8 @@ def check_daemon(port: int = 9090) -> CheckResult:
 
 
 CHECKS = [
-    check_sox,
+    check_audio_backend,
+    check_xdotool,
     check_model,
     check_input_monitoring,
     check_accessibility,
