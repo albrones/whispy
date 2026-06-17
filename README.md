@@ -1,14 +1,16 @@
-# Whispy (Voice Dictation for macOS)
+# Whispy (Voice Dictation for macOS & Linux)
 
 ## 🤖 AI Description / Overview
 
-**Whispy is a powerful, local voice dictation utility for macOS.** It uses the `faster-whisper` model to provide real-time, offline transcription of speech input. The application runs as a background daemon (`LaunchAgent`), allowing users to initiate recording by holding the `Fn` key and automatically transcribing and inserting text into any active field (e.g., iTerm, web browser, or editor) upon release. Because all processing is done locally on your machine, **zero data leaves your computer**, ensuring complete privacy.
+**Whispy is a powerful, local voice dictation utility for macOS and Linux (X11).** It uses the `faster-whisper` model to provide real-time, offline transcription of speech input. The application runs as a background daemon, allowing users to initiate recording by holding a configurable push-to-talk key and automatically transcribing and inserting text into any active field (e.g., iTerm, web browser, or editor) upon release. Because all processing is done locally on your machine, **zero data leaves your computer**, ensuring complete privacy.
 
 ## 📘 Project Description (User Guide)
 
-Whispy is a local voice dictation utility for macOS built on top of [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Hold the **Fn** key to record, and release it to automatically transcribe the text into the active field.
+Whispy is a local voice dictation utility built on top of [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Hold the trigger key (the **Fn** key on macOS, **Right Ctrl** by default on Linux) to record, and release it to automatically transcribe the text into the active field.
 
 Everything runs locally; no data is sent over the internet.
+
+> **Linux note:** Whispy v1 supports **X11 sessions only**. Global hotkeys and synthetic text input are restricted under Wayland's security model. If you run Wayland, log out and pick an "Xorg"/"X11" session at your display manager. Wayland support is deferred to a later release.
 
 ## Quick Installation Guide
 
@@ -48,17 +50,37 @@ curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootst
 
 ## Prerequisites
 
-- **macOS** (Apple Silicon or Intel)
-- [Homebrew](https://brew.sh)
-- `sox` (`brew install sox`)
+Audio capture uses [`sounddevice`](https://python-sounddevice.readthedocs.io)
+(PortAudio), installed automatically as a Python dependency on every platform.
+
+**macOS** (Apple Silicon or Intel):
+- [Homebrew](https://brew.sh) (for the Homebrew install path)
+
+**Linux** (X11 session):
+- An **X11 session** (not Wayland — see the note above)
+- `xdotool` — required for text injection
+- `xclip` *or* `xsel` — optional, enables clipboard-paste injection mode
+- PortAudio runtime (e.g. `libportaudio2`), pulled in with most distros
+
+```bash
+# Debian/Ubuntu
+sudo apt install xdotool xclip libportaudio2
+# Fedora
+sudo dnf install xdotool xclip portaudio
+# Arch
+sudo pacman -S xdotool xclip portaudio
+```
+
+The per-OS Python packages resolve automatically via PEP 508 environment
+markers: `pyobjc-framework-Quartz`/`rumps` on macOS, `pynput`/`pystray`/`Pillow`
+on Linux.
 
 ## Detailed Installation
 
-### 1. Install Dependencies
+### 1. Install System Dependencies
 
-```bash
-brew install sox
-```
+On macOS the installer handles everything. On Linux, install `xdotool` (and
+optionally `xclip`/`xsel`) plus the PortAudio runtime as shown above.
 
 ### 2. Clone and Run Install Script
 
@@ -112,9 +134,9 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whispy.plist
 ## Usage
 
 1. Place the cursor in a text field (iTerm, browser, editor...).
-2. **Hold Fn** → The "Tink" sound indicates recording is in progress.
+2. **Hold the trigger key** (Fn on macOS, Right Ctrl on Linux) → a sound indicates recording is in progress.
 3. **Speak**.
-4. **Release Fn** → The "Pop" sound indicates transcription and automatic typing/insertion of the text.
+4. **Release the trigger key** → a sound indicates transcription and automatic typing/insertion of the text.
 
 ## Whisper Models Selection
 
@@ -151,8 +173,8 @@ tail -f ~/.whispy.log ~/.whispy-error.log  # Live logs
 
 ## Troubleshooting
 
-Run the built-in diagnostic first — it checks sox, the model, the three macOS
-permissions, and whether the daemon is running:
+Run the built-in diagnostic first — it checks the audio backend, `xdotool`
+(Linux), the model, the platform permissions, and whether the daemon is running:
 
 ```bash
 python whispy_daemon.py --doctor   # or: make doctor
@@ -160,8 +182,9 @@ python whispy_daemon.py --doctor   # or: make doctor
 
 | Symptom | Probable Cause | Solution |
 |-----------|----------------|----------|
-| Tink/Pop sounds but no text appears | Missing Accessibility Permission | Step 3b |
-| `sox not found` error in logs | SOX not in LaunchAgent PATH | Rerun `install.sh` |
+| Sounds play but no text appears (macOS) | Missing Accessibility Permission | Step 3b |
+| No text appears (Linux) | `xdotool` missing, or Wayland session | Install `xdotool`; switch to an X11 session |
+| `sounddevice`/PortAudio import error | PortAudio runtime missing | Install it (e.g. `apt install libportaudio2`) |
 | `Operation not permitted` error | Incorrect Python interpreter (e.g., Xcode vs Homebrew) | Rerun `install.sh` |
 | Inaccurate text / errors | Model is too small | `WHISPER_MODEL=medium ./install.sh` |
 | Daemon fails to start | Port 9090 is occupied or Python executable cannot be found | Check the logs (`.whispy-error.log`) |
@@ -169,10 +192,15 @@ python whispy_daemon.py --doctor   # or: make doctor
 
 ## Configuration
 
-You can modify the top of `whispy_daemon.py` or `~/.config/whispy/config.json` to change:
-- `PORT` — HTTP port (default: 9090)
-- `WHISPER_MODEL_SIZE` — Model name (default: `small`)
-- The language is set to French (`language="fr"`).
+You can edit `~/.config/whispy/config.json` to change:
+- `model_size` — Whisper model name (default: `small`)
+- `language` — transcription language (default: `fr`)
+- `copy_to_clipboard` — paste via the clipboard instead of synthesizing keystrokes
+- `trigger` — the push-to-talk key/combo. Leave it `null` (or omit it) to use the
+  platform default: the **Fn** key on macOS, **Right Ctrl** (`ctrl_r`) on Linux.
+  Set a macOS keycode (integer) or a key/combo name (string) to override.
+
+The HTTP `PORT` (default 9090) is defined near the top of `whispy_daemon.py`.
 
 ## Practical Usage & FAQ
 
@@ -242,14 +270,22 @@ A: Edit the Python files, then reload the LaunchAgent as above.
 
 ## 🖥️ Platform Support
 
-Whispy currently targets **macOS only**. Every hardware and UI subsystem is built on
-native Apple frameworks (Quartz `CGEventTap` for the Fn key, `osascript` for text
-injection, `rumps`/`NSWindow` for the menu bar and visualization, `LaunchAgent` for the
-daemon), so the app does not run on Linux or Windows today.
+Whispy runs on **macOS** and **Linux (X11)**. The OS-coupled seams sit behind a
+ports-and-adapters layer (`src/whispy/platform/`) and are bound at runtime by
+`platform.detect()`:
 
-**Linux support is on the roadmap** but is a substantial port (each subsystem needs a
-platform backend). See [docs/ROADMAP.md](docs/ROADMAP.md) for the per-subsystem plan,
-and the [issues](https://github.com/albrones/whispy/issues) for tracking.
+| Seam | macOS | Linux (X11) |
+|------|-------|-------------|
+| Global hotkey | Quartz `CGEventTap` (Fn) | `pynput` (Right Ctrl by default) |
+| Text injection | `osascript` | `xdotool` (+ `xclip`/`xsel`) |
+| Audio capture | `sounddevice` (PortAudio) | `sounddevice` (PortAudio) |
+| Tray/menu | `rumps` menu bar + overlay | `pystray` tray (no overlay in v1) |
+| Sounds | `afplay` | `paplay`/`ffplay` |
+
+**Not supported in v1:** Wayland (deferred — global hotkey + synthetic input are
+restricted by its security model), Windows, native Linux packaging, and the
+floating overlay window on Linux (state is shown through the tray instead).
+
 Contributions and design input are welcome — start by reading [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
