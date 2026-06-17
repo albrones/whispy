@@ -53,8 +53,14 @@ ignore = [
 
 [tool.coverage.run]
 source = ["src/whispy"]
+# Omit only the irreducible Cocoa/rumps/sounddevice and Quartz call sites.
+# Pure logic extracted out of them (ui/level_math.py, ui/unicode_anim.py,
+# core/paths.py, hardware/event_decode.py) stays covered.
 omit = [
-    "src/whispy/ui/*",
+    "src/whispy/ui/menu_bar.py",
+    "src/whispy/ui/waveform_window.py",
+    "src/whispy/ui/indicator_window.py",
+    "src/whispy/ui/audio_level.py",
     "src/whispy/hardware/event_tap.py",
 ]
 

@@ -38,119 +38,17 @@ try:
 except ImportError:
     pass
 
-# macOS keycodes for common keys (physical key position)
-# See: https://developer.apple.com/documentation/coregraphics/kcgkeycode
-_KEYCODE_TO_NAME: dict[int, str] = {
-    0: "a",
-    1: "s",
-    2: "d",
-    3: "f",
-    4: "h",
-    5: "g",
-    6: "z",
-    7: "x",
-    8: "e",
-    9: "w",
-    10: "r",
-    11: "y",
-    12: "t",
-    16: "q",
-    17: "1",
-    18: "2",
-    19: "3",
-    20: "4",
-    21: "6",
-    22: "5",
-    24: "=",
-    26: "9",
-    27: "7",
-    28: "-",
-    29: "8",
-    30: "0",
-    33: "]",
-    34: "o",
-    35: "u",
-    36: "[",
-    37: "i",
-    38: "&",
-    39: "p",
-    40: "enter",
-    41: "l",
-    42: "j",
-    43: "'",
-    44: "k",
-    46: ";",
-    47: "\\",
-    48: ",",
-    49: "/",
-    50: "n",
-    52: ".",
-    53: "escape",
-    57: "space",
-    59: "f1",
-    60: "f2",
-    61: "f3",
-    62: "f4",
-    63: "f5",
-    64: "f6",
-    65: "f7",
-    66: "f8",
-    67: "f9",
-    68: "f10",
-    69: "f11",
-    70: "f12",
-    105: "f13",
-    106: "f14",
-    107: "f15",
-    108: "f16",
-    109: "f17",
-    110: "f18",
-    111: "f19",
-    112: "f20",
-    # Navigation keys
-    123: "left",
-    124: "right",
-    125: "down",
-    126: "up",
-    116: "page_up",
-    121: "page_down",
-    115: "home",
-    114: "end",
-    118: "insert",
-    # Other keys
-    45: "tab",
-    55: "delete",
-    51: "backspace",
-    56: "caps_lock",
-    117: "help",
-    54: "decimal",
-    # International keys
-    85: "international4",
-    83: "international5",
-    82: "international6",
-    84: "international7",
-    87: "international8",
-    88: "international9",
-    # Language-specific keys
-    90: "lang1",
-    91: "lang2",
-    92: "lang3",
-    93: "lang4",
-    94: "lang5",
-    95: "lang6",
-    96: "lang7",
-    97: "lang8",
-    98: "lang9",
-    # Modifier keys (virtual/physical)
-    252: "shift",
-    253: "control",
-    254: "option",
-    255: "command",
-}
-
-# Default trigger key (Fn)
-DEFAULT_TRIGGER_KEYCODE = 63
-NX_SECONDARYFNMASK = 0x800000
+# Trigger-event decoding and the keycode table now live in the pure, testable
+# event_decode module. Re-exported here for backward compatibility (engine.py
+# imports DEFAULT_TRIGGER_KEYCODE from this module, and the keycode table is a
+# documented part of this module's surface).
+from .event_decode import (  # noqa: E402, F401
+    _KEYCODE_TO_NAME,
+    DEFAULT_TRIGGER_KEYCODE,
+    NX_SECONDARYFNMASK,
+    decode_trigger_event,
+    keycode_to_name,
+)
 
 
 class EventTapListener:
@@ -235,42 +133,34 @@ class EventTapListener:
             self._run_loop_thread.join(timeout=2)
 
     def _event_callback(self, _proxy: Any, _type: Any, event: Any, _refcon: Any) -> Any:
-        """Callback invoked for each relevant CGEvent (pyobjc legacy signature)."""
+        """Callback invoked for each relevant CGEvent (pyobjc legacy signature).
+
+        Reads the raw CGEvent fields and delegates the press/release decision to
+        the pure ``decode_trigger_event`` so the OS shell holds no logic.
+        """
         event_type = CGEventGetType(event)
         keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
 
-        # Normal mode: check against configured trigger keycode
-        if keycode != self._trigger_keycode:
-            return event
-
-        # Detect press vs release based on event type
-        if event_type == kCGEventKeyDown or event_type == kCGEventFlagsChanged:
-            # For Fn key (keycode 63), check secondary flag to distinguish press/release
-            if self._trigger_keycode == 63:
-                flags = CGEventGetFlags(event)
-                # CGEventGetFlags may return a tuple on some pyobjc versions
-                if isinstance(flags, tuple):
-                    # Take the first (and usually only) meaningful element
-                    flags = flags[0] if flags else 0
-                if flags & NX_SECONDARYFNMASK:
-                    if self._on_trigger_press:
-                        self._on_trigger_press()
-                else:
-                    if self._on_trigger_release:
-                        self._on_trigger_release()
-            else:
-                # Regular keydown = press
-                if self._on_trigger_press:
-                    self._on_trigger_press()
+        if event_type == kCGEventKeyDown:
+            kind = "key_down"
         elif event_type == kCGEventKeyUp:
+            kind = "key_up"
+        elif event_type == kCGEventFlagsChanged:
+            kind = "flags_changed"
+        else:
+            kind = "other"
+
+        action = decode_trigger_event(kind, keycode, CGEventGetFlags(event), self._trigger_keycode)
+        if action == "press":
+            if self._on_trigger_press:
+                self._on_trigger_press()
+        elif action == "release":
             if self._on_trigger_release:
                 self._on_trigger_release()
 
         return event
 
 
-def _keycode_to_name(keycode: int) -> str:
-    """Convert a macOS keycode to a human-readable name."""
-    if keycode in _KEYCODE_TO_NAME:
-        return _KEYCODE_TO_NAME[keycode]
-    return f"key{keycode}"
+# Backward-compatible alias: the human-readable name lookup now lives in
+# event_decode.keycode_to_name.
+_keycode_to_name = keycode_to_name

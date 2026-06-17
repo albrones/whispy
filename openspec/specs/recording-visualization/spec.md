@@ -1,5 +1,15 @@
-## ADDED Requirements
+# recording-visualization Specification
 
+## Purpose
+Real-time recording feedback: microphone level monitoring, the floating
+visualization window, audio-reactive rendering, and the menu-bar waveform
+animation. Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
+
+NOTE: some scenarios below describe an earlier "ferrofluid sphere" rendering
+that has since been replaced by the braille waveform; reconciling that wording
+is tracked separately and out of scope for the pure-logic extraction.
+
+## Requirements
 ### Requirement: Audio level monitoring during recording
 The system SHALL monitor real-time microphone audio levels during recording and expose them as a normalized value (0.0 to 1.0) with exponential moving average smoothing.
 
@@ -83,3 +93,30 @@ The system SHALL automatically show and hide the visualization based on the reco
 #### Scenario: Show/hide works via API
 - **WHEN** the user calls `POST /start` and `POST /stop` endpoints
 - **THEN** the visualization appears and disappears correctly with each recording session
+
+### Requirement: Pure visualization computation
+The audio-level value and the menu-bar animation frame SHALL be produced by pure, unit-tested functions independent of `sounddevice` and `rumps`. The audio-level function SHALL map a raw RMS sample to a smoothed 0.0–1.0 level (normalize, clamp to 1.0, then apply exponential moving average against the previous level). The frame-selection function SHALL return the scrolling waveform frame for the current index when active and the idle frame when inactive. The UI callbacks SHALL delegate to these functions.
+
+#### Scenario: RMS maps to clamped normalized level
+- **WHEN** `rms_to_level` receives an RMS value whose normalized form exceeds 1.0
+- **THEN** it SHALL clamp the contribution to 1.0 before smoothing
+
+_Tier: unit-pure — `test_level_math.py`._
+
+#### Scenario: Exponential moving average applied
+- **WHEN** `rms_to_level` is called with a previous smoothed level and a smoothing factor
+- **THEN** it SHALL return `smoothing * prev + (1 - smoothing) * normalized`
+
+_Tier: unit-pure — `test_level_math.py`._
+
+#### Scenario: Active animation cycles frames
+- **WHEN** `select_frame` is called with `is_active` true for increasing frame indices
+- **THEN** it SHALL return successive waveform frames, wrapping modulo the frame count
+
+_Tier: unit-pure — `test_anim_frames.py`._
+
+#### Scenario: Idle shows the idle frame
+- **WHEN** `select_frame` is called with `is_active` false
+- **THEN** it SHALL return the idle frame regardless of index
+
+_Tier: unit-pure — `test_anim_frames.py`._

@@ -18,7 +18,6 @@ from whispy.core.engine import (
     save_config,
 )
 
-
 # ---------------------------------------------------------------------------
 # min_recording_duration validation
 # ---------------------------------------------------------------------------
@@ -137,14 +136,14 @@ class TestRestartPath:
 
     def test_restart_path_resolves_to_existing_file(self):
         """The restart path (whispy_daemon.py) should exist at project root."""
-        from whispy.ui.menu_bar import ICONS_DIR
+        from whispy.core.paths import resolve_daemon_script
 
-        script_path = ICONS_DIR.parent.parent / "whispy_daemon.py"
+        script_path = resolve_daemon_script()
         assert script_path.exists(), f"Restart script not found at {script_path}"
 
     def test_whispy_py_does_not_exist(self):
         """Verify whispy.py does NOT exist (should use whispy_daemon.py)."""
-        from whispy.ui.menu_bar import ICONS_DIR
+        from whispy.core.paths import resolve_daemon_script
 
-        old_path = ICONS_DIR.parent / "whispy.py"
+        old_path = resolve_daemon_script().parent / "whispy.py"
         assert not old_path.exists(), "whispy.py should not exist"

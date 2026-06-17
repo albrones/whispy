@@ -10,6 +10,8 @@ from typing import Any
 
 import sounddevice as sd
 
+from .level_math import rms_to_level
+
 logger = logging.getLogger(__name__)
 
 # Smoothing factor for exponential moving average (0.0-1.0, higher = smoother)
@@ -81,13 +83,11 @@ class AudioLevelMonitor:
         """Compute RMS amplitude from audio input and apply smoothing."""
         if status:
             return
-        # Compute RMS of the channel
+        # Compute RMS of the channel (numpy on the raw block stays here); the
+        # normalize + smoothing step is the pure rms_to_level helper.
         rms = float((indata**2).mean()) ** 0.5
-        # Normalize to 0.0-1.0 (approximate, depends on input device gain)
-        normalized = min(rms * 10.0, 1.0)
-        # Exponential moving average
         with self._lock:
-            self._smoothed_level = self._smoothing * self._smoothed_level + (1.0 - self._smoothing) * normalized
+            self._smoothed_level = rms_to_level(rms, self._smoothed_level, self._smoothing)
 
     def get_level(self) -> float:
         """Return the current smoothed audio level (0.0-1.0).

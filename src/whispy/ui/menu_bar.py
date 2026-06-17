@@ -2,7 +2,6 @@
 
 import subprocess
 import sys
-from pathlib import Path
 from typing import Any
 
 import rumps
@@ -12,15 +11,10 @@ from ..core.engine import (
     SUPPORTED_LANGUAGES,
     Engine,
 )
+from ..core.paths import daemon_script_exists, resolve_daemon_script
 from .audio_level import AudioLevelMonitor
-from .unicode_anim import IDLE_FRAME, WAVEROWS, WAVEROWS_INTERVAL
+from .unicode_anim import IDLE_FRAME, WAVEROWS_INTERVAL, select_frame
 from .waveform_window import WaveformWindow
-
-# ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
-SCRIPT_DIR = Path(__file__).resolve().parent.parent.parent
-ICONS_DIR = SCRIPT_DIR / "icons"
 
 
 class WhisperMenuBarApp(rumps.App):
@@ -183,12 +177,12 @@ class WhisperMenuBarApp(rumps.App):
     def _tick_anim(self, _timer: Any) -> None:
         """Poll state every tick; scroll the waverows wave only while active."""
         if self._is_active():
-            self.title = WAVEROWS[self._frame % len(WAVEROWS)]
+            self.title = select_frame(self._frame, is_active=True)
             self._frame += 1
         else:
             self._frame = 0
             if self.title != IDLE_FRAME:
-                self.title = IDLE_FRAME
+                self.title = select_frame(0, is_active=False)
 
     # -- Status display --
 
@@ -235,8 +229,8 @@ class WhisperMenuBarApp(rumps.App):
         self.engine.update_config({"copy_to_clipboard": new_state == 1})
 
     def _on_reload(self, _sender: Any) -> None:
-        script_path = ICONS_DIR.parent.parent / "whispy_daemon.py"
-        if not script_path.exists():
+        script_path = resolve_daemon_script()
+        if not daemon_script_exists(script_path):
             try:
                 from AppKit import NSAlert
 

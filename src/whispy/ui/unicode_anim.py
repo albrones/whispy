@@ -38,3 +38,14 @@ WAVEROWS_INTERVAL = 0.09
 
 # Static frame shown when idle: a calm centered waveform.
 IDLE_FRAME = "⣀⣤⣶⣤"
+
+
+def select_frame(frame_index: int, is_active: bool) -> str:
+    """Return the title frame for the given tick.
+
+    When active, returns the scrolling waveform frame for ``frame_index``
+    (wrapping modulo the frame count). When inactive, returns the idle frame.
+    """
+    if is_active:
+        return WAVEROWS[frame_index % len(WAVEROWS)]
+    return IDLE_FRAME
