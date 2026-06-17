@@ -14,7 +14,6 @@ if str(_src) not in sys.path:
 from whispy.core.audio import strip_whisper_credit
 from whispy.core.text_cleaner import clean_text
 
-
 # ---------------------------------------------------------------------------
 # Hallucination phrase stripping (clean_text)
 # ---------------------------------------------------------------------------
