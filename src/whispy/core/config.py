@@ -48,6 +48,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # User-curated terms (names, jargon) used to bias transcription toward the
     # words the user habitually says. Empty by default.
     "custom_vocabulary": [],
+    # Push-to-talk trigger key/combo. ``None`` means "use the platform default"
+    # (Fn / keycode 63 on macOS, Right Ctrl on Linux), resolved at runtime by
+    # the engine. May be an int (macOS keycode) or a string (key/combo name).
+    "trigger": None,
 }
 
 # Config version for migration tracking
@@ -129,6 +133,23 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
             file=sys.stderr,
         )
         validated["min_recording_duration"] = DEFAULT_CONFIG["min_recording_duration"]
+
+    # Validate trigger (None = platform default, else a positive int keycode or
+    # a non-empty key/combo string).
+    trigger = validated.get("trigger")
+    trigger_ok = (
+        trigger is None
+        or (isinstance(trigger, int) and not isinstance(trigger, bool) and trigger >= 0)
+        or (isinstance(trigger, str) and trigger.strip() != "")
+    )
+    if not trigger_ok:
+        print(
+            f"[config] Invalid trigger '{trigger}', defaulting to platform default (None)",
+            file=sys.stderr,
+        )
+        validated["trigger"] = DEFAULT_CONFIG["trigger"]
+    elif isinstance(trigger, str):
+        validated["trigger"] = trigger.strip()
 
     # Validate custom_vocabulary (must be a list of non-empty strings).
     vocab = validated.get("custom_vocabulary")

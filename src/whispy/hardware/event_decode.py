@@ -162,3 +162,22 @@ def decode_trigger_event(
         return "release"
 
     return None
+
+
+def decode_key_match(kind: str, key_name: str | None, trigger_key: str) -> str | None:
+    """Platform-neutral key-match decode (used by the Linux/pynput listener).
+
+    A configured trigger key/name maps a key-down to ``"press"`` and a key-up to
+    ``"release"``; any other key or event kind is ignored. Pure function of the
+    classified ``kind`` (``"key_down"``/``"key_up"``), the event's ``key_name``,
+    and the configured ``trigger_key`` — no live event source involved.
+
+    Returns ``"press"``, ``"release"``, or ``None``.
+    """
+    if not trigger_key or key_name != trigger_key:
+        return None
+    if kind == "key_down":
+        return "press"
+    if kind == "key_up":
+        return "release"
+    return None
