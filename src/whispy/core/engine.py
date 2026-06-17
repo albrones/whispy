@@ -6,7 +6,6 @@ into a unified interface for the UI and API layers.
 
 import logging
 import os
-import subprocess
 import sys
 import threading
 from collections.abc import Callable
@@ -15,9 +14,9 @@ from typing import Any
 
 from faster_whisper import WhisperModel
 
-from ..hardware.event_tap import DEFAULT_TRIGGER_KEYCODE, EventTapListener
-from ..hardware.injection import TextInjector
-from .audio import RECORDING_PATH, AudioEngine
+from ..hardware.event_decode import DEFAULT_TRIGGER_KEYCODE
+from ..platform import PlatformAdapters, detect
+from .audio import RECORDING_PATH
 from .config import (
     DEFAULT_CONFIG,
     MODEL_PRESETS,
@@ -126,6 +125,7 @@ class Engine:
         self,
         state: DictationState,
         config_path: Path | None = None,
+        adapters: PlatformAdapters | None = None,
     ) -> None:
         self.state = state
         self._status_callbacks: list[Callable] = []
@@ -136,13 +136,20 @@ class Engine:
         self._config_path = config_path or (Path.home() / ".config" / "whispy" / "config.json")
         self._fn_pressed = False
 
-        # Core components
+        # Platform adapters bind the OS-coupled seams (hotkey, injection,
+        # audio, sounds) at runtime; the engine depends only on the ports.
+        self._adapters = adapters or detect()
+
+        # Core components, obtained from the platform adapter set.
         self._state_machine = StateMachine()
-        self._audio_engine = AudioEngine(self._state_machine)
-        self._text_injector = TextInjector(copy_to_clipboard=state.config.get("copy_to_clipboard", False))
+        self._audio_engine = self._adapters.make_audio_recorder(self._state_machine)
+        self._text_injector = self._adapters.make_text_injector(
+            copy_to_clipboard=state.config.get("copy_to_clipboard", False)
+        )
+        self._notifier = self._adapters.make_notifier()
 
         # Hardware listener (wired up later via start_fn_listener)
-        self._fn_listener: EventTapListener | None = None
+        self._fn_listener: Any = None
 
         # Transcription worker thread
         self._transcription_thread: threading.Thread | None = None
@@ -296,22 +303,30 @@ class Engine:
 
     # -- Fn key listener --
 
-    def _trigger_keycode_from_config(self) -> int:
-        """Always return the hardcoded Fn keycode (63)."""
-        return DEFAULT_TRIGGER_KEYCODE
+    def resolve_trigger(self) -> Any:
+        """Resolve the configured trigger, or the platform default if unset.
+
+        Returns the macOS Fn keycode (63) by default on macOS and a documented
+        push-to-talk key on Linux, unless the user set ``trigger`` in config.
+        """
+        trigger = self.state.config.get("trigger")
+        if trigger is None or trigger == "":
+            return self._adapters.default_trigger
+        return trigger
+
+    # Backward-compatible alias: the resolved trigger was historically a macOS
+    # keycode. Kept so existing callers/tests keep working.
+    def _trigger_keycode_from_config(self) -> Any:
+        return self.resolve_trigger()
 
     def start_fn_listener(self) -> None:
-        """Start the trigger key event tap listener."""
-        trigger_keycode = self._trigger_keycode_from_config()
+        """Start the trigger key listener for the active platform."""
+        trigger = self.resolve_trigger()
 
         def _on_trigger_press() -> None:
             """Handle trigger key press — start recording."""
             self._notify_fn_pressed()
-            subprocess.Popen(
-                ["afplay", "/System/Library/Sounds/Tink.aiff"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            self._notifier.recording_started()
             self.start_recording()
 
         def _on_trigger_release() -> None:
@@ -320,8 +335,8 @@ class Engine:
             self.stop_recording()
             self.state.stop_event.set()
 
-        self._fn_listener = EventTapListener(
-            trigger_keycode=trigger_keycode,
+        self._fn_listener = self._adapters.make_hotkey_listener(
+            trigger=trigger,
             on_trigger_press=_on_trigger_press,
             on_trigger_release=_on_trigger_release,
         )
@@ -363,11 +378,7 @@ class Engine:
 
                     # Success sound only on a real transcription.
                     if text:
-                        subprocess.Popen(
-                            ["afplay", "/System/Library/Sounds/Pop.aiff"],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
+                        self._notifier.transcription_succeeded()
 
         self._transcription_thread = threading.Thread(target=_worker, name="transcription-worker", daemon=True)
         self._transcription_thread.start()
@@ -398,6 +409,12 @@ class Engine:
 
     def start(self) -> None:
         """Start all engine components."""
+        # Linux v1 requires X11; warn (don't block) on a Wayland session before
+        # wiring up the global hotkey, which won't work under Wayland.
+        if self._adapters.name == "linux":
+            from ..platform.linux.session import warn_if_wayland
+
+            warn_if_wayland()
         self.start_fn_listener()
         self.start_transcription_worker()
         load_model_async(self)

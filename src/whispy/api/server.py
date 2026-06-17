@@ -39,12 +39,12 @@ class RequestHandler(BaseHTTPRequestHandler):
         engine = self.server.engine
         if self.path == "/start":
             engine.start_recording()
-            self._play_sound("Tink.aiff")
+            engine._notifier.recording_started()
             self._json_response(200, {"status": "recording"})
 
         elif self.path == "/stop":
             text = self._sync_stop_and_transcribe(engine)
-            self._play_sound("Pop.aiff")
+            engine._notifier.transcription_succeeded()
             self._json_response(200, {"status": "done", "text": text})
 
         elif self.path == "/stop-async":
@@ -84,7 +84,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         import os
 
         # Properly transition FSM through RECORDING -> TRANSCRIBING
-        # AudioEngine.stop() handles sox termination + FSM transition
+        # AudioEngine.stop() handles capture teardown + FSM transition
         engine._audio_engine.stop()
 
         engine.state.is_recording = False
@@ -105,19 +105,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         engine.state.is_transcribing = False
         engine._notify_status_change()
         return text
-
-    def _play_sound(self, sound_name: str) -> None:
-        """Play a system sound."""
-        import subprocess
-
-        threading.Thread(
-            target=lambda: subprocess.Popen(
-                ["afplay", f"/System/Library/Sounds/{sound_name}"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            ),
-            daemon=True,
-        ).start()
 
     def _json_response(self, code: int, data: dict[str, Any]) -> None:
         """Send a JSON HTTP response."""

@@ -41,7 +41,6 @@ def main():
     # stack (rumps/AppKit) fails to import on a broken setup.
     from whispy.api.server import start_http_server
     from whispy.core.engine import DictationState, Engine, load_config
-    from whispy.ui.menu_bar import WhisperMenuBarApp
 
     # Initialize config
     config = load_config(CONFIG_PATH)
@@ -53,8 +52,9 @@ def main():
 
     engine = Engine(state, config_path=CONFIG_PATH)
 
-    # Create menu bar app (registers status callback)
-    app = WhisperMenuBarApp(engine)
+    # Create the platform tray UI (rumps menu bar on macOS, pystray on Linux);
+    # it registers its own engine status callbacks.
+    app = engine._adapters.make_tray(engine)
     state.app = app
 
     # Start all components
