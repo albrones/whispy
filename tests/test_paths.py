@@ -11,6 +11,7 @@ if str(_src) not in sys.path:
 from whispy.core.paths import (
     DAEMON_SCRIPT_NAME,
     daemon_script_exists,
+    resolve_app_bundle,
     resolve_daemon_script,
 )
 
@@ -46,3 +47,16 @@ class TestDaemonScriptExists:
 
     def test_false_for_missing_path(self, tmp_path):
         assert daemon_script_exists(tmp_path / "nope.py") is False
+
+
+class TestResolveAppBundle:
+    def test_detects_bundle_from_executable(self):
+        exe = "/Applications/Whispy.app/Contents/MacOS/python"
+        assert resolve_app_bundle(exe) == Path("/Applications/Whispy.app")
+
+    def test_returns_nearest_app_ancestor(self):
+        exe = "/Users/me/Builds/Whispy.app/Contents/MacOS/Whispy"
+        assert resolve_app_bundle(exe) == Path("/Users/me/Builds/Whispy.app")
+
+    def test_none_for_plain_venv_executable(self):
+        assert resolve_app_bundle("/Users/me/proj/.venv/bin/python3") is None

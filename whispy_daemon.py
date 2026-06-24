@@ -9,16 +9,37 @@ This is the main entry point. All logic is in src/whispy/.
 """
 
 import logging
+import os
 import signal
 import sys
 from pathlib import Path
 
-# Configure logging
+# Point SSL at certifi's CA bundle. Inside the .app bundle the interpreter has
+# no system CA file, so ssl.create_default_context() raises FileNotFoundError
+# and any HTTPS (e.g. a HuggingFace model download) crashes. Harmless elsewhere.
+try:
+    import certifi
+
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    os.environ.setdefault("SSL_CERT_DIR", os.path.dirname(certifi.where()))
+except Exception:  # pragma: no cover - certifi absent on a minimal host
+    pass
+
+# Configure logging. Force UTF-8: inside a .app bundle stdout defaults to ASCII,
+# so any log line with non-ASCII (the em-dashes used throughout) raised
+# UnicodeEncodeError in the handler and the record was dropped. UTF-8 stdout +
+# a UTF-8 file handler keep every message intact.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):  # pragma: no cover - non-standard streams
+    pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="[%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(Path.home() / ".whispy.log"),
+        logging.FileHandler(Path.home() / ".whispy.log", encoding="utf-8"),
         logging.StreamHandler(),
     ],
 )

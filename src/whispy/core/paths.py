@@ -6,6 +6,7 @@ unit-testable without importing rumps. This module sits at
 package (``core`` -> ``whispy`` -> ``src`` -> project root).
 """
 
+import sys
 from pathlib import Path
 
 # Project root: parents[3] of this file (core -> whispy -> src -> <root>).
@@ -31,3 +32,18 @@ def daemon_script_exists(path: Path | None = None) -> bool:
     """
     target = path if path is not None else resolve_daemon_script()
     return target.exists()
+
+
+def resolve_app_bundle(executable: str | None = None) -> Path | None:
+    """Return the ``.app`` bundle path when running inside one, else ``None``.
+
+    A py2app bundle runs from ``…/Whispy.app/Contents/MacOS/python``; walk the
+    executable's parents for the nearest ancestor ending in ``.app``. Returns
+    ``None`` in a normal source-tree/venv run. ``executable`` is injectable so
+    the resolution is unit-testable.
+    """
+    exe = Path(executable if executable is not None else sys.executable).resolve()
+    for parent in exe.parents:
+        if parent.suffix == ".app":
+            return parent
+    return None

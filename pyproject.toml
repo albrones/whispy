@@ -13,6 +13,12 @@ dependencies = [
     "sounddevice",
     # macOS-only: CGEventTap hotkey + rumps menu bar.
     "pyobjc-framework-Quartz; sys_platform=='darwin'",
+    # macOS-only: AVFoundation drives the microphone TCC prompt + status check
+    # (doctor.py, platform/macos/permissions.py).
+    "pyobjc-framework-AVFoundation; sys_platform=='darwin'",
+    # macOS-only: ApplicationServices provides the Accessibility check + prompt
+    # (AXIsProcessTrusted / AXIsProcessTrustedWithOptions).
+    "pyobjc-framework-ApplicationServices; sys_platform=='darwin'",
     "rumps; sys_platform=='darwin'",
     # Linux/X11-only: pynput hotkey + pystray tray (Pillow renders the icon).
     # Text injection additionally needs the `xdotool` system binary — see README.

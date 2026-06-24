@@ -1,4 +1,4 @@
-.PHONY: help install test lint format check run uninstall clean
+.PHONY: help install test lint format check run app uninstall clean
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -37,6 +37,9 @@ run: ## Run the daemon in the foreground (for development)
 
 doctor: ## Diagnose the environment (sox, model, permissions, daemon)
 	$(PY) whispy_daemon.py --doctor
+
+app: ## Build & ad-hoc-sign the native macOS bundle (dist/Whispy.app)
+	./packaging/macos/build_app.sh
 
 uninstall: ## Remove the LaunchAgent and venv
 	./install.sh --uninstall
