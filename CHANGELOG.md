@@ -2,6 +2,35 @@
 
 **Date de release:** 2026-05-26
 
+## [Cross-platform] — macOS + Linux/X11 (2026-06-17)
+
+### Ajoutés
+- **Support Linux (X11).** Whispy tourne désormais sur macOS **et** Linux/X11.
+- **Couche ports-and-adapters** (`src/whispy/platform/`) : interfaces `Protocol`
+  pour les seams couplés à l'OS (hotkey, injection, audio, tray) liées au
+  runtime par `platform.detect()`.
+- **Adaptateurs Linux/X11** : hotkey via `pynput`, injection texte via `xdotool`
+  (+ `xclip`/`xsel`), tray via `pystray`. Détection de session X11.
+- **Touche de déclenchement configurable** (push-to-talk) : défaut **Fn** sur
+  macOS, **Right Ctrl** sur Linux ; décodage par key-match en plus du flag Fn.
+- **Doctor multi-plateforme** : vérifie le backend audio, `xdotool` (Linux), le
+  modèle, les permissions de la plateforme et l'état du daemon.
+
+### Modifiés
+- **Backend audio cross-platform.** Capture via `sounddevice` (PortAudio) à la
+  place du sous-processus `sox`, unifiée sur macOS et Linux.
+- **Dépendances par OS** via marqueurs d'environnement PEP 508 :
+  `pyobjc-framework-Quartz`/`rumps` sur macOS, `pynput`/`pystray`/`Pillow` sur
+  Linux ; `sox` supprimé.
+- **Overlay macOS-only.** Sur Linux v1, l'état est exposé via le tray (pas de
+  fenêtre flottante).
+
+### Documentation
+- Site promotionnel et docs « living » (README, ROADMAP) mis à jour : Whispy
+  n'est plus présenté comme macOS-only.
+
+**Non couvert (différé) :** Wayland, Windows, packaging Linux natif, overlay Linux.
+
 ## [Unreleased]
 
 ### Corrigés (préparation open source)

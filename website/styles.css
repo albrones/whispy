@@ -314,10 +314,8 @@ code { font-family: var(--mono); color: var(--green); }
   border-bottom: 1px solid #d8d8df;
 }
 .dw-traffic { display: inline-flex; gap: 6px; }
-.dw-traffic i { width: 11px; height: 11px; border-radius: 50%; background: #ddd; }
-.dw-traffic i:nth-child(1) { background: #ff5f57; }
-.dw-traffic i:nth-child(2) { background: #febc2e; }
-.dw-traffic i:nth-child(3) { background: #28c840; }
+/* Neutral window-control dots — platform-agnostic, not macOS traffic lights. */
+.dw-traffic i { width: 11px; height: 11px; border-radius: 50%; background: #cfcfd6; }
 .dw-title { font-size: 0.74rem; color: #6a6a72; font-weight: 600; }
 .dw-body { min-height: 96px; padding: 16px 18px; }
 .dw-text { margin: 0; color: #1c1c22; font-size: 1.02rem; line-height: 1.5; }

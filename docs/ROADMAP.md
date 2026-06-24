@@ -1,41 +1,40 @@
 # Roadmap
 
-## v0.1.0 — first open-source release (macOS)
+## v0.1.0 — first open-source release
 
 - [x] Green test suite (ruff lint/format, pytest on Python 3.10–3.12)
 - [x] `whispy doctor` onboarding diagnostic
 - [x] OSS hygiene (license, contributing, code of conduct, templates)
 - [ ] Tagged release + notes
 
-## Linux support (planned)
+## Cross-platform (shipped) — macOS + Linux/X11
 
-Whispy is macOS-only today: every hardware and UI subsystem is built on native
-Apple frameworks. A Linux port is not a tweak — it means providing a platform
-backend for each of the five subsystems below. The intended approach is to
-introduce small abstraction seams (e.g. a `HardwareListener` and `Injector`
-interface) and select the implementation at runtime by platform.
+Whispy runs on **macOS and Linux (X11)**. The OS-coupled subsystems sit behind a
+ports-and-adapters layer (`src/whispy/platform/`), bound at runtime by
+`platform.detect()`. The audio backend is `sounddevice`/PortAudio and the
+trigger key is configurable (Fn on macOS, Right Ctrl on Linux by default).
 
-| Subsystem | macOS (today) | Linux candidate(s) | Notes |
-|-----------|---------------|--------------------|-------|
-| Trigger key | Quartz `CGEventTap` (`hardware/event_tap.py`) | `evdev` (Wayland-safe, needs input group) or `pynput` (X11) | Global key capture differs sharply across X11/Wayland. |
-| Text injection | `osascript` (`hardware/injection.py`) | `wtype` (Wayland), `xdotool`/`xclip` (X11), `ydotool` (uinput) | Clipboard-paste vs synthetic keystrokes both need a backend. |
-| Menu bar | `rumps` + `NSWindow` (`ui/menu_bar.py`) | `pystray` tray icon + GTK/Qt menu | No direct rumps equivalent. |
-| Visualization | Waveform pill, NSBezierPath (`ui/waveform_window.py`) | GTK/Cairo or a Qt widget | Optional; ship a CLI/tray-only mode first. |
-| Daemon | LaunchAgent (`install.sh`) | systemd **user** unit + install script | Autostart-on-login parity. |
+| Subsystem | macOS | Linux (X11) |
+|-----------|-------|-------------|
+| Trigger key | Quartz `CGEventTap` (Fn) | `pynput` (Right Ctrl by default) |
+| Text injection | `osascript` | `xdotool` (+ `xclip`/`xsel`) |
+| Audio capture | `sounddevice` (PortAudio) | `sounddevice` (PortAudio) |
+| Tray/menu | `rumps` menu bar + overlay | `pystray` tray (no overlay in v1) |
+| Sounds | `afplay` | `paplay`/`ffplay` |
 
-Cross-cutting work:
+CI runs the default tier on Linux today; the per-OS real seams (X11 hotkey,
+xdotool injection) live in the platform-real test tiers.
 
-- A platform-detection layer and a non-GUI / headless mode (record + transcribe
-  + inject, no visualization) as the first Linux milestone.
-- A second CI runner (`ubuntu-latest`) once a backend exists; the test suite
-  already mocks the macOS-only modules, so unit tests run on Linux today.
-- Audio capture (`sox`) and transcription (`faster-whisper`, `sounddevice`) are
-  already cross-platform — no change needed there.
+## Future work (not yet shipped)
+
+- **Wayland** — deferred. Global hotkey capture and synthetic text input are
+  restricted by Wayland's security model; needs a `ydotool`/portal spike.
+- **Linux overlay window** — Linux v1 surfaces state through the tray only; a
+  floating waveform/indicator (GTK/Cairo or Qt) is a later addition.
+- **Native Linux packaging** — `.deb`/AppImage/Flatpak and a systemd **user**
+  unit for autostart parity with the macOS LaunchAgent.
+- **Windows** — not currently planned. Would require equivalents for every
+  subsystem (Win32 hooks, `SendInput`, a tray library, and Task Scheduler).
 
 Contributions welcome — see [CONTRIBUTING.md](../CONTRIBUTING.md). Track progress
 in the project [issues](https://github.com/albrones/whispy/issues).
-
-## Windows support
-
-Not currently planned. Would require equivalents for all five subsystems
-(Win32 hooks, `pyautogui`/SendInput, a tray library, and Task Scheduler).

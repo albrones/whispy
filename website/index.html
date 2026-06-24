@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Whispy — Private voice dictation for macOS</title>
-  <meta name="description" content="Whispy is a fast, fully local voice dictation utility for macOS. Hold the Fn key, speak, release — your words appear in any app. Nothing ever leaves your Mac." />
+  <title>Whispy — Private voice dictation for macOS &amp; Linux</title>
+  <meta name="description" content="Whispy is a fast, fully local voice dictation utility for macOS and Linux (X11). Hold your push-to-talk key, speak, release — your words appear in any app. Nothing ever leaves your computer." />
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
 
   <!-- Open Graph / social -->
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Whispy — Private voice dictation for macOS" />
-  <meta property="og:description" content="Hold Fn, speak, release. Local Whisper transcription that types into any app. Zero data leaves your Mac." />
+  <meta property="og:title" content="Whispy — Private voice dictation for macOS &amp; Linux" />
+  <meta property="og:description" content="Hold your key, speak, release. Local Whisper transcription that types into any app. Zero data leaves your computer." />
   <meta property="og:image" content="assets/logo.svg" />
   <meta name="twitter:card" content="summary" />
-  <meta name="twitter:title" content="Whispy — Private voice dictation for macOS" />
-  <meta name="twitter:description" content="Hold Fn, speak, release. Local Whisper transcription that types into any app." />
+  <meta name="twitter:title" content="Whispy — Private voice dictation for macOS &amp; Linux" />
+  <meta name="twitter:description" content="Hold your key, speak, release. Local Whisper transcription that types into any app." />
 
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -38,18 +38,18 @@
     <section class="hero">
       <div class="hero-copy">
         <p class="eyebrow"><span class="eyebrow-dots" data-braille-drift="wave">⠿⠶</span> Open source · Free · Local-first</p>
-        <h1>Speak. <span class="accent">It types.</span><br />Nothing leaves your Mac.</h1>
+        <h1>Speak. <span class="accent">It types.</span><br />Nothing leaves your computer.</h1>
         <p class="lede">
-          Whispy is a private voice-dictation utility for macOS. Hold the
-          <kbd>Fn</kbd> key, talk, and release — your words land in whatever app
-          you're using. All transcription runs locally with
+          Whispy is a private voice-dictation utility for macOS and Linux. Hold
+          your push-to-talk key, talk, and release — your words land in whatever
+          app you're using. All transcription runs locally with
           <code>faster-whisper</code>. No cloud, no account, no telemetry.
         </p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="#install">Install Whispy</a>
           <a class="btn btn-ghost" href="https://github.com/albrones/whispy">View source</a>
         </div>
-        <p class="hero-note">Free &amp; open source · Apple Silicon and Intel</p>
+        <p class="hero-note">Free &amp; open source · macOS (Apple Silicon &amp; Intel) and Linux (X11)</p>
       </div>
 
       <div class="hero-visual">
@@ -70,16 +70,17 @@
     <section id="demo" class="section section-demo">
       <h2>See it work</h2>
       <p class="section-lede">
-        Hold <kbd>Fn</kbd>, speak, release — Whispy types into whatever field
-        has focus. Switch languages right from the menu bar. Here's the whole loop.
+        Hold your push-to-talk key, speak, release — Whispy types into whatever
+        field has focus. Switch languages right from the tray. Here's the whole
+        loop. The trigger is configurable; it defaults to <kbd>Fn</kbd> on macOS
+        and <kbd>Right Ctrl</kbd> on Linux.
       </p>
 
       <div class="demo-stage" data-demo aria-hidden="true">
         <!-- macOS menu bar -->
         <div class="demo-menubar">
           <div class="dm-left">
-            <span class="dm-apple"></span>
-            <span class="dm-app">TextEdit</span>
+            <span class="dm-app">Editor</span>
             <span class="dm-menu">File</span>
             <span class="dm-menu">Edit</span>
             <span class="dm-menu">Format</span>
@@ -110,7 +111,7 @@
           </div>
           <div class="dd-item dd-check is-checked"><span class="dd-tick">✓</span>Copy to clipboard</div>
           <div class="dd-sep"></div>
-          <div class="dd-item dd-hint">Hold Fn to dictate</div>
+          <div class="dd-item dd-hint">Hold your key to dictate</div>
           <div class="dd-sep"></div>
           <div class="dd-item">Restart</div>
           <div class="dd-item">Quit<span class="dd-val">⌘Q</span></div>
@@ -120,7 +121,7 @@
         <div class="demo-window">
           <div class="dw-bar">
             <span class="dw-traffic"><i></i><i></i><i></i></span>
-            <span class="dw-title">Untitled — TextEdit</span>
+            <span class="dw-title">Untitled — Editor</span>
           </div>
           <div class="dw-body" data-demo-editor>
             <p class="dw-text"><span data-demo-output></span><span class="dw-caret"></span></p>
@@ -133,10 +134,10 @@
           <span></span><span></span><span></span><span></span><span></span><span></span>
         </div>
 
-        <!-- Status chip + Fn key -->
+        <!-- Status chip + push-to-talk key -->
         <div class="demo-hud">
-          <span class="demo-caption" data-demo-caption data-mode="idle">Hold Fn to dictate</span>
-          <span class="demo-fn" data-demo-fn><kbd>Fn</kbd></span>
+          <span class="demo-caption" data-demo-caption data-mode="idle">Hold your key to dictate</span>
+          <span class="demo-fn" data-demo-fn><kbd>Key</kbd></span>
         </div>
 
         <!-- Fake pointer -->
@@ -157,23 +158,23 @@
         </article>
         <article class="card">
           <h3>One key, anywhere</h3>
-          <p>Hold <kbd>Fn</kbd> to record, release to insert text into any focused field — terminal, browser, editor.</p>
+          <p>Hold your push-to-talk key to record, release to insert text into any focused field — terminal, browser, editor.</p>
         </article>
         <article class="card">
-          <h3>Live waveform</h3>
-          <p>A subtle on-screen waveform confirms Whispy is listening, then fades away.</p>
+          <h3>macOS &amp; Linux</h3>
+          <p>Native on macOS and Linux (X11). OS-specific seams sit behind a ports-and-adapters layer bound at runtime.</p>
         </article>
         <article class="card">
           <h3>Multilingual</h3>
           <p>Defaults to French and handles many languages through the Whisper model you choose.</p>
         </article>
         <article class="card">
-          <h3>Lives in the menu bar</h3>
-          <p>Runs quietly as a background daemon. No window to manage, no dock clutter.</p>
+          <h3>Lives in the tray</h3>
+          <p>Runs quietly as a background daemon in the menu bar (macOS) or system tray (Linux). No window to manage.</p>
         </article>
         <article class="card">
           <h3>Tunable models</h3>
-          <p>Trade speed for accuracy by picking a Whisper model size that fits your Mac.</p>
+          <p>Trade speed for accuracy by picking a Whisper model size that fits your machine.</p>
         </article>
       </div>
     </section>
@@ -184,11 +185,11 @@
       <ol class="steps">
         <li>
           <span class="step-num">1</span>
-          <div><h3>Hold <kbd>Fn</kbd></h3><p>A soft chime confirms Whispy is recording.</p></div>
+          <div><h3>Hold your key</h3><p>A soft chime confirms Whispy is recording — <kbd>Fn</kbd> on macOS, <kbd>Right Ctrl</kbd> on Linux by default.</p></div>
         </li>
         <li>
           <span class="step-num">2</span>
-          <div><h3>Speak</h3><p>The waveform reacts to your voice in real time.</p></div>
+          <div><h3>Speak</h3><p>Whispy listens — the tray shows it's live (macOS adds an on-screen waveform).</p></div>
         </li>
         <li>
           <span class="step-num">3</span>
@@ -204,7 +205,7 @@
         <p>
           Whispy exists for one reason: dictation that never ships your voice to
           the cloud. No servers, no accounts, no subscriptions — just open tools
-          running on your own Mac. <strong>Zero data leaves your computer</strong>
+          running on your own machine. <strong>Zero data leaves your computer</strong>
           — by design, not by promise.
         </p>
         <div class="pillars">
@@ -220,8 +221,8 @@
           </article>
           <article class="pillar">
             <span class="pillar-ico" data-braille-drift="shimmer">⣿</span>
-            <h3>Runs on your Mac</h3>
-            <p>Self-hosted by default — local Whisper inference, nothing to upload, nothing to trust.</p>
+            <h3>Runs on your machine</h3>
+            <p>Self-hosted by default on macOS or Linux — local Whisper inference, nothing to upload, nothing to trust.</p>
           </article>
         </div>
       </div>
@@ -250,18 +251,28 @@
     <!-- Install -->
     <section id="install" class="section section-install">
       <h2>Install in one line</h2>
-      <p class="section-lede">Requires macOS, <a href="https://brew.sh">Homebrew</a>, and <code>sox</code>.</p>
+      <p class="section-lede">Runs on macOS and Linux (X11). Audio capture uses
+        <code>sounddevice</code>/PortAudio — no <code>sox</code> needed.</p>
 
       <div class="install-block">
         <pre class="codeblock" id="install-curl"><code>curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash</code></pre>
         <button class="btn btn-copy" type="button" data-copy-target="install-curl" aria-label="Copy install command">Copy</button>
       </div>
 
-      <p class="install-alt">Prefer Homebrew?</p>
+      <p class="install-alt">On macOS, prefer Homebrew?</p>
       <div class="install-block">
         <pre class="codeblock" id="install-brew"><code>brew install albrones/whispy/whispy
 brew services start whispy</code></pre>
         <button class="btn btn-copy" type="button" data-copy-target="install-brew" aria-label="Copy Homebrew command">Copy</button>
+      </div>
+
+      <p class="install-alt">On Linux, install the system deps first (X11 session
+        required — Wayland users pick an "Xorg"/"X11" session at login):</p>
+      <div class="install-block">
+        <pre class="codeblock" id="install-linux"><code># Debian/Ubuntu — xdotool (text injection), xclip (optional clipboard), PortAudio
+sudo apt install xdotool xclip libportaudio2
+curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash</code></pre>
+        <button class="btn btn-copy" type="button" data-copy-target="install-linux" aria-label="Copy Linux install command">Copy</button>
       </div>
 
       <div class="hero-actions">
@@ -275,7 +286,7 @@ brew services start whispy</code></pre>
       <img src="assets/logo.svg" width="26" height="26" alt="" />
       <span>Whispy</span>
     </div>
-    <p>Private, local voice dictation for macOS.</p>
+    <p>Private, local voice dictation for macOS &amp; Linux.</p>
     <a href="https://github.com/albrones/whispy">github.com/albrones/whispy</a>
   </footer>
 

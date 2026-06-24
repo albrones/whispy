@@ -221,18 +221,18 @@ class WaveformPill {
     editor.classList.add("is-focused"); // caret blinks in the field
     output.textContent = "";
 
-    setCaption("Hold Fn to dictate", "idle");
+    setCaption("Hold your key to dictate", "idle");
     await sleep(900);
 
-    // Press Fn — Whispy starts listening: menu bar icon animates and the
-    // on-screen waveform pill fades in, exactly like the real app.
+    // Press the push-to-talk key — Whispy starts listening: tray icon animates
+    // and the on-screen pill fades in, exactly like the real app.
     fnKey.classList.add("is-down");
     anim.start();
     pill.start();
     setCaption("● Listening…", "live");
     await sleep(2400);
 
-    // Release Fn — icon settles back to idle, pill fades out, it transcribes.
+    // Release the key — icon settles back to idle, pill fades out, it transcribes.
     fnKey.classList.remove("is-down");
     anim.stop();
     pill.stop();
@@ -288,7 +288,7 @@ class WaveformPill {
   if (REDUCE_MOTION) {
     brailleEl.textContent = IDLE_FRAME;
     output.textContent = PHRASES.fr;
-    setCaption("Hold Fn, speak, release", "idle");
+    setCaption("Hold your key, speak, release", "idle");
     return;
   }
 
@@ -298,7 +298,7 @@ class WaveformPill {
     started = true;
     while (true) {
       await dictate(); // French
-      await switchLanguage("en"); // change language from the menu bar
+      await switchLanguage("en"); // change language from the tray
       await dictate(); // English
       await switchLanguage("fr"); // back to French, loop
     }
