@@ -51,18 +51,34 @@ logger = logging.getLogger(__name__)
 # Model loading
 # ---------------------------------------------------------------------------
 def _load_model(config: dict[str, Any]) -> WhisperModel:
-    """Instantiate WhisperModel from config dict. Always uses CPU int8."""
+    """Instantiate WhisperModel from config dict. Always uses CPU int8.
+
+    Tries the local HuggingFace cache first (``local_files_only=True``): this
+    avoids any network/SSL at startup, which matters inside the .app bundle
+    where ``ssl.create_default_context`` otherwise fails on the missing CA file.
+    Falls back to an online download only when the model isn't cached yet.
+    """
     cpu_threads = 0
     try:
         cpu_threads = max(2, os.cpu_count() // 2)
     except (TypeError, AttributeError):
         cpu_threads = 4
-    return WhisperModel(
-        config["model_size"],
-        device="cpu",
-        compute_type="int8",
-        cpu_threads=cpu_threads,
-    )
+
+    def _make(local_only: bool) -> WhisperModel:
+        return WhisperModel(
+            config["model_size"],
+            device="cpu",
+            compute_type="int8",
+            cpu_threads=cpu_threads,
+            local_files_only=local_only,
+        )
+
+    try:
+        return _make(local_only=True)
+    except Exception:
+        # Not cached — fall back to an online download (needs SSL certs; the
+        # daemon sets SSL_CERT_FILE from certifi at startup).
+        return _make(local_only=False)
 
 
 def load_model_async(engine: "Engine") -> None:
@@ -133,6 +149,7 @@ class Engine:
         self._recording_stop_callbacks: list[Callable] = []
         self._fn_pressed_callbacks: list[Callable] = []
         self._fn_released_callbacks: list[Callable] = []
+        self._injection_denied_callbacks: list[Callable] = []
         self._config_path = config_path or (Path.home() / ".config" / "whispy" / "config.json")
         self._fn_pressed = False
 
@@ -146,6 +163,10 @@ class Engine:
         self._text_injector = self._adapters.make_text_injector(
             copy_to_clipboard=state.config.get("copy_to_clipboard", False)
         )
+        # Forward keystroke-permission denials from the injector (macOS) to any
+        # UI subscriber. The Linux adapter has no such hook; guard accordingly.
+        if hasattr(self._text_injector, "set_permission_denied_callback"):
+            self._text_injector.set_permission_denied_callback(self._notify_injection_denied)
         self._notifier = self._adapters.make_notifier()
 
         # Hardware listener (wired up later via start_fn_listener)
@@ -231,6 +252,23 @@ class Engine:
 
     # -- Callback system --
 
+    def on_injection_permission_denied(self, callback: Callable) -> None:
+        """Register a callback fired when text injection is denied a keystroke.
+
+        The callback receives a remediation message (str). Only fires on macOS,
+        where the injector classifies the osascript ``1002`` error; debounced to
+        one call per permission-state transition.
+        """
+        self._injection_denied_callbacks.append(callback)
+
+    def _notify_injection_denied(self, message: str) -> None:
+        """Fan out an injection permission denial to registered callbacks."""
+        for cb in list(self._injection_denied_callbacks):
+            try:
+                cb(message)
+            except Exception:
+                logger.exception("[engine] Error in injection-denied callback")
+
     def on_status_change(self, callback: Callable) -> None:
         """Register a callback to be called when state changes."""
         self._status_callbacks.append(callback)
@@ -264,6 +302,10 @@ class Engine:
     def stop_recording(self) -> None:
         """Stop recording and transition to TRANSCRIBING."""
         self._audio_engine.stop()
+
+    def get_level(self) -> float:
+        """Live mic input level (0.0-1.0) from the capture stream, for the UI waveform."""
+        return self._audio_engine.get_level()
 
     # -- Transcription --
 
@@ -415,6 +457,23 @@ class Engine:
             from ..platform.linux.session import warn_if_wayland
 
             warn_if_wayland()
+        elif self._adapters.name == "macos":
+            # Neither permission prompts on its own for a bundled menu-bar app,
+            # so request both explicitly before wiring the hotkey/capture:
+            #  - mic (AVFoundation): PortAudio capture won't trigger the prompt.
+            #  - Input Monitoring (IOKit): the Fn CGEventTap fails silently
+            #    without it and a background app gets no automatic prompt.
+            from ..platform.macos.permissions import (
+                ensure_accessibility_access,
+                ensure_automation_access,
+                ensure_input_monitoring_access,
+                ensure_microphone_access,
+            )
+
+            ensure_microphone_access()
+            ensure_input_monitoring_access()
+            ensure_accessibility_access()
+            ensure_automation_access()
         self.start_fn_listener()
         self.start_transcription_worker()
         load_model_async(self)

@@ -171,5 +171,123 @@ class TestUpdateConfig:
 
 
 # ---------------------------------------------------------------------------
+# Keystroke-permission denial detection (osascript error 1002)
+# ---------------------------------------------------------------------------
+
+import threading
+
+DENIED_STDERR = (
+    b"62:94: execution error: Erreur dans System Events : osascript "
+    b"n\xe2\x80\x99est pas autoris\xc3\xa9 \xc3\xa0 envoyer de saisies. (1002)"
+)
+
+
+def _configure_result(popen_instance, returncode, stderr=b""):
+    """Make the mocked Popen behave like a finished process."""
+    popen_instance.returncode = returncode
+    popen_instance.communicate.return_value = (b"", stderr)
+
+
+def _inject_and_wait(injector, text, *, expect_callback):
+    """Inject and wait for the off-thread _spawn worker to fire the callback.
+
+    Returns the list of messages the permission-denied callback received.
+    """
+    fired = threading.Event()
+    messages: list[str] = []
+
+    def _cb(msg):
+        messages.append(msg)
+        fired.set()
+
+    injector.set_permission_denied_callback(_cb)
+    injector.inject(text)
+    # Wait for the worker thread; if no callback is expected, the short timeout
+    # elapses and we assert emptiness afterwards.
+    fired.wait(timeout=2.0 if expect_callback else 0.5)
+    return messages
+
+
+class TestKeystrokeDenialDetection:
+    """A denied keystroke (1002) is classified and surfaced via the callback."""
+
+    def test_clipboard_denial_fires_callback(self, mock_subprocess):
+        _, _, popen_instance = mock_subprocess
+        _configure_result(popen_instance, returncode=1, stderr=DENIED_STDERR)
+        injector = TextInjector(copy_to_clipboard=True)
+        messages = _inject_and_wait(injector, "hello", expect_callback=True)
+        assert len(messages) == 1
+        assert "tccutil" in messages[0]
+
+    def test_keystroke_denial_fires_callback(self, mock_subprocess):
+        _, _, popen_instance = mock_subprocess
+        _configure_result(popen_instance, returncode=1, stderr=DENIED_STDERR)
+        injector = TextInjector(copy_to_clipboard=False)
+        messages = _inject_and_wait(injector, "hello", expect_callback=True)
+        assert len(messages) == 1
+
+    def test_success_does_not_fire_callback(self, mock_subprocess):
+        _, _, popen_instance = mock_subprocess
+        _configure_result(popen_instance, returncode=0)
+        injector = TextInjector(copy_to_clipboard=True)
+        messages = _inject_and_wait(injector, "hello", expect_callback=False)
+        assert messages == []
+
+    def test_non_1002_failure_does_not_fire_callback(self, mock_subprocess):
+        _, _, popen_instance = mock_subprocess
+        _configure_result(popen_instance, returncode=1, stderr=b"some other error (1)")
+        injector = TextInjector(copy_to_clipboard=True)
+        messages = _inject_and_wait(injector, "hello", expect_callback=False)
+        assert messages == []
+
+
+class TestKeystrokeDenialDebounce:
+    """Repeated denials surface once per permission-state transition."""
+
+    def test_repeated_denials_fire_once(self, mock_subprocess):
+        _, _, popen_instance = mock_subprocess
+        _configure_result(popen_instance, returncode=1, stderr=DENIED_STDERR)
+        injector = TextInjector(copy_to_clipboard=True)
+
+        calls: list[str] = []
+        lock = threading.Lock()
+
+        def _cb(msg):
+            with lock:
+                calls.append(msg)
+
+        injector.set_permission_denied_callback(_cb)
+
+        for _ in range(3):
+            done = threading.Event()
+            # Re-wrap so each inject's worker completes before the next.
+            injector.inject("hello")
+            done.wait(timeout=0.3)
+
+        assert len(calls) == 1  # debounced to a single notification
+
+    def test_success_after_denial_rearms(self, mock_subprocess):
+        _, _, popen_instance = mock_subprocess
+        injector = TextInjector(copy_to_clipboard=True)
+        calls: list[str] = []
+        injector.set_permission_denied_callback(lambda m: calls.append(m))
+
+        # Denied
+        _configure_result(popen_instance, returncode=1, stderr=DENIED_STDERR)
+        injector.inject("a")
+        threading.Event().wait(0.3)
+        # Recovers
+        _configure_result(popen_instance, returncode=0)
+        injector.inject("b")
+        threading.Event().wait(0.3)
+        # Denied again -> should fire a second time
+        _configure_result(popen_instance, returncode=1, stderr=DENIED_STDERR)
+        injector.inject("c")
+        threading.Event().wait(0.3)
+
+        assert len(calls) == 2
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

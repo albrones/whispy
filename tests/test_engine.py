@@ -222,6 +222,25 @@ class TestEngineConfigUpdate:
         assert engine.state.config["model_size"] == "base"
         assert engine.state.config["language"] == "fr"
 
+    def test_settings_survive_restart(self, engine, config_path):
+        """Selecting settings then reloading from disk (a restart) keeps them.
+
+        Guards the persistence path end-to-end: update_config -> save_config ->
+        load_config returns the chosen values, not the defaults.
+        """
+        engine.update_config(
+            {"model_size": "base", "language": "en", "copy_to_clipboard": True}
+        )
+
+        # Simulate a fresh process start: read the same file from scratch.
+        reloaded = load_config(config_path)
+
+        assert reloaded["model_size"] == "base"
+        assert reloaded["language"] == "en"
+        assert reloaded["copy_to_clipboard"] is True
+        # And they differ from the shipped defaults, so this isn't a false pass.
+        assert reloaded["language"] != DEFAULT_CONFIG["language"]
+
 
 # ---------------------------------------------------------------------------
 # DictationState

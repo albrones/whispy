@@ -34,6 +34,32 @@ brew install albrones/whispy/whispy
 brew services start whispy
 ```
 
+**Native macOS app (most robust permissions):**
+
+```bash
+git clone https://github.com/albrones/whispy.git
+cd whispy && ./install.sh   # creates the .venv
+make app                    # builds & ad-hoc-signs dist/Whispy.app
+cp -R dist/Whispy.app /Applications/
+open /Applications/Whispy.app
+```
+
+This bundles Python *inside* `Whispy.app`, so the microphone / Accessibility /
+Input-Monitoring grants attach to a stable **"Whispy"** identity and **survive
+Python upgrades** — unlike the script/LaunchAgent paths, whose grant breaks
+whenever the interpreter path changes (e.g. a 3.13 → 3.14 upgrade). On first
+launch, accept the **Whispy** microphone prompt. To start at login, add
+`Whispy.app` to **System Settings → General → Login Items**, and remove any old
+`com.whispy` LaunchAgent (`./install.sh --uninstall`) so the daemon doesn't run
+twice.
+
+`make app` also creates a free, self-signed **"Whispy Local Signing"**
+certificate in your login keychain (via `packaging/macos/create_signing_cert.sh`)
+and signs the bundle with it. This stable signing identity is what lets macOS
+**remember** the permission across relaunches — a bare ad-hoc signature does
+not persist TCC grants and re-prompts every launch. No Apple Developer account
+needed; the cert is local-only (not for distribution).
+
 **Manual (for development):**
 
 ```bash
@@ -108,9 +134,16 @@ Without these permissions, the daemon cannot record audio or simulate keyboard i
 
 The daemon needs microphone access to capture audio.
 
-1. Go to **System Settings** → **Privacy & Security** → **Microphone**.
-2. Enable access for **iTerm** (or Terminal).
-3. The daemon (`python`) may also prompt you for microphone access during the first recording—please accept this popup.
+- **Native app (`make app`):** On first launch Whispy explicitly requests the
+  mic and macOS shows a **"Whispy"** prompt — click **Allow**. The grant then
+  shows as "Whispy" under **System Settings → Privacy & Security → Microphone**
+  and persists across Python upgrades. If you ever clicked "Don't Allow", reset
+  it with `tccutil reset Microphone com.whispy` and relaunch.
+- **Script / LaunchAgent path:** the responsible process is the bare Python
+  interpreter. Enable **iTerm**/**Terminal** under Microphone, and accept the
+  first-recording popup. Note: a bare interpreter has no usage-description
+  Info.plist, so on recent macOS the prompt may never appear and capture
+  silently returns silence — prefer the native app in that case.
 
 #### 3b. Accessibility Access (Keyboard Simulation)
 
@@ -121,6 +154,21 @@ The daemon requires this permission to simulate keyboard input via `osascript`.
 3. Verify that the toggle is **enabled**.
 
 > **Without this permission**, transcription works, but the text will not be typed into the active field (look for `osascript timeout` in the logs).
+
+> **Upgrading from the old name?** macOS keys these grants to the app's bundle
+> identity. After the rebrand the bundle id is `com.whispy`, so the *old* grant
+> no longer applies: the clipboard fills but nothing is typed and the logs show
+> `osascript ... (1002)` ("not authorized to send keystrokes"). Whispy now
+> surfaces this in the menu bar (**⚠ Can't type — fix permissions…**). To fix,
+> reset and re-grant against the new identity:
+>
+> ```bash
+> tccutil reset Accessibility com.whispy
+> tccutil reset AppleEvents com.whispy
+> ```
+>
+> Then relaunch Whispy and accept the re-prompts (or re-enable it under
+> **Privacy & Security → Accessibility** and **Automation**).
 
 ### 4. Restart Daemon After Permissions Update
 

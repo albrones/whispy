@@ -1,5 +1,6 @@
 """Menu bar UI via rumps for status, animation, and settings."""
 
+import shlex
 import subprocess
 import sys
 from typing import Any
@@ -11,8 +12,7 @@ from ..core.engine import (
     SUPPORTED_LANGUAGES,
     Engine,
 )
-from ..core.paths import daemon_script_exists, resolve_daemon_script
-from .audio_level import AudioLevelMonitor
+from ..core.paths import daemon_script_exists, resolve_app_bundle, resolve_daemon_script
 from .unicode_anim import IDLE_FRAME, WAVEROWS_INTERVAL, select_frame
 from .waveform_window import WaveformWindow
 
@@ -41,20 +41,28 @@ class WhisperMenuBarApp(rumps.App):
         self._anim_timer = rumps.Timer(self._tick_anim, WAVEROWS_INTERVAL)
         self._anim_timer.start()
 
+        # Set by the engine's injection-denied callback (fired off a worker
+        # thread); drained on the main run loop in _tick_anim so all UI calls
+        # (notification + menu mutation) happen on the main thread.
+        self._pending_perm_message: str | None = None
+
         self._build_menu()
 
         # Register for status updates
         self.engine.on_status_change(self.update_status_display)
+        self.engine.on_injection_permission_denied(self._on_injection_denied)
 
         # Floating indicator window (always available, no external deps)
         from .indicator_window import IndicatorWindow
 
         self._indicator = IndicatorWindow()
 
-        # Audio-reactive waveform visualization (replaces indicator during recording)
-        self._audio_monitor = AudioLevelMonitor()
+        # Audio-reactive waveform visualization (replaces indicator during
+        # recording). The level comes from the engine's single capture stream
+        # (engine.get_level) — never a second mic stream, which would make
+        # capture deliver silent buffers.
         self._visualization = WaveformWindow()
-        self._visualization.set_audio_monitor(self._audio_monitor)
+        self._visualization.set_audio_monitor(self.engine)
 
         self.engine.on_fn_pressed(self._on_fn_pressed)
         self.engine.on_fn_released(self._on_fn_released)
@@ -71,6 +79,14 @@ class WhisperMenuBarApp(rumps.App):
 
         self.status_item = rumps.MenuItem("Ready", callback=None)
         self.status_item.set_callback(None)
+
+        # Permission warning — hidden until a keystroke is denied. Clicking it
+        # opens the relevant System Settings pane.
+        self.permission_item = rumps.MenuItem(
+            "⚠ Can't type — fix permissions…",
+            callback=self._on_open_accessibility_settings,
+        )
+        self._set_permission_item_hidden(True)
 
         # Settings section header (disabled label).
         settings_header = rumps.MenuItem("Settings")
@@ -116,6 +132,7 @@ class WhisperMenuBarApp(rumps.App):
         self.menu = [
             header,
             self.status_item,
+            self.permission_item,
             None,
             settings_header,
             self.model_menu,
@@ -143,23 +160,19 @@ class WhisperMenuBarApp(rumps.App):
         """Show the waveform visualization when FN key is pressed."""
         if not self.engine.state.is_recording:
             self._indicator.hide()
-            self._audio_monitor.start()
             self._visualization.show()
 
     def _on_fn_released(self) -> None:
         """Hide the waveform when FN is released."""
-        self._audio_monitor.stop()
         self._visualization.hide()
 
     def _on_recording_start(self) -> None:
-        """Start recording visualization and audio monitor."""
+        """Show the recording waveform (level comes from the capture stream)."""
         self._indicator.hide()
-        self._audio_monitor.start()
         self._visualization.show()
 
     def _on_recording_stop(self) -> None:
-        """Stop the audio monitor and hide the waveform when recording ends."""
-        self._audio_monitor.stop()
+        """Hide the waveform when recording ends."""
         self._visualization.hide()
 
     # -- Menu bar animation --
@@ -167,15 +180,16 @@ class WhisperMenuBarApp(rumps.App):
     def _is_active(self) -> bool:
         """True while Whispy is listening, recording, transcribing, or loading."""
         state = self.engine.state
-        return (
-            self.engine._fn_pressed
-            or state.is_recording
-            or state.is_transcribing
-            or state.model_loading
-        )
+        return self.engine._fn_pressed or state.is_recording or state.is_transcribing or state.model_loading
 
     def _tick_anim(self, _timer: Any) -> None:
         """Poll state every tick; scroll the waverows wave only while active."""
+        # Drain a queued permission warning on the main thread (the engine fires
+        # the callback from an injection worker thread).
+        if self._pending_perm_message is not None:
+            message = self._pending_perm_message
+            self._pending_perm_message = None
+            self._show_permission_warning(message)
         if self._is_active():
             self.title = select_frame(self._frame, is_active=True)
             self._frame += 1
@@ -183,6 +197,36 @@ class WhisperMenuBarApp(rumps.App):
             self._frame = 0
             if self.title != IDLE_FRAME:
                 self.title = select_frame(0, is_active=False)
+
+    # -- Permission warning --
+
+    def _on_injection_denied(self, message: str) -> None:
+        """Engine callback (worker thread): queue the warning for the main thread."""
+        self._pending_perm_message = message
+
+    def _set_permission_item_hidden(self, hidden: bool) -> None:
+        """Toggle the warning menu item via its underlying NSMenuItem."""
+        ns_item = getattr(self.permission_item, "_menuitem", None)
+        if ns_item is not None:
+            ns_item.setHidden_(hidden)
+
+    def _show_permission_warning(self, message: str) -> None:
+        """Reveal the warning menu item and post a notification (main thread)."""
+        self._set_permission_item_hidden(False)
+        try:
+            rumps.notification("Whispy", "Can't type into apps", message)
+        except Exception:
+            # Notifications require a bundled app / Info.plist; ignore if absent.
+            pass
+
+    def _on_open_accessibility_settings(self, _sender: Any) -> None:
+        """Open the Accessibility pane of System Settings."""
+        subprocess.Popen(
+            [
+                "open",
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            ]
+        )
 
     # -- Status display --
 
@@ -211,7 +255,13 @@ class WhisperMenuBarApp(rumps.App):
             return
         for key, item in self._model_items.items():
             item.state = 1 if key == new_key else 0
-        self.engine.update_config({"model_size": new_key})
+        # Persist and apply live: a model change needs the new model loaded now,
+        # not only on next restart (mirrors the HTTP /config path).
+        needs_reload = self.engine.update_config({"model_size": new_key})
+        if needs_reload:
+            from ..core.engine import load_model_async
+
+            load_model_async(self.engine)
         self._update_model_title()
 
     def _on_language_select(self, sender: rumps.MenuItem) -> None:
@@ -229,6 +279,19 @@ class WhisperMenuBarApp(rumps.App):
         self.engine.update_config({"copy_to_clipboard": new_state == 1})
 
     def _on_reload(self, _sender: Any) -> None:
+        # Inside Whispy.app the daemon script does not exist as a loose file;
+        # relaunch the whole bundle instead. `open -n` starts a fresh instance,
+        # then we quit this one (the new process binds :9090 once we release it).
+        bundle = resolve_app_bundle()
+        if bundle is not None:
+            # Delay the relaunch so this instance fully exits and frees :9090
+            # before the new one binds it (otherwise the new daemon drifts to
+            # 9091+). Detached shell: sleep, then open a fresh instance.
+            subprocess.Popen(["/bin/sh", "-c", f"sleep 1; /usr/bin/open -n {shlex.quote(str(bundle))}"])
+            rumps.quit_application()
+            return
+
+        # Source-tree / venv run: re-exec the daemon entry-point script.
         script_path = resolve_daemon_script()
         if not daemon_script_exists(script_path):
             try:
@@ -250,7 +313,6 @@ class WhisperMenuBarApp(rumps.App):
 
     def _on_quit(self, _sender: Any) -> None:
         self._anim_timer.stop()
-        self._audio_monitor.stop()
         self._visualization.destroy()
         self._indicator.destroy()
         rumps.quit_application()
