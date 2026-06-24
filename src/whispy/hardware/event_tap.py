@@ -28,7 +28,7 @@ try:
         kCGEventFlagsChanged,
         kCGEventKeyDown,
         kCGEventKeyUp,
-        kCGEventTapOptionDefault,
+        kCGEventTapOptionListenOnly,
         kCGHeadInsertEventTap,
         kCGKeyboardEventKeycode,
         kCGSessionEventTap,
@@ -83,10 +83,13 @@ class EventTapListener:
             CGEventMaskBit(kCGEventFlagsChanged) | CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp)
         )
 
+        # Listen-only: Whispy only observes the trigger key, never modifies
+        # events. A listen-only session tap needs just Input Monitoring; an
+        # active (modifying) tap would additionally require Accessibility.
         tap = CGEventTapCreate(
             kCGSessionEventTap,
             kCGHeadInsertEventTap,
-            kCGEventTapOptionDefault,
+            kCGEventTapOptionListenOnly,
             event_mask,
             self._event_callback,
             None,

@@ -71,26 +71,24 @@ class TestWaveformClasses:
 class TestMenuBarWaveformWiring:
     def test_init_creates_waveform_components(self):
         content = Path(menu_bar_module.__file__).read_text()
-        assert "_audio_monitor" in content
         assert "_visualization" in content
-        assert "AudioLevelMonitor()" in content
         assert "WaveformWindow()" in content
-        assert "set_audio_monitor" in content
+        # Level source is the engine's single capture stream — not a second
+        # AudioLevelMonitor mic stream (which would silence capture).
+        assert "set_audio_monitor(self.engine)" in content
+        assert "AudioLevelMonitor" not in content
 
     def test_recording_start_shows_visualization(self):
         body = _method_body("_on_recording_start")
         assert "hide()" in body
-        assert "start()" in body
         assert "show()" in body
 
-    def test_recording_stop_stops_and_hides(self):
+    def test_recording_stop_hides(self):
         body = _method_body("_on_recording_stop")
-        assert "stop()" in body
         assert "hide()" in body
 
     def test_fn_released_hides(self):
         body = _method_body("_on_fn_released")
-        assert "stop()" in body
         assert "hide()" in body
 
     def test_fn_pressed_shows_when_not_recording(self):

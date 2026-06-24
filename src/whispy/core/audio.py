@@ -13,6 +13,7 @@ import tempfile
 import threading
 import wave
 
+import numpy as np
 from faster_whisper import WhisperModel
 
 from .state_machine import StateMachine
@@ -85,6 +86,11 @@ class AudioEngine:
         self._wave = None
         self._frames_written = 0
         self._ready = threading.Event()
+        # Live input level (0.0-1.0) computed from the capture callback so the
+        # waveform UI can visualize it WITHOUT opening a second microphone
+        # stream — two concurrent input streams on the same CoreAudio device
+        # make capture deliver silent (all-zero) buffers.
+        self._level = 0.0
 
     def start(self) -> bool:
         """Start recording audio. Returns False if already recording.
@@ -100,6 +106,7 @@ class AudioEngine:
         self._frames_written = 0
         self._ready = threading.Event()
         self._wave = None
+        self._level = 0.0
 
         if sd is None:
             logger.warning("[audio] sounddevice backend unavailable — cannot capture audio.")
@@ -116,8 +123,15 @@ class AudioEngine:
                 self._wave.setnchannels(CHANNELS)
                 self._wave.setsampwidth(SAMPLE_WIDTH)
                 self._wave.setframerate(SAMPLE_RATE)
-            self._wave.writeframes(bytes(indata))
+            raw = bytes(indata)
+            self._wave.writeframes(raw)
             self._frames_written += frames
+            # Update the live level for the waveform: normalized RMS of the
+            # int16 block (gain 10, matching the old AudioLevelMonitor).
+            samples = np.frombuffer(raw, dtype=np.int16)
+            if samples.size:
+                rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2))) / 32768.0
+                self._level = min(rms * 10.0, 1.0)
             self._ready.set()
 
         try:
@@ -152,8 +166,17 @@ class AudioEngine:
                 "audio device may not be ready. First recording may be empty."
             )
 
+    def get_level(self) -> float:
+        """Return the live input level (0.0-1.0) from the capture stream.
+
+        Drives the recording waveform from the single capture stream, so the UI
+        never opens a competing microphone stream. Returns 0.0 when idle.
+        """
+        return self._level
+
     def stop(self) -> bool:
         """Stop recording and transition to TRANSCRIBING. Returns False if not recording."""
+        self._level = 0.0
         if self._stream is not None:
             try:
                 self._stream.stop()
