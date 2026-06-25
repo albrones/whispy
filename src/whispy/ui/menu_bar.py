@@ -13,6 +13,7 @@ from ..core.engine import (
     Engine,
 )
 from ..core.paths import daemon_script_exists, resolve_app_bundle, resolve_daemon_script
+from . import menu_theme
 from .unicode_anim import IDLE_FRAME, WAVEROWS_INTERVAL, select_frame
 from .waveform_window import WaveformWindow
 
@@ -48,6 +49,10 @@ class WhisperMenuBarApp(rumps.App):
 
         self._build_menu()
 
+        # Cache the appearance the accents were built for, so _tick_anim can
+        # rebuild them when the user flips light/dark while the app is running.
+        self._last_dark = menu_theme.is_dark_appearance()
+
         # Register for status updates
         self.engine.on_status_change(self.update_status_display)
         self.engine.on_injection_permission_denied(self._on_injection_denied)
@@ -79,6 +84,7 @@ class WhisperMenuBarApp(rumps.App):
 
         self.status_item = rumps.MenuItem("Ready", callback=None)
         self.status_item.set_callback(None)
+        menu_theme.apply_title(self.status_item, menu_theme.status_title("Ready"))
 
         # Permission warning — hidden until a keystroke is denied. Clicking it
         # opens the relevant System Settings pane.
@@ -91,16 +97,19 @@ class WhisperMenuBarApp(rumps.App):
         # Settings section header (disabled label).
         settings_header = rumps.MenuItem("Settings")
         settings_header.set_callback(None)
+        self._settings_header = settings_header
+        menu_theme.apply_title(settings_header, menu_theme.section_title("Settings"))
 
         # Model selection — submenu title reflects the current choice; each item
         # shows its description (size / quality) alongside the label.
         self.model_menu = rumps.MenuItem("Model")
         self._model_items: dict[str, rumps.MenuItem] = {}
         for key, preset in MODEL_PRESETS.items():
-            item = rumps.MenuItem(f"{preset['label']} — {preset['description']}", callback=self._on_model_select)
+            label = f"{preset['label']} — {preset['description']}"
+            item = rumps.MenuItem(label, callback=self._on_model_select)
             item._model_key = key
-            if key == cfg["model_size"]:
-                item.state = 1
+            item._label = label
+            menu_theme.apply_title(item, menu_theme.check_title(label, key == cfg["model_size"]))
             self._model_items[key] = item
             self.model_menu.add(item)
         self._update_model_title()
@@ -111,15 +120,18 @@ class WhisperMenuBarApp(rumps.App):
         for code, label in SUPPORTED_LANGUAGES.items():
             item = rumps.MenuItem(label, callback=self._on_language_select)
             item._lang_code = code
-            if code == cfg["language"]:
-                item.state = 1
+            item._label = label
+            menu_theme.apply_title(item, menu_theme.check_title(label, code == cfg["language"]))
             self._lang_items[code] = item
             self.language_menu.add(item)
         self._update_language_title()
 
         # Clipboard toggle
         self.copy_menu = rumps.MenuItem("Copy to clipboard", callback=self._on_toggle_copy)
-        self.copy_menu.state = 1 if cfg.get("copy_to_clipboard", False) else 0
+        self.copy_menu._label = "Copy to clipboard"
+        menu_theme.apply_title(
+            self.copy_menu, menu_theme.check_title("Copy to clipboard", cfg.get("copy_to_clipboard", False))
+        )
 
         # Usage hint (disabled label).
         self.fn_status_item = rumps.MenuItem("Hold Fn to dictate", callback=None)
@@ -153,6 +165,24 @@ class WhisperMenuBarApp(rumps.App):
     def _update_language_title(self) -> None:
         cur = self.engine.state.config["language"]
         self.language_menu.title = f"Language: {SUPPORTED_LANGUAGES.get(cur, cur)}"
+
+    def _refresh_accents(self) -> None:
+        """Rebuild every accented title for the current appearance.
+
+        Called when the system appearance flips so the brand green is re-picked
+        (bright on dark, dim on light). Reads current config for check state.
+        """
+        cfg = self.engine.state.config
+        menu_theme.apply_title(self._settings_header, menu_theme.section_title("Settings"))
+        for key, item in self._model_items.items():
+            menu_theme.apply_title(item, menu_theme.check_title(item._label, key == cfg["model_size"]))
+        for code, item in self._lang_items.items():
+            menu_theme.apply_title(item, menu_theme.check_title(item._label, code == cfg["language"]))
+        menu_theme.apply_title(
+            self.copy_menu, menu_theme.check_title(self.copy_menu._label, cfg.get("copy_to_clipboard", False))
+        )
+        # Status line carries the green dot; rebuilding it re-reads the appearance.
+        self.update_status_display()
 
     # -- Indicator window callbacks --
 
@@ -190,6 +220,12 @@ class WhisperMenuBarApp(rumps.App):
             message = self._pending_perm_message
             self._pending_perm_message = None
             self._show_permission_warning(message)
+        # Re-read the system appearance and rebuild accents only when it flips,
+        # so green text/glyphs stay legible after a light/dark switch.
+        dark_now = menu_theme.is_dark_appearance()
+        if dark_now != self._last_dark:
+            self._last_dark = dark_now
+            self._refresh_accents()
         if self._is_active():
             self.title = select_frame(self._frame, is_active=True)
             self._frame += 1
@@ -234,18 +270,20 @@ class WhisperMenuBarApp(rumps.App):
         """Refresh the status line (the menu bar title is driven by _tick_anim)."""
         state = self.engine.state
         if self.engine._fn_pressed and not state.is_recording:
-            self.status_item.title = "Listening\u2026"
+            text = "Listening\u2026"
         elif state.model_loading:
             model_name = state.config["model_size"]
-            self.status_item.title = f"Loading model ({model_name})\u2026"
+            text = f"Loading model ({model_name})\u2026"
         elif state.model is None:
-            self.status_item.title = "\u26a0 Model not loaded"
+            text = "\u26a0 Model not loaded"
         elif state.is_recording:
-            self.status_item.title = "\u25cf Recording"
+            # The green status dot is supplied by status_title; no inline \u25cf here.
+            text = "Recording"
         elif state.is_transcribing:
-            self.status_item.title = "Transcribing\u2026"
+            text = "Transcribing\u2026"
         else:
-            self.status_item.title = "Ready"
+            text = "Ready"
+        menu_theme.apply_title(self.status_item, menu_theme.status_title(text))
 
     # -- Menu callbacks --
 
@@ -254,7 +292,7 @@ class WhisperMenuBarApp(rumps.App):
         if new_key == self.engine.state.config["model_size"]:
             return
         for key, item in self._model_items.items():
-            item.state = 1 if key == new_key else 0
+            menu_theme.apply_title(item, menu_theme.check_title(item._label, key == new_key))
         # Persist and apply live: a model change needs the new model loaded now,
         # not only on next restart (mirrors the HTTP /config path).
         needs_reload = self.engine.update_config({"model_size": new_key})
@@ -269,14 +307,14 @@ class WhisperMenuBarApp(rumps.App):
         if new_code == self.engine.state.config["language"]:
             return
         for code, item in self._lang_items.items():
-            item.state = 1 if code == new_code else 0
+            menu_theme.apply_title(item, menu_theme.check_title(item._label, code == new_code))
         self.engine.update_config({"language": new_code})
         self._update_language_title()
 
     def _on_toggle_copy(self, sender: rumps.MenuItem) -> None:
-        new_state = 0 if sender.state == 1 else 1
-        sender.state = new_state
-        self.engine.update_config({"copy_to_clipboard": new_state == 1})
+        enabled = not self.engine.state.config.get("copy_to_clipboard", False)
+        menu_theme.apply_title(sender, menu_theme.check_title(sender._label, enabled))
+        self.engine.update_config({"copy_to_clipboard": enabled})
 
     def _on_reload(self, _sender: Any) -> None:
         # Inside Whispy.app the daemon script does not exist as a loose file;

@@ -42,6 +42,7 @@ sys.modules["rumps"] = _fake_rumps
 # rebuilds the class against the real _App base.
 sys.modules.pop("whispy.ui.menu_bar", None)
 
+from whispy.ui import menu_theme
 from whispy.ui.menu_bar import WhisperMenuBarApp
 
 
@@ -89,3 +90,27 @@ class TestModelSelectAppliesLive:
 
         app.engine.update_config.assert_not_called()
         reload_mock.assert_not_called()
+
+
+class TestCheckmarkInvariant:
+    """Selecting an item must leave exactly one accent checkmark in the group."""
+
+    def _item(self, label):
+        # _menuitem=None forces apply_title's plain-string path (sets .title).
+        return SimpleNamespace(_label=label, _menuitem=None, title=label)
+
+    def test_single_check_after_model_select(self, mocker, monkeypatch):
+        # Force menu_theme into plain-string mode so titles are inspectable.
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        mocker.patch("whispy.core.engine.load_model_async")
+
+        items = {"small": self._item("Small"), "base": self._item("Base")}
+        engine = MagicMock()
+        engine.state.config = {"model_size": "small"}
+        engine.update_config.return_value = False
+        app = SimpleNamespace(engine=engine, _model_items=items, _update_model_title=MagicMock())
+
+        WhisperMenuBarApp._on_model_select(app, SimpleNamespace(_model_key="base"))
+
+        checked = [k for k, it in items.items() if it.title.startswith(menu_theme.CHECK)]
+        assert checked == ["base"]

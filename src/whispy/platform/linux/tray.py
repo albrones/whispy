@@ -98,6 +98,9 @@ class PystrayApp:
 
         from ...core.config import get_default_config_path
 
+        # Plain text labels only: pystray menus can't render attributed titles
+        # or custom colours, so the brand-accent menu styling on macOS
+        # (whispy.ui.menu_theme) has no Linux equivalent. This is intentional.
         menu = pystray.Menu(
             pystray.MenuItem(lambda _item: self._status_text(), None, enabled=False),
             pystray.MenuItem(f"Settings: {get_default_config_path()}", None, enabled=False),
