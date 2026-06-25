@@ -25,7 +25,7 @@ What actually happened.
 
 ## Environment
 
-- macOS version:
+- OS (macOS version, or Linux distro + X11/Wayland):
 - Whisper model in use (tiny/base/small/medium/large-v3):
 - Whispy version / commit:
 

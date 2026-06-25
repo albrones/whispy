@@ -3,9 +3,9 @@
 Thanks for your interest in improving Whispy! This document explains how to set up a
 development environment, run the test suite, and submit changes.
 
-Whispy currently targets **macOS only**. Most of the codebase runs and tests cleanly on
-any platform (the macOS-only dependencies are mocked in the test suite), but the app
-itself requires macOS to run end to end.
+Whispy targets **macOS and Linux (X11)**. Most of the codebase runs and tests cleanly on
+any platform (the OS-coupled dependencies are mocked in the test suite); the app runs end
+to end on macOS and on an X11 Linux session.
 
 ## Development setup
 
@@ -17,10 +17,11 @@ cd whispy
 python3 -m venv .venv
 ./.venv/bin/pip install --upgrade pip
 ./.venv/bin/pip install -e ".[dev]"
-
-# Runtime audio dependency (macOS)
-brew install sox
 ```
+
+Audio capture uses `sounddevice`/PortAudio, installed automatically as a Python
+dependency — no `sox` or other system audio package is required on macOS. On Linux,
+install `xdotool`/`xclip` for text injection (see the README).
 
 ## Running the tests
 
@@ -59,5 +60,6 @@ GPLv3 license (see [LICENSE](LICENSE)).
 
 ## Reporting bugs and requesting features
 
-Use the GitHub issue templates. For bugs, include your macOS version, the model in use,
-and the relevant lines from `~/.whispy.log` / `~/.whispy-error.log`.
+Use the GitHub issue templates. For bugs, include your OS (macOS version, or Linux
+distro + X11/Wayland), the model in use, and the relevant lines from `~/.whispy.log` /
+`~/.whispy-error.log`.

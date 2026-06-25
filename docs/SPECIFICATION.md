@@ -22,7 +22,7 @@
 | Language | Python 3.10+ |
 | STT Engine | `faster-whisper` (Whisper models 75MB → 2.9GB) |
 | UI | `rumps` (menu bar) |
-| Audio Recording | `sox` (subprocess) |
+| Audio Recording | `sounddevice` / PortAudio (RawInputStream) |
 | Fn Key Detection | `pyobjc-framework-Quartz` (CGEventTap) |
 | Text Injection | `osascript` (AppleScript / System Events) |
 | HTTP Server | `http.server` (stdlib, port 9090) |
@@ -37,7 +37,7 @@ whispy_daemon.py             ← Entry point
   │
   ├── Engine (core/engine.py) ← Central orchestrator
   │     ├── StateMachine (core/state_machine.py)  ← FSM IDLE → RECORDING → TRANSCRIBING → IDLE
-  │     ├── AudioEngine (core/audio.py)           ← Sox recording + Whisper transcription
+  │     ├── AudioEngine (core/audio.py)           ← sounddevice capture + Whisper transcription
   │     ├── EventTapListener (hardware/event_tap.py)  ← Fn key detection via CGEventTap
   │     └── TextInjector (hardware/injection.py)    ← Injection via osascript (clipboard/keystroke)
   │
@@ -55,14 +55,14 @@ whispy_daemon.py             ← Entry point
   → Engine.start_recording()
     → AudioEngine.start()
       → FSM: IDLE → RECORDING
-      → subprocess.Popen(["sox", "-d", "-r", "16000", "-c", "1", "/tmp/whispy.wav"])
+      → sounddevice.RawInputStream(samplerate=16000, channels=1, dtype="int16") streamed to a unique temp WAV
   → UI: animated icon (3 frames), status "Recording..."
 
 [Fn key released]
   → Engine.stop_recording()
     → AudioEngine.stop()
       → FSM: RECORDING → TRANSCRIBING
-      → sox process terminate/kill
+      → stop + close the capture stream
   → Transcription worker detects _stop_event
   → WhisperModel.transcribe("/tmp/whispy.wav", ...)
   → TextInjector.inject(text)  → osascript (clipboard + Cmd+V or keystroke)
@@ -203,8 +203,8 @@ Thread-safety: `threading.Lock` on all access to `_current_state` and `_transiti
 
 | Method | Purpose |
 |---|---|
-| `start()` | FSM IDLE→RECORDING + `sox -d -r 16000 -c 1 /tmp/whispy.wav` |
-| `stop()` | Terminate/kill sox + FSM RECORDING→TRANSCRIBING |
+| `start()` | FSM IDLE→RECORDING + open a `sounddevice` capture stream to a unique temp WAV |
+| `stop()` | Stop + close the capture stream + FSM RECORDING→TRANSCRIBING |
 | `transcribe(audio_path, model, language, beam_size, best_of, auto_detect_min_duration)` | Transcription via WhisperModel |
 | `_get_audio_duration(audio_path)` | Reads WAV header to calculate duration |
 | `cleanup_audio_file(audio_path)` | Removes temporary file |
@@ -395,7 +395,7 @@ Quit [q]
 
 | Permission | Why | Where to configure |
 |---|---|---|
-| **Microphone** | Audio recording via sox | System Settings → Privacy → Microphone |
+| **Microphone** | Audio capture via sounddevice/PortAudio | System Settings → Privacy → Microphone |
 | **Input Monitoring** | CGEventTap for Fn key detection | System Settings → Privacy → Input Monitoring |
 | **Accessibility** | osascript keystroke injection | System Settings → Privacy → Accessibility |
 
@@ -435,7 +435,7 @@ whispy/
 │       │   ├── __init__.py
 │       │   ├── engine.py        # Engine, DictationState, config
 │       │   ├── state_machine.py # FSM (IDLE/RECORDING/TRANSCRIBING)
-│       │   └── audio.py         # AudioEngine (sox + Whisper)
+│       │   └── audio.py         # AudioEngine (sounddevice + Whisper)
 │       ├── hardware/
 │       │   ├── __init__.py
 │       │   ├── event_tap.py     # Fn key detection (CGEventTap)

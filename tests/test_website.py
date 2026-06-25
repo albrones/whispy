@@ -57,6 +57,27 @@ def test_reduced_motion_supported():
     assert "prefers-reduced-motion" in js, "waveform animation must honor reduced motion"
 
 
+def test_states_correct_license(html: str):
+    """The site must state GPLv3 (the project license), never MIT."""
+    assert "GPLv3" in html, "site must state the GPLv3 license"
+    assert "MIT" not in html, "site must not claim an MIT license"
+
+
+def test_no_sox_dependency_claim(html: str):
+    """sox is no longer a dependency (sounddevice/PortAudio); the site must not
+    tell users to install it."""
+    assert "brew install sox" not in html
+    assert "requires sox" not in html.lower()
+
+
+def test_og_image_is_not_svg(html: str):
+    """Open Graph / Twitter card images must be a real raster format (SVG does
+    not render in social previews)."""
+    og = re.search(r'property="og:image"\s+content="([^"]+)"', html)
+    assert og is not None, "missing og:image"
+    assert og.group(1).lower().endswith((".png", ".jpg", ".jpeg")), "og:image must be PNG/JPG, not SVG"
+
+
 def test_all_local_assets_exist(html: str):
     """Every relative href/src in the page must resolve to a file on disk."""
     refs = re.findall(r'(?:href|src)="([^"]+)"', html)
