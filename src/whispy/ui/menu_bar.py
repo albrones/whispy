@@ -6,6 +6,8 @@ import sys
 from typing import Any
 
 import rumps
+from AppKit import NSThread
+from PyObjCTools import AppHelper
 
 from ..core.engine import (
     MODEL_PRESETS,
@@ -57,15 +59,10 @@ class WhisperMenuBarApp(rumps.App):
         self.engine.on_status_change(self.update_status_display)
         self.engine.on_injection_permission_denied(self._on_injection_denied)
 
-        # Floating indicator window (always available, no external deps)
-        from .indicator_window import IndicatorWindow
-
-        self._indicator = IndicatorWindow()
-
-        # Audio-reactive waveform visualization (replaces indicator during
-        # recording). The level comes from the engine's single capture stream
-        # (engine.get_level) — never a second mic stream, which would make
-        # capture deliver silent buffers.
+        # Audio-reactive waveform visualization shown during recording. The
+        # level comes from the engine's single capture stream (engine.get_level)
+        # — never a second mic stream, which would make capture deliver silent
+        # buffers.
         self._visualization = WaveformWindow()
         self._visualization.set_audio_monitor(self.engine)
 
@@ -189,7 +186,6 @@ class WhisperMenuBarApp(rumps.App):
     def _on_fn_pressed(self) -> None:
         """Show the waveform visualization when FN key is pressed."""
         if not self.engine.state.is_recording:
-            self._indicator.hide()
             self._visualization.show()
 
     def _on_fn_released(self) -> None:
@@ -198,7 +194,6 @@ class WhisperMenuBarApp(rumps.App):
 
     def _on_recording_start(self) -> None:
         """Show the recording waveform (level comes from the capture stream)."""
-        self._indicator.hide()
         self._visualization.show()
 
     def _on_recording_stop(self) -> None:
@@ -267,7 +262,20 @@ class WhisperMenuBarApp(rumps.App):
     # -- Status display --
 
     def update_status_display(self) -> None:
-        """Refresh the status line (the menu bar title is driven by _tick_anim)."""
+        """Refresh the status line, marshaling to the main thread.
+
+        Registered as ``engine.on_status_change``, which fires from the event-tap
+        and transcription-worker threads. AppKit must only be mutated on the main
+        thread, so hop to the main run loop when called off it (mirrors
+        ``WaveformWindow``).
+        """
+        if NSThread.isMainThread():
+            self._update_status_on_main()
+        else:
+            AppHelper.callAfter(self._update_status_on_main)
+
+    def _update_status_on_main(self) -> None:
+        """Rebuild the status line title (main thread only)."""
         state = self.engine.state
         if self.engine._fn_pressed and not state.is_recording:
             text = "Listening\u2026"
@@ -352,5 +360,4 @@ class WhisperMenuBarApp(rumps.App):
     def _on_quit(self, _sender: Any) -> None:
         self._anim_timer.stop()
         self._visualization.destroy()
-        self._indicator.destroy()
         rumps.quit_application()

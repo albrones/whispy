@@ -114,3 +114,32 @@ class TestCheckmarkInvariant:
 
         checked = [k for k, it in items.items() if it.title.startswith(menu_theme.CHECK)]
         assert checked == ["base"]
+
+
+class TestStatusDisplayMarshaling:
+    """update_status_display must hop to the main thread before touching AppKit."""
+
+    def test_off_main_thread_defers_to_callafter(self, mocker):
+        import whispy.ui.menu_bar as mb
+
+        mocker.patch.object(mb, "NSThread").isMainThread.return_value = False
+        app_helper = mocker.patch.object(mb, "AppHelper")
+        app = SimpleNamespace(_update_status_on_main=MagicMock())
+
+        WhisperMenuBarApp.update_status_display(app)
+
+        # Deferred to the main run loop — not run inline on this thread.
+        app_helper.callAfter.assert_called_once_with(app._update_status_on_main)
+        app._update_status_on_main.assert_not_called()
+
+    def test_on_main_thread_runs_inline(self, mocker):
+        import whispy.ui.menu_bar as mb
+
+        mocker.patch.object(mb, "NSThread").isMainThread.return_value = True
+        app_helper = mocker.patch.object(mb, "AppHelper")
+        app = SimpleNamespace(_update_status_on_main=MagicMock())
+
+        WhisperMenuBarApp.update_status_display(app)
+
+        app._update_status_on_main.assert_called_once_with()
+        app_helper.callAfter.assert_not_called()

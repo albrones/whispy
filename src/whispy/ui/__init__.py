@@ -10,13 +10,6 @@ directly); the AppKit-coupled names simply aren't re-exported there.
 __all__ = []
 
 try:
-    from .audio_level import AudioLevelMonitor  # noqa: F401
-
-    __all__.append("AudioLevelMonitor")
-except ImportError:  # pragma: no cover - missing audio backend
-    pass
-
-try:
     from .waveform_window import WaveformWindow  # noqa: F401
 
     __all__.append("WaveformWindow")
