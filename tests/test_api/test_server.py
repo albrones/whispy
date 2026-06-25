@@ -51,6 +51,9 @@ def test_server(mocker, tmp_path):
 
     # Set engine on the server instance (matches start_http_server pattern)
     server.engine = engine
+    # Auth + path allow-list, matching start_http_server.
+    server.auth_token = TEST_TOKEN
+    server.allow_dir = str(tmp_path)
 
     def serve():
         server.serve_forever()
@@ -66,11 +69,19 @@ def test_server(mocker, tmp_path):
     server.shutdown()
 
 
-def _get(port, path):
+# The token the test server requires; helpers send it by default.
+TEST_TOKEN = "test-token-123"
+
+
+def _get(port, path, headers=None, token=TEST_TOKEN):
     """Make a GET request and return (status_code, body_dict)."""
     url = f"http://127.0.0.1:{port}{path}"
     try:
         req = urllib.request.Request(url)
+        if token is not None:
+            req.add_header("Authorization", f"Bearer {token}")
+        for key, value in (headers or {}).items():
+            req.add_header(key, value)
         with urllib.request.urlopen(req, timeout=2) as resp:
             data = json.loads(resp.read().decode())
             return resp.status, data
@@ -78,13 +89,17 @@ def _get(port, path):
         return e.code, json.loads(e.read().decode())
 
 
-def _post(port, path, body=None):
+def _post(port, path, body=None, headers=None, token=TEST_TOKEN):
     """Make a POST request and return (status_code, body_dict)."""
     url = f"http://127.0.0.1:{port}{path}"
     data = json.dumps(body).encode() if body else b""
     try:
         req = urllib.request.Request(url, data=data, method="POST")
         req.add_header("Content-Type", "application/json")
+        if token is not None:
+            req.add_header("Authorization", f"Bearer {token}")
+        for key, value in (headers or {}).items():
+            req.add_header(key, value)
         with urllib.request.urlopen(req, timeout=2) as resp:
             return resp.status, json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
@@ -171,6 +186,7 @@ class TestPostConfig:
         url = f"http://127.0.0.1:{port}/config"
         req = urllib.request.Request(url, data=b"{invalid", method="POST")
         req.add_header("Content-Type", "application/json")
+        req.add_header("Authorization", f"Bearer {TEST_TOKEN}")
         try:
             urllib.request.urlopen(req, timeout=2)
             assert False, "Should have raised"
@@ -213,10 +229,11 @@ class TestPostStartStop:
 class TestPostTranscribeFile:
     """Test POST /transcribe-file — the deterministic validation seam."""
 
-    def test_transcribes_given_file(self, test_server):
+    def test_transcribes_given_file(self, test_server, tmp_path):
         _, port, engine = test_server
         engine.transcribe_file = lambda path: "le test est fini"
-        status, body = _post(port, "/transcribe-file", {"path": "/tmp/x.wav"})
+        wav = tmp_path / "x.wav"  # inside the server's allow_dir (== tmp_path)
+        status, body = _post(port, "/transcribe-file", {"path": str(wav)})
         assert status == 200
         assert body["text"] == "le test est fini"
 
@@ -226,20 +243,87 @@ class TestPostTranscribeFile:
         assert status == 400
         assert "error" in body
 
-    def test_model_not_loaded_returns_409(self, test_server):
+    def test_model_not_loaded_returns_409(self, test_server, tmp_path):
         _, port, engine = test_server
         engine.transcribe_file = lambda path: None  # model unloaded / file missing
-        status, body = _post(port, "/transcribe-file", {"path": "/tmp/x.wav"})
+        status, body = _post(port, "/transcribe-file", {"path": str(tmp_path / "x.wav")})
         assert status == 409
         assert "error" in body
 
-    def test_empty_transcription_is_200(self, test_server):
+    def test_empty_transcription_is_200(self, test_server, tmp_path):
         # Silence transcribes to "" (ran, no speech) — must be 200, not 409.
         _, port, engine = test_server
         engine.transcribe_file = lambda path: ""
-        status, body = _post(port, "/transcribe-file", {"path": "/tmp/silence.wav"})
+        status, body = _post(port, "/transcribe-file", {"path": str(tmp_path / "silence.wav")})
         assert status == 200
         assert body["text"] == ""
+
+    def test_path_outside_allow_dir_returns_403(self, test_server):
+        # Task 6.4: a path outside the allow-listed dir is rejected and never
+        # opened/transcribed (arbitrary-read / existence-oracle defense).
+        _, port, engine = test_server
+        engine.transcribe_file = lambda path: pytest.fail("must not transcribe a disallowed path")
+        status, body = _post(port, "/transcribe-file", {"path": "/etc/passwd"})
+        assert status == 403
+        assert "error" in body
+
+
+class TestApiSecurity:
+    """Auth, DNS-rebinding, and body-size defenses on the control API."""
+
+    def test_missing_token_returns_401(self, test_server):
+        _, port, _ = test_server
+        status, body = _get(port, "/status", token=None)
+        assert status == 401
+        assert "error" in body
+
+    def test_wrong_token_returns_401(self, test_server):
+        _, port, _ = test_server
+        status, _ = _get(port, "/status", token="not-the-token")
+        assert status == 401
+
+    def test_valid_token_succeeds(self, test_server):
+        _, port, _ = test_server
+        status, _ = _get(port, "/status")  # default helper sends TEST_TOKEN
+        assert status == 200
+
+    def test_post_without_token_has_no_side_effect(self, test_server):
+        _, port, engine = test_server
+        called = []
+        engine.start_recording = lambda: called.append(True)
+        status, _ = _post(port, "/start", token=None)
+        assert status == 401
+        assert called == []  # the side effect never ran
+
+    def test_foreign_host_returns_403(self, test_server):
+        _, port, _ = test_server
+        status, _ = _get(port, "/status", headers={"Host": "evil.example.com"})
+        assert status == 403
+
+    def test_origin_header_returns_403(self, test_server):
+        # A browser fetch always attaches Origin; native clients never do.
+        _, port, _ = test_server
+        status, _ = _get(port, "/status", headers={"Origin": "https://evil.example.com"})
+        assert status == 403
+
+    def test_referer_header_returns_403(self, test_server):
+        _, port, _ = test_server
+        status, _ = _get(port, "/status", headers={"Referer": "https://evil.example.com/x"})
+        assert status == 403
+
+    def test_oversized_body_returns_413(self, test_server):
+        # Declared Content-Length over the cap is rejected before the body is read.
+        _, port, _ = test_server
+        url = f"http://127.0.0.1:{port}/config"
+        req = urllib.request.Request(url, data=b"{}", method="POST")
+        req.add_header("Authorization", f"Bearer {TEST_TOKEN}")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Content-Length", str(64 * 1024 + 1))
+        try:
+            urllib.request.urlopen(req, timeout=2)
+            assert False, "Should have raised"
+        except urllib.error.HTTPError as e:
+            assert e.code == 413
 
 
 class TestUnknownEndpoints:

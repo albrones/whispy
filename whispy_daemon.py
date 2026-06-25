@@ -69,6 +69,7 @@ def run_headless():
     import threading
 
     from whispy.api.server import start_http_server
+    from whispy.core.auth import load_or_create_token
     from whispy.core.engine import DictationState, Engine, load_config
 
     config = load_config(CONFIG_PATH)
@@ -79,7 +80,8 @@ def run_headless():
     engine = Engine(state, config_path=CONFIG_PATH)
     engine.start()
 
-    http_server = start_http_server(engine)
+    token = load_or_create_token(CONFIG_PATH)
+    http_server = start_http_server(engine, auth_token=token)
     port = http_server.server_address[1]
 
     stop = threading.Event()
@@ -105,6 +107,7 @@ def main():
     # Heavy imports kept inside main() so `--doctor` can run even if the GUI
     # stack (rumps/AppKit) fails to import on a broken setup.
     from whispy.api.server import start_http_server
+    from whispy.core.auth import load_or_create_token
     from whispy.core.engine import DictationState, Engine, load_config
 
     # Initialize config
@@ -125,8 +128,9 @@ def main():
     # Start all components
     engine.start()
 
-    # Start HTTP server
-    http_server = start_http_server(engine)
+    # Start HTTP server (require the per-install token on every request)
+    token = load_or_create_token(CONFIG_PATH)
+    http_server = start_http_server(engine, auth_token=token)
 
     # Handle SIGTERM for graceful shutdown
     def _handle_sigterm(*_args):

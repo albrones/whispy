@@ -6,6 +6,7 @@ unit-testable without importing rumps. This module sits at
 package (``core`` -> ``whispy`` -> ``src`` -> project root).
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -14,6 +15,20 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 # Daemon entry-point filename at the project root.
 DAEMON_SCRIPT_NAME = "whispy_daemon.py"
+
+
+def transcribe_allow_dir() -> Path:
+    """Return the only directory ``POST /transcribe-file`` may read from.
+
+    The endpoint is a deterministic validation seam (transcribe a known WAV with
+    the current config). Restricting it to an allow-listed directory removes the
+    arbitrary-filesystem-read / existence-oracle that an unauthenticated caller
+    could otherwise abuse. Defaults to the committed audio fixtures; overridable
+    via ``WHISPY_TRANSCRIBE_DIR`` for tests or alternate fixture locations.
+    """
+    override = os.environ.get("WHISPY_TRANSCRIBE_DIR")
+    base = Path(override) if override else _PROJECT_ROOT / "tests" / "fixtures" / "audio"
+    return base.resolve()
 
 
 def resolve_daemon_script() -> Path:

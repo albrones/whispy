@@ -649,32 +649,51 @@ class TestFSMWithAudioEngine:
 class TestTextInjector:
     """Test TextInjector in both clipboard and keystroke modes."""
 
-    def test_inject_via_clipboard(self, mocker):
-        """Test text injection via clipboard (default mode)."""
+    @staticmethod
+    def _mock_popen(mocker):
+        """Patch Popen so a full _spawn step sequence completes off-thread."""
         mock_popen = mocker.patch("whispy.hardware.injection.subprocess.Popen")
+        inst = mock_popen.return_value
+        inst.returncode = 0
+        inst.communicate.return_value = (b"", b"")
+        return mock_popen, inst
+
+    @staticmethod
+    def _wait(mock_popen, n, timeout=2.0):
+        import time
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and mock_popen.call_count < n:
+            time.sleep(0.01)
+        return mock_popen.call_count >= n
+
+    def test_inject_via_clipboard(self, mocker):
+        """Clipboard mode copies via pbcopy (stdin) then pastes with Cmd+V."""
+        mock_popen, inst = self._mock_popen(mocker)
         injector = TextInjector(copy_to_clipboard=True)
 
         injector.inject("hello world")
 
-        assert mock_popen.call_count == 1
-        call_args = mock_popen.call_args
-        cmd = call_args[0][0]
-        assert "osascript" in cmd
-        assert "clipboard" in cmd[2]
-        assert "keystroke" in cmd[4]
+        assert self._wait(mock_popen, 2)
+        cmds = [c.args[0] for c in mock_popen.call_args_list]
+        assert cmds[0] == ["pbcopy"]
+        assert cmds[1][0] == "osascript"
+        assert any('keystroke "v"' in str(a) for a in cmds[1])
+        # Text reaches pbcopy via stdin, never as an argument.
+        assert inst.communicate.call_args_list[0].kwargs.get("input") == b"hello world"
 
     def test_inject_via_keystrokes(self, mocker):
-        """Test text injection via direct keystrokes."""
-        mock_popen = mocker.patch("whispy.hardware.injection.subprocess.Popen")
+        """Keystroke mode passes the text via argv, script via stdin."""
+        mock_popen, inst = self._mock_popen(mocker)
         injector = TextInjector(copy_to_clipboard=False)
 
         injector.inject("hello world")
 
-        assert mock_popen.call_count == 1
-        call_args = mock_popen.call_args
-        cmd = call_args[0][0]
-        assert "osascript" in cmd
-        assert "keystroke" in cmd[2]
+        assert self._wait(mock_popen, 1)
+        cmd = mock_popen.call_args_list[0].args[0]
+        assert cmd[0] == "osascript"
+        assert cmd[-1] == "hello world"
+        assert b"on run argv" in inst.communicate.call_args_list[0].kwargs.get("input")
 
     def test_inject_empty_text_does_nothing(self):
         """Test that injecting empty text does nothing."""
@@ -682,17 +701,16 @@ class TestTextInjector:
         injector.inject("")
         injector.inject("   ")
 
-    def test_inject_with_quotes_escapes_them(self, mocker):
-        """Test that quotes in text are properly escaped."""
-        mock_popen = mocker.patch("whispy.hardware.injection.subprocess.Popen")
+    def test_inject_with_quotes_delivered_verbatim(self, mocker):
+        """Quotes/backslashes are delivered as-is, never interpolated as code."""
+        mock_popen, inst = self._mock_popen(mocker)
         injector = TextInjector(copy_to_clipboard=True)
 
         injector.inject('say "hello"')
 
-        call_args = mock_popen.call_args
-        cmd = call_args[0][0]
-        # The escaped quote should be in the clipboard text (cmd[2])
-        assert '\\"' in cmd[2]
+        assert self._wait(mock_popen, 2)
+        # Verbatim to pbcopy stdin — no escaping applied.
+        assert inst.communicate.call_args_list[0].kwargs.get("input") == b'say "hello"'
 
     def test_update_config_changes_mode(self):
         """Test that update_config switches injection mode."""

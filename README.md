@@ -204,12 +204,17 @@ delete that folder to reclaim the space.
 
 ## Manual Commands (API)
 
-You can interact with the daemon via HTTP:
+The HTTP API is bound to loopback **and** protected by a per-install token, so a
+web page open in your browser can't drive the daemon. Every request must carry
+the token (`Authorization: Bearer <token>`). The token is stored next to your
+config:
 
 ```bash
-curl http://localhost:9090/status                          # Daemon status check
-curl -X POST http://localhost:9090/start                   # Start recording
-curl -X POST http://localhost:9090/stop                    # Stop and transcribe
+TOKEN=$(cat ~/.config/whispy/config.token)                 # per-install API token
+
+curl -H "Authorization: Bearer $TOKEN" http://localhost:9090/status              # Daemon status check
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:9090/start       # Start recording
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:9090/stop        # Stop and transcribe
 tail -f ~/.whispy.log ~/.whispy-error.log  # Live logs
 ```
 
@@ -332,7 +337,7 @@ A: Pull the latest code (`git pull`) and rerun `./install.sh`.
 A: Run `WHISPER_MODEL=medium ./install.sh` (see model table above).
 
 **Q: How do I know if Whispy is running?**  
-A: Check with `curl http://localhost:9090/status` or look for the process in Activity Monitor.
+A: Check with `curl -H "Authorization: Bearer $(cat ~/.config/whispy/config.token)" http://localhost:9090/status` or look for the process in Activity Monitor.
 
 **Q: How do I extend or debug Whispy?**  
 A: Edit the Python files, then reload the LaunchAgent as above.

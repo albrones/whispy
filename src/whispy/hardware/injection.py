@@ -64,33 +64,48 @@ class TextInjector:
         else:
             self._inject_via_keystrokes(text)
 
-    def _spawn(self, cmd: list[str], mode: str) -> None:
-        """Run osascript off-thread, logging a non-zero exit + its stderr.
+    def _spawn(self, steps: list[tuple[list[str], bytes | None]], mode: str) -> None:
+        """Run a sequence of subprocess steps off-thread, classifying the result.
 
-        Classifies a ``1002`` failure as a keystroke-permission denial and
-        fires the debounced callback; a clean run resets the debounce so a later
-        denial is surfaced again.
+        Each step is ``(cmd, stdin_bytes)``; ``stdin_bytes`` is fed to the
+        process stdin (this is how transcribed text reaches ``pbcopy``/
+        ``osascript`` — as data, never interpolated into a script). Steps run
+        sequentially in one worker thread, stopping at the first failure. The
+        failing (or final) step's exit is classified: a ``1002`` failure is a
+        keystroke-permission denial that fires the debounced callback; a clean
+        run resets the debounce so a later denial is surfaced again.
         """
 
         def _run() -> None:
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            try:
-                _, err = proc.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                logger.warning("[inject] osascript (%s) timed out", mode)
-                return
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("[inject] osascript (%s) error: %s", mode, exc)
-                return
-            rc = proc.returncode
-            if rc:
+            rc = 0
+            detail = ""
+            for cmd, stdin_data in steps:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE if stdin_data is not None else None,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                )
+                try:
+                    _, err = proc.communicate(input=stdin_data, timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    logger.warning("[inject] (%s) step %s timed out", mode, cmd[0])
+                    return
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("[inject] (%s) step %s error: %s", mode, cmd[0], exc)
+                    return
+                rc = proc.returncode
                 detail = err.decode("utf-8", "replace").strip() if isinstance(err, (bytes, bytearray)) else str(err)
-                logger.warning("[inject] osascript (%s) rc=%s: %s", mode, rc, detail)
+                if rc:
+                    break  # stop the sequence on the first failing step
+
+            if rc:
+                logger.warning("[inject] (%s) rc=%s: %s", mode, rc, detail)
                 if KEYSTROKE_NOT_PERMITTED_CODE in detail:
                     self._handle_keystroke_denied()
             else:
-                logger.info("[inject] osascript (%s) ok", mode)
+                logger.info("[inject] (%s) ok", mode)
                 self._keystroke_denied = False
 
         threading.Thread(target=_run, daemon=True).start()
@@ -121,23 +136,32 @@ class TextInjector:
             logger.exception("[inject] permission-denied callback failed")
 
     def _inject_via_clipboard(self, text: str) -> None:
-        """Copy text to clipboard and paste via Cmd+V."""
-        escaped = text.replace('"', '\\"')
+        """Copy text to clipboard (via ``pbcopy`` stdin) and paste via Cmd+V.
+
+        The text is written to ``pbcopy``'s stdin, never interpolated into an
+        AppleScript string, so it cannot be parsed or executed as code. The
+        paste step is a constant AppleScript with no user data.
+        """
         self._spawn(
             [
-                "osascript",
-                "-e",
-                f'set the clipboard to "{escaped}"',
-                "-e",
-                'tell application "System Events" to keystroke "v" using command down',
+                (["pbcopy"], text.encode("utf-8")),
+                (
+                    ["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'],
+                    None,
+                ),
             ],
             "clipboard",
         )
 
     def _inject_via_keystrokes(self, text: str) -> None:
-        """Simulate keystrokes for each character to avoid clipboard interaction."""
-        escaped = text.replace('"', '\\"')
+        """Type the text via System Events, passing it as an argv argument.
+
+        The script is read from stdin and the text is handed to it via ``argv``
+        (``on run argv``), so the transcribed text is data, never part of the
+        script source — no escaping, no injection.
+        """
+        script = b'on run argv\ntell application "System Events" to keystroke (item 1 of argv)\nend run\n'
         self._spawn(
-            ["osascript", "-e", f'tell application "System Events" to keystroke "{escaped}"'],
+            [(["osascript", "-", text], script)],
             "keystrokes",
         )

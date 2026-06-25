@@ -45,11 +45,19 @@ SPEECH_FIXTURES = {
 }
 
 
+# The per-install API token of the daemon under drive. Set by
+# boot_headless_daemon once the throwaway daemon has created it; every _http
+# call authenticates with it (the API rejects unauthenticated callers).
+_AUTH_TOKEN: str | None = None
+
+
 def _http(method: str, url: str, timeout: float, body: dict | None = None) -> dict:
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     if data is not None:
         req.add_header("Content-Type", "application/json")
+    if _AUTH_TOKEN:
+        req.add_header("Authorization", f"Bearer {_AUTH_TOKEN}")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read().decode() or "{}"
     return json.loads(raw)
@@ -73,7 +81,15 @@ def boot_headless_daemon(boot_timeout: float = 30.0):
     else:
         Path(tmp_cfg.name).unlink(missing_ok=True)  # absent → daemon uses defaults
 
-    env = dict(os.environ, PYTHONPATH=str(SRC), WHISPY_CONFIG=tmp_cfg.name)
+    # Pin the transcribe-file allow-dir to the committed fixtures so the
+    # deterministic POST /transcribe-file checks are accepted by the API's
+    # path allow-list, wherever the harness runs from.
+    env = dict(
+        os.environ,
+        PYTHONPATH=str(SRC),
+        WHISPY_CONFIG=tmp_cfg.name,
+        WHISPY_TRANSCRIBE_DIR=str(FIXTURES),
+    )
     proc = subprocess.Popen(
         [sys.executable, str(DAEMON), "--headless"],
         stdout=subprocess.PIPE,
@@ -106,6 +122,12 @@ def boot_headless_daemon(boot_timeout: float = 30.0):
             if line.startswith(READY_PREFIX):
                 port = int(line.split()[-1])
                 base_url = f"http://127.0.0.1:{port}"
+                # The daemon created its token before reporting ready; read it
+                # from the throwaway config so every _http call authenticates.
+                global _AUTH_TOKEN
+                from whispy.core.auth import read_token
+
+                _AUTH_TOKEN = read_token(Path(tmp_cfg.name))
                 break
         yield (proc, base_url) if base_url else (None, None)
     finally:

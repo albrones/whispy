@@ -9,21 +9,90 @@ Provides RESTful endpoints for:
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from typing import Any
 
 from ..core.audio import RECORDING_PATH
+from ..core.auth import AUTH_HEADER, AUTH_SCHEME
 from ..core.engine import (
     Engine,
 )
+from ..core.paths import transcribe_allow_dir
 
 PORT = 9090
+
+# Reject request bodies larger than this before reading them — an unauthenticated
+# (or pre-auth) client must not be able to force an unbounded allocation.
+MAX_BODY_BYTES = 64 * 1024
 
 
 class RequestHandler(BaseHTTPRequestHandler):
     """HTTP request handler for Whispy control API."""
 
+    def _authorized(self) -> bool:
+        """Gate every request: reject browser-originated, rebinding, and
+        unauthenticated callers.
+
+        Loopback is not a boundary against the browser, so before any side
+        effect we (1) pin the ``Host`` header to ``127.0.0.1``/``localhost`` at
+        our port (DNS-rebinding defense), (2) reject any request carrying an
+        ``Origin``/``Referer`` (native clients send neither; browsers always
+        do), and (3) require the per-install bearer token. On rejection we send
+        the response and return ``False`` so the caller stops.
+        """
+        port = self.server.server_address[1]
+        allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        host = self.headers.get("Host", "")
+        if host not in allowed_hosts:
+            self._json_response(403, {"error": "forbidden host"})
+            return False
+
+        # A native CLI/app client never sets Origin/Referer; a browser fetch
+        # always does. Presence => the request came from a web page.
+        if self.headers.get("Origin") is not None or self.headers.get("Referer") is not None:
+            self._json_response(403, {"error": "forbidden origin"})
+            return False
+
+        expected = getattr(self.server, "auth_token", None)
+        if expected:
+            header = self.headers.get(AUTH_HEADER, "")
+            prefix = f"{AUTH_SCHEME} "
+            presented = header[len(prefix) :] if header.startswith(prefix) else ""
+            # Constant-time compare to avoid leaking the token via timing.
+            import hmac
+
+            if not presented or not hmac.compare_digest(presented, expected):
+                self._json_response(401, {"error": "unauthorized"})
+                return False
+        return True
+
+    def _read_body(self) -> dict | None:
+        """Read and JSON-parse a request body, capping its size first.
+
+        Returns the parsed dict (``{}`` when empty). On an oversized body sends
+        ``413`` and returns ``None``; on invalid JSON sends ``400`` and returns
+        ``None``. Callers must stop when ``None`` is returned.
+        """
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            self._json_response(400, {"error": "invalid Content-Length"})
+            return None
+        if length > MAX_BODY_BYTES:
+            self._json_response(413, {"error": "request body too large"})
+            return None
+        if not length:
+            return {}
+        try:
+            return json.loads(self.rfile.read(length))
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._json_response(400, {"error": str(exc)})
+            return None
+
     def do_GET(self) -> None:
         """Handle GET requests."""
+        if not self._authorized():
+            return
         engine = self.server.engine
         if self.path == "/status":
             self._json_response(200, engine.get_status())
@@ -36,6 +105,8 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         """Handle POST requests."""
+        if not self._authorized():
+            return
         engine = self.server.engine
         if self.path == "/start":
             engine.start_recording()
@@ -57,42 +128,47 @@ class RequestHandler(BaseHTTPRequestHandler):
         elif self.path == "/transcribe-file":
             # Deterministic seam for validation: transcribe a known WAV with the
             # current config (no mic, no keystroke injection, no file deletion).
+            body = self._read_body()
+            if body is None:
+                return
+            path = body.get("path")
+            if not path:
+                self._json_response(400, {"error": "missing 'path'"})
+                return
+            # Restrict to the allow-listed fixtures dir: an authenticated caller
+            # still must not be able to probe/read arbitrary filesystem paths.
+            allow_dir = getattr(self.server, "allow_dir", None) or transcribe_allow_dir()
             try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length)) if length else {}
-                path = body.get("path")
-                if not path:
-                    self._json_response(400, {"error": "missing 'path'"})
-                    return
-                text = engine.transcribe_file(path)
-                if text is None:
-                    self._json_response(409, {"error": "model not loaded or file missing", "path": path})
-                    return
-                self._json_response(200, {"text": text})
-            except (json.JSONDecodeError, ValueError) as exc:
-                self._json_response(400, {"error": str(exc)})
+                resolved = Path(path).resolve()
+                resolved.relative_to(Path(allow_dir).resolve())
+            except (ValueError, OSError):
+                self._json_response(403, {"error": "path not allowed"})
+                return
+            text = engine.transcribe_file(str(resolved))
+            if text is None:
+                self._json_response(409, {"error": "model not loaded or file missing", "path": path})
+                return
+            self._json_response(200, {"text": text})
 
         elif self.path == "/config":
-            try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length)) if length else {}
+            body = self._read_body()
+            if body is None:
+                return
 
-                # Reject deprecated config keys
-                if "trigger_key" in body:
-                    self._json_response(400, {"error": "trigger_key is no longer configurable"})
-                    return
-                if "compute_key" in body:
-                    self._json_response(400, {"error": "compute_key is no longer configurable"})
-                    return
+            # Reject deprecated config keys
+            if "trigger_key" in body:
+                self._json_response(400, {"error": "trigger_key is no longer configurable"})
+                return
+            if "compute_key" in body:
+                self._json_response(400, {"error": "compute_key is no longer configurable"})
+                return
 
-                needs_reload = engine.update_config(body)
-                if needs_reload:
-                    from ..core.engine import load_model_async
+            needs_reload = engine.update_config(body)
+            if needs_reload:
+                from ..core.engine import load_model_async
 
-                    load_model_async(engine)
-                self._json_response(200, {"status": "ok", "config": engine.state.config})
-            except (json.JSONDecodeError, ValueError) as exc:
-                self._json_response(400, {"error": str(exc)})
+                load_model_async(engine)
+            self._json_response(200, {"status": "ok", "config": engine.state.config})
 
         else:
             self._json_response(404, {"error": "not found"})
@@ -136,12 +212,23 @@ class RequestHandler(BaseHTTPRequestHandler):
         print(f"[http] {fmt % args}")
 
 
-def start_http_server(engine: Engine, start_port: int = PORT, max_attempts: int = 10) -> HTTPServer:
-    """Start HTTP server in a daemon thread, trying consecutive ports if needed."""
+def start_http_server(
+    engine: Engine,
+    auth_token: str | None = None,
+    start_port: int = PORT,
+    max_attempts: int = 10,
+) -> HTTPServer:
+    """Start HTTP server in a daemon thread, trying consecutive ports if needed.
+
+    ``auth_token`` is the per-install secret required on every request; when set,
+    unauthenticated callers are rejected with ``401``.
+    """
     for port in range(start_port, start_port + max_attempts):
         try:
             server = HTTPServer(("127.0.0.1", port), RequestHandler)
             server.engine = engine
+            server.auth_token = auth_token
+            server.allow_dir = transcribe_allow_dir()
 
             def _serve(p=port, srv=server):
                 print(f"[http] Listening on 127.0.0.1:{p}")

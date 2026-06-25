@@ -128,9 +128,19 @@ def check_microphone() -> CheckResult:
 
 def check_daemon(port: int = 9090) -> CheckResult:
     """The daemon exposes an HTTP status endpoint when running."""
+    from .core.auth import AUTH_HEADER, AUTH_SCHEME, read_token
+
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/status")
+    token = read_token(get_default_config_path())
+    if token:
+        req.add_header(AUTH_HEADER, f"{AUTH_SCHEME} {token}")
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/status", timeout=2):
+        with urllib.request.urlopen(req, timeout=2):
             return CheckResult("Daemon", OK, f"running on :{port}")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            return CheckResult("Daemon", WARN, "running but API token missing/mismatched (re-run install or restart)")
+        return CheckResult("Daemon", WARN, f"running but returned HTTP {exc.code}")
     except (urllib.error.URLError, OSError):
         return CheckResult("Daemon", WARN, "not running (start with ./install.sh)")
 

@@ -11,7 +11,31 @@ _src = Path(__file__).parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
+import time
+
 from whispy.hardware.injection import TextInjector
+
+
+def _ok(popen_instance):
+    """Configure the mocked Popen so a full _spawn step sequence completes."""
+    popen_instance.returncode = 0
+    popen_instance.communicate.return_value = (b"", b"")
+
+
+def _wait_calls(popen_mock, n, timeout=2.0):
+    """Wait until the off-thread worker has issued at least n Popen calls."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if popen_mock.call_count >= n:
+            return True
+        time.sleep(0.01)
+    return popen_mock.call_count >= n
+
+
+def _commands(popen_mock):
+    """Return the list of argv lists passed to each Popen call."""
+    return [call.args[0] for call in popen_mock.call_args_list]
+
 
 # ---------------------------------------------------------------------------
 # Clipboard injection mode
@@ -19,30 +43,31 @@ from whispy.hardware.injection import TextInjector
 
 
 class TestClipboardInjection:
-    """Test clipboard-based text injection."""
+    """Test clipboard-based text injection (pbcopy stdin + osascript paste)."""
 
-    def test_clipboard_mode_calls_subprocess(self, mock_subprocess):
+    def test_clipboard_mode_uses_pbcopy_then_paste(self, mock_subprocess):
         _, popen_mock, popen_instance = mock_subprocess
-        popen_instance.poll.return_value = None
+        _ok(popen_instance)
         injector = TextInjector(copy_to_clipboard=True)
         injector.inject("hello")
 
-        assert popen_mock.called
-        call_args = popen_mock.call_args
-        cmd = call_args[0][0]
-        assert cmd[0] == "osascript"
-        # Should contain clipboard set command
-        assert any("clipboard" in str(arg) for arg in cmd)
+        assert _wait_calls(popen_mock, 2)
+        cmds = _commands(popen_mock)
+        # First step copies via pbcopy (text via stdin, never interpolated).
+        assert cmds[0] == ["pbcopy"]
+        # Second step pastes with a constant Cmd+V AppleScript (no user data).
+        assert cmds[1][0] == "osascript"
+        assert any('keystroke "v"' in str(arg) for arg in cmds[1])
 
-    def test_clipboard_uses_keystroke_v(self, mock_subprocess):
-        _, popen_mock, _ = mock_subprocess
+    def test_clipboard_text_goes_to_pbcopy_stdin(self, mock_subprocess):
+        _, popen_mock, popen_instance = mock_subprocess
+        _ok(popen_instance)
         injector = TextInjector(copy_to_clipboard=True)
         injector.inject("hello")
 
-        call_args = popen_mock.call_args
-        cmd = call_args[0][0]
-        # Second osascript call should paste with cmd+v
-        assert any('keystroke "v"' in str(arg) for arg in cmd)
+        assert _wait_calls(popen_mock, 2)  # pbcopy then paste
+        # The text reaches pbcopy (the first step) as stdin bytes, not as an arg.
+        assert popen_instance.communicate.call_args_list[0].kwargs.get("input") == b"hello"
 
 
 # ---------------------------------------------------------------------------
@@ -51,24 +76,30 @@ class TestClipboardInjection:
 
 
 class TestKeystrokeInjection:
-    """Test direct keystroke text injection."""
+    """Test direct keystroke text injection (text passed via argv)."""
 
-    def test_keystroke_mode_calls_subprocess(self, mock_subprocess):
+    def test_keystroke_mode_calls_osascript(self, mock_subprocess):
         _, popen_mock, popen_instance = mock_subprocess
-        popen_instance.poll.return_value = None
+        _ok(popen_instance)
         injector = TextInjector(copy_to_clipboard=False)
         injector.inject("hello world")
 
-        assert popen_mock.called
+        assert _wait_calls(popen_mock, 1)
+        cmd = _commands(popen_mock)[0]
+        # Script comes from stdin ("-"); text is the trailing argv argument.
+        assert cmd[0] == "osascript"
+        assert cmd[1] == "-"
+        assert cmd[-1] == "hello world"
 
-    def test_keystroke_mode_contains_text(self, mock_subprocess):
-        _, popen_mock, _ = mock_subprocess
+    def test_keystroke_script_from_stdin(self, mock_subprocess):
+        _, popen_mock, popen_instance = mock_subprocess
+        _ok(popen_instance)
         injector = TextInjector(copy_to_clipboard=False)
         injector.inject("hello world")
 
-        call_args = popen_mock.call_args
-        cmd = call_args[0][0]
-        assert any("keystroke" in str(arg) for arg in cmd)
+        assert _wait_calls(popen_mock, 1)
+        stdin = popen_instance.communicate.call_args.kwargs.get("input")
+        assert b"on run argv" in stdin  # text handled as argv, not script source
 
 
 # ---------------------------------------------------------------------------
@@ -104,43 +135,47 @@ class TestEmptyText:
 # ---------------------------------------------------------------------------
 
 
-class TestSpecialCharacters:
-    """Test double quote escaping in osascript commands."""
+class TestInjectionIsNeverCode:
+    """Task 6.5: text with quotes/backslashes/AppleScript metacharacters is
+    delivered verbatim and never interpolated into a script (no injection)."""
 
-    def test_double_quotes_escaped_in_clipboard_mode(self, mock_subprocess):
+    # A string that, under the old `osascript -e` interpolation, would break out
+    # of the AppleScript string literal and execute attacker code.
+    EVIL = 'x" & (do shell script "touch /tmp/pwned") & "\\'
+
+    def test_clipboard_delivers_text_verbatim_via_stdin(self, mock_subprocess):
         _, popen_mock, popen_instance = mock_subprocess
-        popen_instance.poll.return_value = None
+        _ok(popen_instance)
         injector = TextInjector(copy_to_clipboard=True)
-        injector.inject('say "hello"')
+        injector.inject(self.EVIL)
 
-        call_args = popen_mock.call_args
-        cmd = call_args[0][0]
-        # The double quote should be escaped
-        full_cmd_str = " ".join(str(arg) for arg in cmd)
-        assert '\\"hello\\"' in full_cmd_str or '\\"hello\\"' in full_cmd_str
+        assert _wait_calls(popen_mock, 2)  # pbcopy then paste
+        # Exact bytes to pbcopy stdin — no escaping, no shell, no AppleScript.
+        assert popen_instance.communicate.call_args_list[0].kwargs.get("input") == self.EVIL.encode("utf-8")
+        # No argv anywhere contains an `-e` script carrying the text.
+        for cmd in _commands(popen_mock):
+            assert "-e" not in cmd or all("do shell script" not in str(a) for a in cmd)
 
-    def test_double_quotes_escaped_in_keystroke_mode(self, mock_subprocess):
+    def test_keystroke_delivers_text_verbatim_via_argv(self, mock_subprocess):
         _, popen_mock, popen_instance = mock_subprocess
-        popen_instance.poll.return_value = None
+        _ok(popen_instance)
         injector = TextInjector(copy_to_clipboard=False)
-        injector.inject('say "hello"')
+        injector.inject(self.EVIL)
 
-        call_args = popen_mock.call_args
-        cmd = call_args[0][0]
-        full_cmd_str = " ".join(str(arg) for arg in cmd)
-        assert '\\"hello\\"' in full_cmd_str or '\\"hello\\"' in full_cmd_str
+        assert _wait_calls(popen_mock, 1)
+        cmd = _commands(popen_mock)[0]
+        # The exact text is a single argv element (data), not part of the script.
+        assert cmd[-1] == self.EVIL
+        assert "-e" not in cmd  # never an inline -e statement built from text
 
-    def test_backslashes_handled(self, mock_subprocess):
-        _, popen_mock, _ = mock_subprocess
+    def test_backslashes_delivered_unmodified(self, mock_subprocess):
+        _, popen_mock, popen_instance = mock_subprocess
+        _ok(popen_instance)
         injector = TextInjector(copy_to_clipboard=True)
         injector.inject(r"path\to\file")
-        assert popen_mock.called
 
-    def test_mixed_special_chars(self, mock_subprocess):
-        _, popen_mock, _ = mock_subprocess
-        injector = TextInjector(copy_to_clipboard=True)
-        injector.inject('He said "it\'s fine"')
-        assert popen_mock.called
+        assert _wait_calls(popen_mock, 2)  # pbcopy then paste
+        assert popen_instance.communicate.call_args_list[0].kwargs.get("input") == rb"path\to\file"
 
 
 # ---------------------------------------------------------------------------
