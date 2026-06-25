@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,6 @@ from faster_whisper import WhisperModel
 
 from ..hardware.event_decode import DEFAULT_TRIGGER_KEYCODE
 from ..platform import PlatformAdapters, detect
-from .audio import RECORDING_PATH
 from .config import (
     DEFAULT_CONFIG,
     MODEL_PRESETS,
@@ -81,24 +81,39 @@ def _load_model(config: dict[str, Any]) -> WhisperModel:
         return _make(local_only=False)
 
 
+_MODEL_LOAD_RETRY_DELAY = 2.0  # seconds between the initial attempt and one retry
+
+
 def load_model_async(engine: "Engine") -> None:
-    """Load the whisper model in a background thread."""
+    """Load the whisper model in a background thread.
+
+    Retries once on failure (transient download/SSL hiccups), then — instead of
+    leaving the model silently unloaded forever — surfaces the failure through
+    the engine's model-load-failed callback so the UI/log can tell the user.
+    """
 
     def _worker():
         engine.state.model_loading = True
         engine._notify_status_change()
-        try:
-            model_name = engine.state.config["model_size"]
-            print(f"[model] Loading '{model_name}' with CPU int8...")
-            new_model = _load_model(engine.state.config)
-            engine.state.model = new_model
-            print("[model] Loaded successfully")
-        except Exception as exc:
-            print(f"[model] Error loading model: {exc}", file=sys.stderr)
+        model_name = engine.state.config["model_size"]
+        last_exc: Exception | None = None
+        for attempt in range(2):  # initial attempt + one retry
+            try:
+                print(f"[model] Loading '{model_name}' with CPU int8...")
+                engine.state.model = _load_model(engine.state.config)
+                last_exc = None
+                print("[model] Loaded successfully")
+                break
+            except Exception as exc:
+                last_exc = exc
+                print(f"[model] Error loading model (attempt {attempt + 1}): {exc}", file=sys.stderr)
+                if attempt == 0:
+                    time.sleep(_MODEL_LOAD_RETRY_DELAY)
+        if last_exc is not None:
             engine.state.model = None
-        finally:
-            engine.state.model_loading = False
-            engine._notify_status_change()
+            engine._notify_model_load_failed(str(last_exc))
+        engine.state.model_loading = False
+        engine._notify_status_change()
 
     threading.Thread(target=_worker, name="model-loader", daemon=True).start()
 
@@ -150,6 +165,7 @@ class Engine:
         self._fn_pressed_callbacks: list[Callable] = []
         self._fn_released_callbacks: list[Callable] = []
         self._injection_denied_callbacks: list[Callable] = []
+        self._model_load_failed_callbacks: list[Callable] = []
         self._config_path = config_path or (Path.home() / ".config" / "whispy" / "config.json")
         self._fn_pressed = False
 
@@ -269,6 +285,24 @@ class Engine:
             except Exception:
                 logger.exception("[engine] Error in injection-denied callback")
 
+    def on_model_load_failed(self, callback: Callable) -> None:
+        """Register a callback fired when the transcription model fails to load.
+
+        The callback receives a message (str). Lets the UI surface a clear
+        "model failed to load" state instead of every dictation silently
+        returning nothing.
+        """
+        self._model_load_failed_callbacks.append(callback)
+
+    def _notify_model_load_failed(self, message: str) -> None:
+        """Fan out a model-load failure to registered callbacks."""
+        logger.error("[engine] model load failed: %s", message)
+        for cb in list(self._model_load_failed_callbacks):
+            try:
+                cb(message)
+            except Exception:
+                logger.exception("[engine] Error in model-load-failed callback")
+
     def on_status_change(self, callback: Callable) -> None:
         """Register a callback to be called when state changes."""
         self._status_callbacks.append(callback)
@@ -299,9 +333,14 @@ class Engine:
         """Start audio recording via FSM -> AudioEngine."""
         return self._audio_engine.start()
 
-    def stop_recording(self) -> None:
-        """Stop recording and transition to TRANSCRIBING."""
-        self._audio_engine.stop()
+    def stop_recording(self) -> bool:
+        """Stop recording and transition to TRANSCRIBING.
+
+        Returns True only if this actually transitioned RECORDING -> TRANSCRIBING
+        (callers gate the transcription stop event on this so a stray release
+        does not transcribe a stale/missing file).
+        """
+        return self._audio_engine.stop()
 
     def get_level(self) -> float:
         """Live mic input level (0.0-1.0) from the capture stream, for the UI waveform."""
@@ -315,7 +354,11 @@ class Engine:
             print("[transcribe] Model not loaded, skipping", file=sys.stderr)
             return None
 
-        if not os.path.exists(RECORDING_PATH):
+        # Capture the path ONCE: if a new recording starts mid-transcription it
+        # rebinds the engine's recording_path to a different file, but this local
+        # keeps pointing at the file we are actually transcribing.
+        path = self._audio_engine.recording_path
+        if not path or not os.path.exists(path):
             return None
 
         # Bias the decoder toward the user's habitual terms, if any.
@@ -323,7 +366,7 @@ class Engine:
         initial_prompt = ", ".join(vocab) if vocab else None
 
         text = self._audio_engine.transcribe(
-            audio_path=RECORDING_PATH,
+            audio_path=path,
             model=self.state.model,
             language=self.state.config.get("language", "fr"),
             beam_size=self.state.config.get("beam_size", 1),
@@ -339,7 +382,7 @@ class Engine:
             if cleaned:
                 self.state.last_transcription = cleaned
                 self._text_injector.inject(cleaned)
-            self._audio_engine.cleanup_audio_file(RECORDING_PATH)
+            self._audio_engine.cleanup_audio_file(path)
 
         return text
 
@@ -404,19 +447,25 @@ class Engine:
             self._notifier.recording_started()
             self.start_recording()
 
-        def _on_trigger_release() -> None:
-            """Handle trigger key release — stop recording asynchronously."""
-            self._notify_fn_released()
-            self.stop_recording()
-            self.state.stop_event.set()
-
         self._fn_listener = self._adapters.make_hotkey_listener(
             trigger=trigger,
             on_trigger_press=_on_trigger_press,
-            on_trigger_release=_on_trigger_release,
+            on_trigger_release=self._handle_trigger_release,
         )
         self._fn_listener.start()
         self.state.fn_listener_active = self._fn_listener.active
+
+    def _handle_trigger_release(self) -> None:
+        """Handle trigger key release — stop recording, then wake the worker.
+
+        Only signals the transcription worker when stopping actually transitioned
+        RECORDING -> TRANSCRIBING. A stray release (no active recording) is a
+        no-op, so the worker never transcribes a stale/missing file.
+        """
+        self._notify_fn_released()
+        transitioned = self.stop_recording()
+        if transitioned:
+            self.state.stop_event.set()
 
     def stop_fn_listener(self) -> None:
         """Stop the trigger key event tap listener."""

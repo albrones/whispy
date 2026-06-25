@@ -580,26 +580,19 @@ class TestFullFnWorkflowIntegration:
         audio_file = tmp_path / "whispy.wav"
         audio_file.write_bytes(b"\x00" * 160)
 
-        import whispy.core.audio as audio_module
-        import whispy.core.engine as engine_module
+        # run_transcription reads the audio engine's current recording path.
+        mocker.patch.object(type(engine._audio_engine), "recording_path", property(lambda self: str(audio_file)))
 
-        original_path = engine_module.RECORDING_PATH
-        engine_module.RECORDING_PATH = str(audio_file)
-        audio_module.RECORDING_PATH = str(audio_file)
+        text = engine.run_transcription()
+        assert text is not None
+        assert "hello" in text
+        assert "world" in text
 
-        try:
-            text = engine.run_transcription()
-            assert text is not None
-            assert "hello" in text
-            assert "world" in text
+        mock_model.transcribe.assert_called_once()
+        call_args = mock_model.transcribe.call_args
+        assert call_args[0][0] == str(audio_file)
 
-            mock_model.transcribe.assert_called_once()
-            call_args = mock_model.transcribe.call_args
-            assert call_args[0][0] == str(audio_file)
-        finally:
-            engine_module.RECORDING_PATH = original_path
-
-    def test_text_injection_after_transcription(self, state, engine, tmp_path, mock_subprocess):
+    def test_text_injection_after_transcription(self, state, engine, tmp_path, mock_subprocess, mocker):
         """Verify TextInjector inject is called with transcribed text."""
         mock_run, _, _ = mock_subprocess
 
@@ -611,23 +604,16 @@ class TestFullFnWorkflowIntegration:
         mock_model.transcribe.return_value = (iter(mock_segments), MagicMock())
         state.model = mock_model
 
-        import whispy.core.audio as audio_module
-        import whispy.core.engine as engine_module
+        # run_transcription reads the audio engine's current recording path.
+        mocker.patch.object(type(engine._audio_engine), "recording_path", property(lambda self: str(audio_file)))
 
-        original_path = engine_module.RECORDING_PATH
-        engine_module.RECORDING_PATH = str(audio_file)
-        audio_module.RECORDING_PATH = str(audio_file)
+        # Enable copy_to_clipboard to verify injection behavior
+        engine.update_config({"copy_to_clipboard": True})
+        text = engine.run_transcription()
+        assert text == "test output"
 
-        try:
-            # Enable copy_to_clipboard to verify injection behavior
-            engine.update_config({"copy_to_clipboard": True})
-            text = engine.run_transcription()
-            assert text == "test output"
-
-            assert engine._text_injector is not None
-            assert mock_run.call_count > 0 or engine._text_injector._copy_to_clipboard
-        finally:
-            engine_module.RECORDING_PATH = original_path
+        assert engine._text_injector is not None
+        assert mock_run.call_count > 0 or engine._text_injector._copy_to_clipboard
 
     def test_full_callback_chain_from_eventtap_to_engine(self, state, tmp_path, mocker, tmp_config):
         """End-to-end: EventTapListener callback → Engine methods → text injection."""
@@ -636,12 +622,9 @@ class TestFullFnWorkflowIntegration:
         audio_file.write_bytes(b"\x00" * 6000)  # Must exceed _MIN_RECORDING_SIZE (5120)
 
         import whispy.core.audio as audio_module
-        import whispy.core.engine as engine_module
 
         original_audio_path = audio_module.RECORDING_PATH
-        original_engine_path = engine_module.RECORDING_PATH
         audio_module.RECORDING_PATH = str(audio_file)
-        engine_module.RECORDING_PATH = str(audio_file)
 
         try:
             # Audio capture is faked by the autouse fixture; just stop the
@@ -713,7 +696,6 @@ class TestFullFnWorkflowIntegration:
                 assert state.is_transcribing is True
         finally:
             audio_module.RECORDING_PATH = original_audio_path
-            engine_module.RECORDING_PATH = original_engine_path
 
     def test_trigger_keycode_from_config_fn(self, state, tmp_config):
         """Engine resolves the macOS default trigger to the Fn keycode (63)."""

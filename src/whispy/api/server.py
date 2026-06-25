@@ -12,7 +12,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
-from ..core.audio import RECORDING_PATH
 from ..core.auth import AUTH_HEADER, AUTH_SCHEME
 from ..core.engine import (
     Engine,
@@ -187,7 +186,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         engine.state.is_transcribing = True
         engine._notify_status_change()
 
-        if not os.path.exists(RECORDING_PATH):
+        path = engine._audio_engine.recording_path
+        if not path or not os.path.exists(path):
             engine._state_machine.transcription_complete()
             engine.state.is_transcribing = False
             engine._notify_status_change()

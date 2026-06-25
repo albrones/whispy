@@ -133,6 +133,58 @@ class TestAudioStop:
 
 
 # ---------------------------------------------------------------------------
+# Thread-safety + per-recording file isolation (fix-capture-thread-races)
+# ---------------------------------------------------------------------------
+
+
+class TestCaptureThreadSafety:
+    """Capture callback contains its own errors and never raises into PortAudio."""
+
+    def test_callback_exception_is_contained(self, sm, mocker):
+        # If opening/writing the WAV fails inside the callback, it must be
+        # logged and swallowed (the callback runs in a C callback) — start()
+        # must still return without raising and mark readiness.
+        _install_spy_sd(mocker)
+        mocker.patch.object(audio_module.wave, "open", side_effect=RuntimeError("disk full"))
+        audio = AudioEngine(sm)
+        assert audio.start() is True  # spy fires the callback synchronously
+        assert audio._ready.is_set()
+
+    def test_stop_during_capture_closes_cleanly_and_keeps_file(self, sm, mocker):
+        _install_spy_sd(mocker)
+        audio = AudioEngine(sm)
+        audio.start()  # spy writes ~1s of silence to the unique path
+        path = audio.recording_path
+        assert audio.stop() is True
+        # stop() closes the handle but leaves the file for transcription.
+        assert os.path.exists(path)
+
+
+class TestPerRecordingPath:
+    """Each recording gets its own file so concurrent record/transcribe is safe."""
+
+    def test_each_recording_uses_a_unique_path(self, sm, mocker):
+        _install_spy_sd(mocker)
+        audio = AudioEngine(sm)
+        audio.start()
+        first = audio.recording_path
+        audio.stop()
+        audio.start()
+        second = audio.recording_path
+        audio.stop()
+        assert first != second
+        assert first.endswith(".wav") and second.endswith(".wav")
+
+    def test_recording_path_under_tempdir(self, sm, mocker):
+        import tempfile
+
+        _install_spy_sd(mocker)
+        audio = AudioEngine(sm)
+        audio.start()
+        assert audio.recording_path.startswith(tempfile.gettempdir())
+
+
+# ---------------------------------------------------------------------------
 # cleanup_audio_file()
 # ---------------------------------------------------------------------------
 

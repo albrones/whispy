@@ -11,6 +11,7 @@ import re
 import sys
 import tempfile
 import threading
+import uuid
 import wave
 
 import numpy as np
@@ -84,6 +85,13 @@ class AudioEngine:
         self._sm = state_machine
         self._stream = None
         self._wave = None
+        # Guards every access to ``self._wave``: the PortAudio callback thread
+        # writes/creates it while stop() (hotkey thread) closes and nulls it.
+        self._wave_lock = threading.Lock()
+        # Each recording writes to its own unique path so a recording started
+        # while a previous transcription is still reading cannot corrupt or
+        # delete the in-use file. Defaults to the shared path until first start.
+        self._recording_path = RECORDING_PATH
         self._frames_written = 0
         self._ready = threading.Event()
         # Live input level (0.0-1.0) computed from the capture callback so the
@@ -105,7 +113,11 @@ class AudioEngine:
 
         self._frames_written = 0
         self._ready = threading.Event()
-        self._wave = None
+        with self._wave_lock:
+            self._wave = None
+        # Fresh unique path for this recording (isolates it from any in-flight
+        # transcription still reading the previous recording).
+        self._recording_path = self._new_recording_path()
         self._level = 0.0
 
         if sd is None:
@@ -114,25 +126,34 @@ class AudioEngine:
             return True
 
         def _callback(indata, frames, _time_info, status) -> None:
-            if status:
-                logger.debug("[audio] stream status: %s", status)
-            # Open the WAV lazily on first audio so a failed stream never
-            # truncates a prior recording, and write incoming int16 frames.
-            if self._wave is None:
-                self._wave = wave.open(RECORDING_PATH, "wb")
-                self._wave.setnchannels(CHANNELS)
-                self._wave.setsampwidth(SAMPLE_WIDTH)
-                self._wave.setframerate(SAMPLE_RATE)
-            raw = bytes(indata)
-            self._wave.writeframes(raw)
-            self._frames_written += frames
-            # Update the live level for the waveform: normalized RMS of the
-            # int16 block (gain 10, matching the old AudioLevelMonitor).
-            samples = np.frombuffer(raw, dtype=np.int16)
-            if samples.size:
-                rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2))) / 32768.0
-                self._level = min(rms * 10.0, 1.0)
-            self._ready.set()
+            # The whole body is guarded: an exception here runs inside the
+            # PortAudio C callback, where it is undefined behavior. Log and
+            # contain it (a dropped frame), never raise into the backend.
+            try:
+                if status:
+                    logger.debug("[audio] stream status: %s", status)
+                raw = bytes(indata)
+                # Open the WAV lazily on first audio so a failed stream never
+                # truncates a prior recording. Serialize handle access against
+                # stop() via the lock.
+                with self._wave_lock:
+                    if self._wave is None:
+                        self._wave = wave.open(self._recording_path, "wb")
+                        self._wave.setnchannels(CHANNELS)
+                        self._wave.setsampwidth(SAMPLE_WIDTH)
+                        self._wave.setframerate(SAMPLE_RATE)
+                    self._wave.writeframes(raw)
+                self._frames_written += frames
+                # Update the live level for the waveform: normalized RMS of the
+                # int16 block (gain 10, matching the old AudioLevelMonitor).
+                samples = np.frombuffer(raw, dtype=np.int16)
+                if samples.size:
+                    rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2))) / 32768.0
+                    self._level = min(rms * 10.0, 1.0)
+            except Exception:
+                logger.exception("[audio] capture callback error — frame dropped")
+            finally:
+                self._ready.set()
 
         try:
             self._stream = sd.RawInputStream(
@@ -152,6 +173,15 @@ class AudioEngine:
 
         self._wait_for_recording_ready()
         return True
+
+    def _new_recording_path(self) -> str:
+        """Return a unique temp WAV path for one recording."""
+        return os.path.join(tempfile.gettempdir(), f"whispy-{uuid.uuid4().hex}.wav")
+
+    @property
+    def recording_path(self) -> str:
+        """Path of the most recently started recording (the file to transcribe)."""
+        return self._recording_path
 
     def _wait_for_recording_ready(self) -> None:
         """Wait until the stream delivers its first audio, or the timeout fires.
@@ -185,16 +215,17 @@ class AudioEngine:
                 logger.debug("[audio] stream close error: %s", exc)
             self._stream = None
 
-        if self._wave is not None:
-            try:
-                self._wave.close()
-            except Exception as exc:
-                logger.debug("[audio] wave close error: %s", exc)
-            self._wave = None
+        with self._wave_lock:
+            if self._wave is not None:
+                try:
+                    self._wave.close()
+                except Exception as exc:
+                    logger.debug("[audio] wave close error: %s", exc)
+                self._wave = None
 
-        if os.path.exists(RECORDING_PATH):
+        if os.path.exists(self._recording_path):
             try:
-                size = os.path.getsize(RECORDING_PATH)
+                size = os.path.getsize(self._recording_path)
                 if size < _MIN_RECORDING_SIZE:
                     logger.warning(
                         f"[audio] Recording file too small ({size} bytes) — "
@@ -287,11 +318,15 @@ class AudioEngine:
             pass
         return None
 
-    def cleanup_audio_file(self, audio_path: str = RECORDING_PATH) -> None:
-        """Remove the temporary audio file after transcription."""
+    def cleanup_audio_file(self, audio_path: str | None = None) -> None:
+        """Remove the temporary audio file after transcription.
+
+        Defaults to the current recording's path when no path is given.
+        """
+        target = audio_path if audio_path is not None else self._recording_path
         try:
-            if os.path.exists(audio_path):
-                os.remove(audio_path)
+            if target and os.path.exists(target):
+                os.remove(target)
         except OSError:
             pass
 

@@ -124,16 +124,12 @@ class TestFullWorkflow:
         assert status["is_transcribing"] is False
         assert status["model_loaded"] is False
 
-        # Set up audio file before start_recording so _wait_for_recording_ready doesn't hang
+        # A real recording would write to a unique per-recording path; point the
+        # engine's recording_path at a prepared file so transcription is
+        # deterministic.
         audio_file = tmp_path / "whispy.wav"
         audio_file.write_bytes(b"\x00" * 6000)  # Must exceed _MIN_RECORDING_SIZE (5120)
-
-        # Patch module-level RECORDING_PATH in both engine and audio modules
-        import whispy.core.audio as audio_module
-        import whispy.core.engine as engine_module
-
-        engine_module.RECORDING_PATH = str(audio_file)
-        audio_module.RECORDING_PATH = str(audio_file)
+        mocker.patch.object(type(engine._audio_engine), "recording_path", property(lambda self: str(audio_file)))
 
         # 2. Simulate recording start (mocked subprocess)
         result = engine.start_recording()
@@ -190,12 +186,8 @@ class TestFullWorkflow:
         audio_file = tmp_path / "whispy.wav"
         audio_file.write_bytes(b"\x00" * 160)  # Minimal WAV header
 
-        # Patch module-level RECORDING_PATH in both engine and audio modules
-        import whispy.core.audio as audio_module
-        import whispy.core.engine as engine_module
-
-        engine_module.RECORDING_PATH = str(audio_file)
-        audio_module.RECORDING_PATH = str(audio_file)
+        # run_transcription reads the audio engine's current recording path.
+        mocker.patch.object(type(engine._audio_engine), "recording_path", property(lambda self: str(audio_file)))
 
         inject_spy = mocker.patch.object(engine._text_injector, "inject")
         text = engine.run_transcription()
@@ -410,21 +402,14 @@ class TestHTTPAPIWithEngine:
         ]
         state.model = mock_model
 
-        # Patch RECORDING_PATH
-        import whispy.core.audio as audio_module
-        import whispy.core.engine as engine_module
-
-        original_path = engine_module.RECORDING_PATH
-        engine_module.RECORDING_PATH = str(audio_file)
-        audio_module.RECORDING_PATH = str(audio_file)
+        # /stop transcribes the audio engine's current recording path.
+        mocker.patch.object(type(engine._audio_engine), "recording_path", property(lambda self: str(audio_file)))
 
         status, body = _http_post(port, "/stop")
         assert status == 200
         assert body["status"] == "done"
         # Text may be None if transcription didn't fully complete in test env
         # The key assertion is that the endpoint returns 200
-
-        engine_module.RECORDING_PATH = original_path
 
     def test_unknown_endpoint_returns_404(self, test_server):
         """Test unknown endpoints return 404."""

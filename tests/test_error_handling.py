@@ -92,12 +92,13 @@ class TestEngineErrorHandling:
         assert result is True  # Recording starts even without model
 
     def test_engine_stop_recording_without_model(self):
-        """Engine should handle stop_recording when model is not loaded."""
+        """Engine should handle stop_recording when not recording (no raise)."""
         state = DictationState()
         engine = Engine(state)
         result = engine.stop_recording()
-        # Should not raise (may return None or True)
-        assert result is not False  # Should not return False (error)
+        # Not recording → no transition; returns False without raising. Callers
+        # gate the transcription stop event on this (a stray release is a no-op).
+        assert result is False
 
     def test_audio_engine_cleanup_handles_missing_file(self):
         """AudioEngine.cleanup_audio_file should not error on missing file."""

@@ -1,6 +1,7 @@
 """Tests for Engine, DictationState, config loading/saving, and status reporting."""
 
 import json
+import threading
 
 from whispy.core.engine import (
     DEFAULT_CONFIG,
@@ -334,12 +335,10 @@ class TestCustomVocabularyWiring:
     """run_transcription builds an initial_prompt from custom_vocabulary."""
 
     def _prep(self, engine, mocker, tmp_path):
-        """Point RECORDING_PATH at a real file and stub the I/O side effects."""
-        import whispy.core.engine as engine_module
-
+        """Point the recording path at a real file and stub the I/O side effects."""
         rec = tmp_path / "whispy.wav"
         rec.write_bytes(b"\x00" * 100)
-        mocker.patch.object(engine_module, "RECORDING_PATH", str(rec))
+        mocker.patch.object(type(engine._audio_engine), "recording_path", property(lambda self: str(rec)))
         engine.state.model = MagicMock()
         transcribe = mocker.patch.object(engine._audio_engine, "transcribe", return_value="hi")
         mocker.patch.object(engine._text_injector, "inject")
@@ -385,3 +384,70 @@ class TestClipboardDefault:
 # ---------------------------------------------------------------------------
 
 from unittest.mock import MagicMock
+
+# ---------------------------------------------------------------------------
+# Stray trigger release does not start transcription (fix-capture-thread-races)
+# ---------------------------------------------------------------------------
+
+
+class TestTriggerReleaseGating:
+    """_handle_trigger_release only wakes the worker on a real stop."""
+
+    def test_release_while_recording_sets_stop_event(self, engine):
+        engine.state.stop_event.clear()
+        engine._state_machine.start_recording()  # enter RECORDING
+        engine._handle_trigger_release()
+        assert engine.state.stop_event.is_set()
+
+    def test_stray_release_does_not_set_stop_event(self, engine):
+        # No active recording (FSM IDLE): a release must be a no-op so the
+        # worker never transcribes a stale/missing file.
+        engine.state.stop_event.clear()
+        assert engine._state_machine.current_state == State.IDLE
+        engine._handle_trigger_release()
+        assert not engine.state.stop_event.is_set()
+
+
+# ---------------------------------------------------------------------------
+# Model-load failure is surfaced (fix-capture-thread-races)
+# ---------------------------------------------------------------------------
+
+
+class TestModelLoadFailureSurfaced:
+    """A failed model load fires the model-load-failed callback, not silence."""
+
+    def test_failure_invokes_callback_and_clears_model(self, engine, mocker):
+        from whispy.core import engine as engine_module
+
+        mocker.patch.object(engine_module, "_load_model", side_effect=RuntimeError("no model"))
+        mocker.patch.object(engine_module.time, "sleep")  # skip the retry backoff
+
+        fired = threading.Event()
+        messages: list[str] = []
+        engine.on_model_load_failed(lambda msg: (messages.append(msg), fired.set()))
+
+        engine_module.load_model_async(engine)
+        assert fired.wait(timeout=3.0)
+        assert engine.state.model is None
+        assert engine.state.model_loading is False
+        assert "no model" in messages[0]
+
+
+# ---------------------------------------------------------------------------
+# run_transcription captures the per-recording path (isolation)
+# ---------------------------------------------------------------------------
+
+
+class TestRunTranscriptionPath:
+    """Transcription uses the audio engine's current recording path."""
+
+    def test_transcribes_the_recording_path(self, engine, mocker, tmp_path):
+        wav = tmp_path / "rec-A.wav"
+        wav.write_bytes(b"\x00" * 6000)
+        mocker.patch.object(type(engine._audio_engine), "recording_path", property(lambda self: str(wav)))
+        engine.state.model = MagicMock()
+        transcribe = mocker.patch.object(engine._audio_engine, "transcribe", return_value="hi")
+        mocker.patch.object(engine._text_injector, "inject")
+
+        engine.run_transcription()
+        assert transcribe.call_args[1]["audio_path"] == str(wav)
