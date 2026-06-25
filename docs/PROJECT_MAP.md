@@ -17,7 +17,18 @@ It is designed to help AI agents and developers quickly understand the project s
     - `core/` — Engine, state machine, audio engine, config
     - `hardware/` — Event tap (Fn key), text injection
     - `ui/` — Menu bar app, indicator windows, audio level monitor
+      - `menu_theme.py` — Brand-accent menu styling (green dot/header/checks via
+        attributed titles). **macOS-only**: the Linux tray (pystray) renders
+        plain text labels and has no styling equivalent.
     - `api/` — HTTP API server
+  - `FEATURE_MATRIX.md` — Single source of truth: every user-facing feature →
+    coverage tier → how it is verified. Edited on every fix/feature (see its header).
+  - `tests/validation/` — Release-validation system behind `make validate`:
+    `outcomes.py` (PASS/FAIL/UNVERIFIED contract), `matrix.py` (parse/lint the
+    feature matrix), `preflight.py` (doctor wrapper), `harness.py` (boot the real
+    headless daemon and drive it over HTTP), `operator.py` (human checklist),
+    `run.py` (orchestrator). `whispy_daemon.py --headless` boots engine + HTTP
+    without the tray for the harness.
   - `generate_icons.py` — Script for generating icons.
   - `install.sh` — Shell script for installing dependencies and setting up the environment.
   - `icons/` — Directory containing icon assets (generated or used by the project).

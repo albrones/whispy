@@ -8,13 +8,16 @@ The tag appears as an italic line directly under the scenario.
 |------|---------|-------------|-------|
 | `unit-pure` | Pure logic, no OS/hardware/external process. | yes | high — green means correct |
 | `unit-mocked` | Orchestration verified with Quartz/sox/Whisper/subprocess mocked. | yes | medium — green proves wiring, not the real seam |
-| `macos-real` | Requires a real Mac: event tap, audio device, osascript injection, real Whisper model. | no (local / `@pytest.mark.macos`) | only tier that proves the user-facing behavior |
-| `manual-ui` | Menu bar / windows; checked by hand. | no | lowest — no assertion today |
+| `live-driven` | Real daemon booted and driven over its HTTP API (real mic + model + injection); unattended. | no (local / `make validate`) | high for the seam — proves the running app, minus the physical keypress |
+| `macos-real` | Requires a real Mac: event tap, audio device, osascript injection, real Whisper model. | no (local / `@pytest.mark.macos`) | proves the macOS user-facing seam |
+| `linux-real` | Requires a live Linux/X11 session: pynput listener, real audio device, xdotool injection, real Whisper model. | no (local / `@pytest.mark.linux`) | proves the Linux/X11 user-facing seam |
+| `manual-ui` | Menu bar / windows / physical trigger keypress + visual confirm; checked by a human (harness-assisted). | no (local / `make validate` operator layer) | lowest — needs a human, but recorded per run |
 
-A `macos-real`/`manual-ui` tag means a passing CI run does **not** prove that
-scenario: the real boundary is mocked or unexercised. Those scenarios are the
-work-list for the follow-up test changes (event-tap/UI coverage, semantic
-transcription tests, and a real end-to-end smoke test).
+A `live-driven`/`macos-real`/`linux-real`/`manual-ui` tag means a passing CI run
+does **not** prove that scenario: the real boundary is mocked or unexercised in
+CI. Those scenarios are exercised by `make validate` (see the `release-validation`
+capability), where an unexercisable seam reports **UNVERIFIED** — never a silent
+pass.
 
 Origin: change `define-test-perimeter` (see its `design.md` for the full
 scenario→tier matrix and verification findings).

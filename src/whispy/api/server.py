@@ -54,6 +54,24 @@ class RequestHandler(BaseHTTPRequestHandler):
             engine.state.stop_event.set()
             self._json_response(200, {"status": "stopping"})
 
+        elif self.path == "/transcribe-file":
+            # Deterministic seam for validation: transcribe a known WAV with the
+            # current config (no mic, no keystroke injection, no file deletion).
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length)) if length else {}
+                path = body.get("path")
+                if not path:
+                    self._json_response(400, {"error": "missing 'path'"})
+                    return
+                text = engine.transcribe_file(path)
+                if text is None:
+                    self._json_response(409, {"error": "model not loaded or file missing", "path": path})
+                    return
+                self._json_response(200, {"text": text})
+            except (json.JSONDecodeError, ValueError) as exc:
+                self._json_response(400, {"error": str(exc)})
+
         elif self.path == "/config":
             try:
                 length = int(self.headers.get("Content-Length", 0))

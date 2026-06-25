@@ -1,3 +1,6 @@
+# Validation run reports (operator layer; local artifacts)
+.validation-reports/
+
 # Logs
 logs
 *.log

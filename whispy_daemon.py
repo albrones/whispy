@@ -52,8 +52,52 @@ if str(_SCRIPT_DIR / "src") not in sys.path:
 # ---------------------------------------------------------------------------
 # Config path
 # ---------------------------------------------------------------------------
+# Honor WHISPY_CONFIG so the validation harness can drive a throwaway config
+# (changing language/model over the API) without mutating the user's real file.
 CONFIG_DIR = Path.home() / ".config" / "whispy"
-CONFIG_PATH = CONFIG_DIR / "config.json"
+CONFIG_PATH = Path(os.environ["WHISPY_CONFIG"]) if os.environ.get("WHISPY_CONFIG") else CONFIG_DIR / "config.json"
+
+
+def run_headless():
+    """Run engine + HTTP server with no tray GUI (for the validation harness).
+
+    Boots the real Engine (real audio, model, injection) and the HTTP control
+    API, skipping the menu-bar/tray UI so the daemon can run unattended in a
+    subprocess. Prints ``WHISPY_HEADLESS_READY <port>`` once the server is bound
+    so a driver can poll the right port, then blocks until SIGTERM/SIGINT.
+    """
+    import threading
+
+    from whispy.api.server import start_http_server
+    from whispy.core.engine import DictationState, Engine, load_config
+
+    config = load_config(CONFIG_PATH)
+    state = DictationState()
+    state.config = config
+    state.app = None  # no tray in headless mode
+
+    engine = Engine(state, config_path=CONFIG_PATH)
+    engine.start()
+
+    http_server = start_http_server(engine)
+    port = http_server.server_address[1]
+
+    stop = threading.Event()
+
+    def _shutdown(*_args):
+        stop.set()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
+    # Flush so the harness sees readiness immediately (line-buffered or not).
+    print(f"WHISPY_HEADLESS_READY {port}", flush=True)
+    try:
+        stop.wait()
+    finally:
+        engine.stop()
+        http_server.shutdown()
+        print("[headless] stopped", flush=True)
 
 
 def main():
@@ -106,4 +150,7 @@ if __name__ == "__main__":
         from whispy.doctor import run_doctor
 
         sys.exit(run_doctor())
+    if "--headless" in sys.argv:
+        run_headless()
+        sys.exit(0)
     main()

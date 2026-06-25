@@ -210,6 +210,38 @@ class TestPostStartStop:
         assert engine.state.stop_event.is_set()
 
 
+class TestPostTranscribeFile:
+    """Test POST /transcribe-file — the deterministic validation seam."""
+
+    def test_transcribes_given_file(self, test_server):
+        _, port, engine = test_server
+        engine.transcribe_file = lambda path: "le test est fini"
+        status, body = _post(port, "/transcribe-file", {"path": "/tmp/x.wav"})
+        assert status == 200
+        assert body["text"] == "le test est fini"
+
+    def test_missing_path_returns_400(self, test_server):
+        _, port, _ = test_server
+        status, body = _post(port, "/transcribe-file", {})
+        assert status == 400
+        assert "error" in body
+
+    def test_model_not_loaded_returns_409(self, test_server):
+        _, port, engine = test_server
+        engine.transcribe_file = lambda path: None  # model unloaded / file missing
+        status, body = _post(port, "/transcribe-file", {"path": "/tmp/x.wav"})
+        assert status == 409
+        assert "error" in body
+
+    def test_empty_transcription_is_200(self, test_server):
+        # Silence transcribes to "" (ran, no speech) — must be 200, not 409.
+        _, port, engine = test_server
+        engine.transcribe_file = lambda path: ""
+        status, body = _post(port, "/transcribe-file", {"path": "/tmp/silence.wav"})
+        assert status == 200
+        assert body["text"] == ""
+
+
 class TestUnknownEndpoints:
     """Test unknown endpoint handling."""
 

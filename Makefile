@@ -1,4 +1,4 @@
-.PHONY: help install test lint format check run app uninstall clean
+.PHONY: help install test lint format check run app uninstall clean validate validate-unattended
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -37,6 +37,12 @@ run: ## Run the daemon in the foreground (for development)
 
 doctor: ## Diagnose the environment (sox, model, permissions, daemon)
 	$(PY) whispy_daemon.py --doctor
+
+validate: ## Full release validation: preflight + live-drive (real daemon over HTTP) + operator checklist
+	$(PY) -m tests.validation.run $(ARGS)
+
+validate-unattended: ## Validation without the human operator layer (preflight + live-drive only)
+	$(PY) -m tests.validation.run --no-operator $(ARGS)
 
 app: ## Build & ad-hoc-sign the native macOS bundle (dist/Whispy.app)
 	./packaging/macos/build_app.sh

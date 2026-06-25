@@ -23,6 +23,9 @@ import pytest
 _src = Path(__file__).parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
+_root = Path(__file__).parent.parent
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
 
 pytestmark = pytest.mark.linux
 
@@ -96,3 +99,24 @@ class TestXdotoolInjection:
         injector = XdotoolInjector(copy_to_clipboard=False)
         injector.inject("whispy-linux-smoke")
         time.sleep(0.2)
+
+
+class TestLiveDriveCycle:
+    """Drive the real headless daemon over HTTP — record→transcribe cycle.
+
+    Tier: live-driven. A FAIL asserts; an all-UNVERIFIED result skips (surfaced
+    as UNVERIFIED by `make validate`). Skips on Wayland / missing mic.
+    """
+
+    def test_driven_cycle_over_http(self):
+        _require_x11()
+        from tests.validation.harness import run_live_drive
+        from tests.validation.outcomes import Outcome
+
+        results = run_live_drive(record_seconds=1.0)
+        fails = [r for r in results if r.outcome is Outcome.FAIL]
+        passes = [r for r in results if r.outcome is Outcome.PASS]
+        assert not fails, f"live-drive failure(s): {[(r.feature, r.detail) for r in fails]}"
+        if not passes:
+            reasons = "; ".join(r.detail for r in results)
+            pytest.skip(f"live-drive UNVERIFIED (mic/model/permission?): {reasons}")

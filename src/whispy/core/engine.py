@@ -343,6 +343,39 @@ class Engine:
 
         return text
 
+    def transcribe_file(self, audio_path: str) -> str | None:
+        """Transcribe a given WAV with the current config — no inject, no delete.
+
+        Runs the real model and the same decoder params / cleaning as the live
+        path, but against an arbitrary file (a committed fixture) and WITHOUT
+        injecting keystrokes or deleting the source. This is the deterministic
+        seam the validation harness drives over ``POST /transcribe-file`` so that
+        "transcription yields the expected text" is verifiable without a mic or a
+        human. Returns the cleaned text (or ``None`` if the model is unloaded or
+        the file is missing).
+        """
+        if self.state.model is None:
+            return None
+        if not os.path.exists(audio_path):
+            return None
+
+        vocab = self.state.config.get("custom_vocabulary") or []
+        initial_prompt = ", ".join(vocab) if vocab else None
+
+        text = self._audio_engine.transcribe(
+            audio_path=audio_path,
+            model=self.state.model,
+            language=self.state.config.get("language", "fr"),
+            beam_size=self.state.config.get("beam_size", 1),
+            best_of=self.state.config.get("best_of", 2),
+            auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
+            min_recording_duration=self.state.config.get("min_recording_duration", 0.3),
+            initial_prompt=initial_prompt,
+        )
+        # Model ran and file was present: empty/None means "no speech" (e.g.
+        # silence) → "". None is reserved for not-loaded / missing-file above.
+        return clean_text(text) if text else ""
+
     # -- Fn key listener --
 
     def resolve_trigger(self) -> Any:

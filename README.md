@@ -228,6 +228,29 @@ Run the built-in diagnostic first — it checks the audio backend, `xdotool`
 python whispy_daemon.py --doctor   # or: make doctor
 ```
 
+### Validating the whole app (`make validate`)
+
+`make doctor` checks prerequisites; `make validate` checks **behavior**. It runs
+three honest layers for your OS and reports each feature as **PASS / FAIL /
+UNVERIFIED** (an unexercisable seam is UNVERIFIED — never a silent pass):
+
+1. **Preflight** — `doctor`.
+2. **Live-drive** — boots the real daemon and drives a record→transcribe cycle
+   over its HTTP API (no mocks).
+3. **Operator** — a guided checklist for the human-only flow (hold the trigger,
+   speak, confirm the text lands in the focused app).
+
+```bash
+make validate               # full run (asks you to dictate during the operator layer)
+make validate-unattended    # preflight + live-drive only (no human)
+```
+
+Exit code is the verdict: `0` pass, `1` a real failure, `2` something
+UNVERIFIED. `FEATURE_MATRIX.md` is the single source of truth mapping every
+feature → its coverage tier → how it is verified. **Rule:** every fix or feature
+must update its matrix row and add a regression case at the lowest tier that can
+catch it (see the matrix header).
+
 | Symptom | Probable Cause | Solution |
 |-----------|----------------|----------|
 | Sounds play but no text appears (macOS) | Missing Accessibility Permission | Step 3b |
