@@ -67,3 +67,34 @@ class TestWaylandDetection:
         warned = warn_if_wayland({"XDG_SESSION_TYPE": "x11"})
         assert warned is False
         assert capsys.readouterr().err == ""
+
+
+class TestPynputHotkeyStart:
+    """PynputHotkeyListener.start() resets held state and warns under Wayland."""
+
+    def test_start_resets_held_flag(self, mocker):
+        from whispy.platform.linux import hotkey as hk
+
+        mocker.patch.object(hk, "is_wayland_session", return_value=False)
+        listener = hk.PynputHotkeyListener("ctrl_r")
+        listener._held = True  # simulate a missed release leaving it latched
+        # pynput import/start is irrelevant here; force the early degrade path.
+        mocker.patch.object(hk, "warn_if_wayland")
+        listener.start()
+        assert listener._held is False
+
+    def test_start_warns_on_wayland(self, mocker):
+        from whispy.platform.linux import hotkey as hk
+
+        mocker.patch.object(hk, "is_wayland_session", return_value=True)
+        warn = mocker.patch.object(hk, "warn_if_wayland")
+        hk.PynputHotkeyListener("ctrl_r").start()
+        warn.assert_called_once()
+
+    def test_start_no_wayland_warning_on_x11(self, mocker):
+        from whispy.platform.linux import hotkey as hk
+
+        mocker.patch.object(hk, "is_wayland_session", return_value=False)
+        warn = mocker.patch.object(hk, "warn_if_wayland")
+        hk.PynputHotkeyListener("ctrl_r").start()
+        warn.assert_not_called()

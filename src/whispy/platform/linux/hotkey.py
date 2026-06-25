@@ -11,6 +11,7 @@ import sys
 from collections.abc import Callable
 
 from ...hardware.event_decode import decode_key_match
+from .session import is_wayland_session, warn_if_wayland
 
 _LISTEN_FAILURE_HINT = (
     "[whispy] Could not start the global key listener (pynput).\n"
@@ -69,6 +70,15 @@ class PynputHotkeyListener:
 
     def start(self) -> None:
         """Start the pynput listener thread; degrade gracefully on failure."""
+        # Reset the held-key debounce so a previously missed release (e.g. focus
+        # loss while held) does not permanently swallow the next press.
+        self._held = False
+
+        # Under Wayland pynput typically starts but receives no events; warn up
+        # front rather than only on an exception, so the user gets guidance.
+        if is_wayland_session():
+            warn_if_wayland()
+
         try:
             from pynput import keyboard
         except Exception as exc:

@@ -63,7 +63,7 @@ _KEYCODE_TO_NAME: dict[int, str] = {
     60: "f2",
     61: "f3",
     62: "f4",
-    63: "f5",
+    63: "fn",  # the default trigger (Fn / Globe); NOT F5 (which is keycode 96)
     64: "f6",
     65: "f7",
     66: "f8",
@@ -110,7 +110,7 @@ _KEYCODE_TO_NAME: dict[int, str] = {
     93: "lang4",
     94: "lang5",
     95: "lang6",
-    96: "lang7",
+    96: "f5",  # real macOS hardware keycode for F5
     97: "lang8",
     98: "lang9",
     # Modifier keys (virtual/physical)
@@ -128,34 +128,55 @@ def keycode_to_name(keycode: int) -> str:
     return f"key{keycode}"
 
 
+def _normalize_flags(flags: object) -> int:
+    """Coerce a pyobjc flags value (which may arrive as a tuple) to an int."""
+    if isinstance(flags, tuple):
+        flags = flags[0] if flags else 0
+    return int(flags or 0)
+
+
 def decode_trigger_event(
     kind: str,
     keycode: int,
     flags: object,
     trigger_keycode: int,
+    prev_flags: object = 0,
 ) -> str | None:
     """Decide whether an event is a trigger press, release, or irrelevant.
 
     Pure function of the event's classified ``kind`` (one of ``"key_down"``,
     ``"key_up"``, ``"flags_changed"``; anything else is ignored), its
-    ``keycode``, the modifier ``flags`` value, and the configured
-    ``trigger_keycode``.
+    ``keycode``, the modifier ``flags`` value, the configured ``trigger_keycode``,
+    and ``prev_flags`` (the flags value from the previous event).
 
-    For the Fn key (keycode 63) press vs release is distinguished by the
-    secondary-Fn flag; the ``flags`` value may arrive as a tuple on some pyobjc
-    versions, in which case the first element is used.
+    - Fn (keycode 63): press vs release is the secondary-Fn flag bit.
+    - A non-default *modifier* trigger arrives as ``flags_changed`` with no
+      matching ``key_up``; press vs release is derived from which flag bit
+      transitioned between ``prev_flags`` and ``flags`` (set → press, cleared →
+      release). This prevents the trigger latching "pressed" forever.
+    - A non-default *regular* key arrives as ``key_down``/``key_up``.
 
     Returns ``"press"``, ``"release"``, or ``None``.
     """
     if keycode != trigger_keycode:
         return None
 
-    if kind in ("key_down", "flags_changed"):
+    if kind == "flags_changed":
         if trigger_keycode == DEFAULT_TRIGGER_KEYCODE:
-            if isinstance(flags, tuple):
-                flags = flags[0] if flags else 0
-            flags = flags or 0
-            return "press" if (flags & NX_SECONDARYFNMASK) else "release"
+            return "press" if (_normalize_flags(flags) & NX_SECONDARYFNMASK) else "release"
+        # Generic modifier: the key's mask bit toggles between events.
+        now = _normalize_flags(flags)
+        prev = _normalize_flags(prev_flags)
+        changed = now ^ prev
+        if changed & now:
+            return "press"  # a bit went 0 -> 1
+        if changed & prev:
+            return "release"  # a bit went 1 -> 0
+        return None
+
+    if kind == "key_down":
+        if trigger_keycode == DEFAULT_TRIGGER_KEYCODE:
+            return "press" if (_normalize_flags(flags) & NX_SECONDARYFNMASK) else "release"
         return "press"
 
     if kind == "key_up":

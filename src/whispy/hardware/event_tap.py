@@ -28,6 +28,8 @@ try:
         kCGEventFlagsChanged,
         kCGEventKeyDown,
         kCGEventKeyUp,
+        kCGEventTapDisabledByTimeout,
+        kCGEventTapDisabledByUserInput,
         kCGEventTapOptionListenOnly,
         kCGHeadInsertEventTap,
         kCGKeyboardEventKeycode,
@@ -46,6 +48,7 @@ from .event_decode import (  # noqa: E402, F401
     _KEYCODE_TO_NAME,
     DEFAULT_TRIGGER_KEYCODE,
     NX_SECONDARYFNMASK,
+    _normalize_flags,
     decode_trigger_event,
     keycode_to_name,
 )
@@ -66,6 +69,9 @@ class EventTapListener:
         self._tap = None
         self._run_loop_thread: threading.Thread | None = None
         self._run_loop_source: Any = None
+        # Last-seen modifier flags, so a flags_changed for a modifier trigger can
+        # be decoded as press vs release from the bit transition.
+        self._prev_flags = 0
         self.active = False
 
     def start(self) -> None:
@@ -139,9 +145,20 @@ class EventTapListener:
         """Callback invoked for each relevant CGEvent (pyobjc legacy signature).
 
         Reads the raw CGEvent fields and delegates the press/release decision to
-        the pure ``decode_trigger_event`` so the OS shell holds no logic.
+        the pure ``decode_trigger_event`` so the OS shell holds no logic. Re-arms
+        the tap if macOS disabled it, and contains exceptions from the engine
+        callbacks so neither can kill the listener thread.
         """
         event_type = CGEventGetType(event)
+
+        # macOS silently disables a tap whose callback is slow or hit by heavy
+        # input. Re-enable it in place so the hotkey survives the whole session.
+        if event_type in (kCGEventTapDisabledByTimeout, kCGEventTapDisabledByUserInput):
+            if self._tap is not None:
+                CGEventTapEnable(self._tap, True)
+                print("[event-tap] tap was disabled by the OS — re-armed", file=sys.stderr)
+            return event
+
         keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
 
         if event_type == kCGEventKeyDown:
@@ -153,13 +170,26 @@ class EventTapListener:
         else:
             kind = "other"
 
-        action = decode_trigger_event(kind, keycode, CGEventGetFlags(event), self._trigger_keycode)
-        if action == "press":
-            if self._on_trigger_press:
-                self._on_trigger_press()
-        elif action == "release":
-            if self._on_trigger_release:
-                self._on_trigger_release()
+        flags = CGEventGetFlags(event)
+        action = decode_trigger_event(kind, keycode, flags, self._trigger_keycode, self._prev_flags)
+        # Track the latest flags so the next modifier transition decodes correctly.
+        if kind == "flags_changed":
+            self._prev_flags = _normalize_flags(flags)
+
+        try:
+            if action == "press":
+                if self._on_trigger_press:
+                    self._on_trigger_press()
+            elif action == "release":
+                if self._on_trigger_release:
+                    self._on_trigger_release()
+        except Exception:
+            # An engine-side error must not propagate into the pyobjc run loop
+            # (which can disable the tap or kill this thread).
+            import traceback
+
+            print("[event-tap] trigger callback raised:", file=sys.stderr)
+            traceback.print_exc()
 
         return event
 

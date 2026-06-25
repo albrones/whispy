@@ -46,8 +46,21 @@ class TestDecodeNonFnTrigger:
     def test_regular_keyup_is_release(self):
         assert decode_trigger_event("key_up", 49, 0, 49) == "release"
 
-    def test_flags_changed_non_fn_is_press(self):
-        assert decode_trigger_event("flags_changed", 49, 0, 49) == "press"
+    def test_modifier_flags_changed_decodes_press_then_release(self):
+        # A non-Fn modifier trigger arrives only as flags_changed (no key_up).
+        # Press = its mask bit goes 0->1; release = 1->0, derived from prev_flags.
+        BIT = 0x40000  # arbitrary modifier mask
+        TRIG = 54  # a modifier keycode
+        press = decode_trigger_event("flags_changed", TRIG, BIT, TRIG, prev_flags=0)
+        release = decode_trigger_event("flags_changed", TRIG, 0, TRIG, prev_flags=BIT)
+        assert press == "press"
+        assert release == "release"
+
+    def test_modifier_flags_changed_no_transition_is_none(self):
+        # No bit changed for the trigger → neither press nor release (avoids the
+        # old behavior of latching "press" forever).
+        BIT = 0x40000
+        assert decode_trigger_event("flags_changed", 54, BIT, 54, prev_flags=BIT) is None
 
 
 class TestDecodeIgnored:
@@ -64,7 +77,9 @@ class TestDecodeIgnored:
 
 class TestKeycodeToName:
     def test_known_keycode(self):
-        assert keycode_to_name(63) == "f5"
+        # keycode 63 is the Fn trigger (not F5); F5 is keycode 96.
+        assert keycode_to_name(63) == "fn"
+        assert keycode_to_name(96) == "f5"
         assert keycode_to_name(0) == "a"
 
     def test_unknown_keycode_fallback(self):

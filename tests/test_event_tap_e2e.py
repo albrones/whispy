@@ -898,3 +898,51 @@ class TestFullFnWorkflowIntegration:
         from whispy.core.engine import DEFAULT_CONFIG
 
         assert loaded == DEFAULT_CONFIG
+
+
+# ---------------------------------------------------------------------------
+# Tap auto-recovery + callback isolation (fix-trigger-and-eventtap-robustness)
+# ---------------------------------------------------------------------------
+
+
+class TestEventTapRobustness:
+    """The tap re-arms after the OS disables it and contains callback errors."""
+
+    def test_disabled_by_timeout_rearms_tap(self):
+        from whispy.hardware import event_tap as et
+
+        listener = EventTapListener(trigger_keycode=63)
+        listener._tap = MagicMock()
+        with (
+            patch.object(et, "CGEventGetType", return_value=et.kCGEventTapDisabledByTimeout),
+            patch.object(et, "CGEventTapEnable") as enable,
+        ):
+            listener._event_callback(None, None, MagicMock(), None)
+        enable.assert_called_once_with(listener._tap, True)
+
+    def test_disabled_by_user_input_rearms_tap(self):
+        from whispy.hardware import event_tap as et
+
+        listener = EventTapListener(trigger_keycode=63)
+        listener._tap = MagicMock()
+        with (
+            patch.object(et, "CGEventGetType", return_value=et.kCGEventTapDisabledByUserInput),
+            patch.object(et, "CGEventTapEnable") as enable,
+        ):
+            listener._event_callback(None, None, MagicMock(), None)
+        enable.assert_called_once_with(listener._tap, True)
+
+    def test_callback_exception_is_contained(self):
+        from whispy.hardware import event_tap as et
+
+        def boom():
+            raise RuntimeError("engine blew up")
+
+        listener = EventTapListener(trigger_keycode=63, on_trigger_press=boom)
+        with (
+            patch.object(et, "CGEventGetType", return_value=kCGEventKeyDown),
+            patch.object(et, "CGEventGetIntegerValueField", return_value=63),
+            patch.object(et, "CGEventGetFlags", return_value=NX_SECONDARYFNMASK),
+        ):
+            # Must NOT raise — an engine error cannot be allowed to kill the tap.
+            listener._event_callback(None, kCGEventKeyDown, MagicMock(), None)
