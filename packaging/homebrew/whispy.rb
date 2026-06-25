@@ -24,7 +24,6 @@ class Whispy < Formula
 
   depends_on "python@3.12"
   depends_on :macos
-  depends_on "sox"
 
   def install
     # The daemon entry point (whispy_daemon.py) and icons/ live at the repo root,

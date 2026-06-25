@@ -21,7 +21,8 @@ curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootst
 ```
 
 Downloads Whispy into `~/.local/share/whispy` and runs the installer (virtualenv,
-icons, LaunchAgent). Pick a model with:
+icons, and a background service — a LaunchAgent on macOS, a `systemd --user` unit
+on Linux/X11). Pick a model with:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | WHISPER_MODEL=medium bash
@@ -119,7 +120,8 @@ cd whispy
 The script automatically manages:
 - Python virtual environment creation
 - Installation of `faster-whisper`
-- Setup and launching the `LaunchAgent`
+- Setup and launching the background service (a `LaunchAgent` on macOS, a
+  `systemd --user` unit on Linux/X11)
 
 To use a different model:
 ```bash

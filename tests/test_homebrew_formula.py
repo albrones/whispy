@@ -32,9 +32,14 @@ def test_required_fields_present(formula: str, field: str):
     assert field in formula, f"formula missing required field: {field}"
 
 
-@pytest.mark.parametrize("dep", ['depends_on "python@3.12"', 'depends_on "sox"'])
+@pytest.mark.parametrize("dep", ['depends_on "python@3.12"'])
 def test_required_dependencies(formula: str, dep: str):
     assert dep in formula, f"formula missing dependency: {dep}"
+
+
+def test_no_sox_dependency(formula: str):
+    # Audio uses sounddevice/PortAudio (a Python dep); sox is no longer required.
+    assert 'depends_on "sox"' not in formula, "formula must not depend on sox"
 
 
 def test_single_url_line_for_release_bump(formula: str):

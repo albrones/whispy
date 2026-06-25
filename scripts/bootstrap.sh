@@ -55,28 +55,9 @@ if ! command -v python3 &>/dev/null; then
     exit 1
 fi
 
-# Check for sox; offer to install via brew if available.
-if ! command -v sox &>/dev/null; then
-    if command -v brew &>/dev/null; then
-        echo -e "${YELLOW}sox is required and not installed.${NC}"
-        # Skip the prompt when stdin is not a TTY (e.g. piped from curl).
-        if [ -t 0 ]; then
-            read -r -p "Install it now with 'brew install sox'? [y/N] " reply
-        else
-            reply="n"
-        fi
-        if [[ "$reply" =~ ^[Yy]$ ]]; then
-            brew install sox
-        else
-            echo -e "${YELLOW}Install sox and rerun: brew install sox${NC}"
-            exit 1
-        fi
-    else
-        echo -e "${RED}Error: sox is not installed and Homebrew was not found.${NC}"
-        echo -e "${YELLOW}Install Homebrew (https://brew.sh) then: brew install sox${NC}"
-        exit 1
-    fi
-fi
+# Audio capture uses sounddevice/PortAudio (a Python dependency) — no sox or
+# other system audio package is required, so there is no blocking prompt here
+# (this script is commonly piped from curl with no TTY).
 
 # Clone or update the source tree.
 if [ -d "$WHISPY_HOME/.git" ]; then
