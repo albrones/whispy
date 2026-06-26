@@ -2,6 +2,19 @@
 
 **Date de release:** 2026-05-26
 
+## [Non publié]
+
+### Ajoutés
+- **Sélection de la touche de déclenchement depuis le menu (macOS).** Le menu
+  **Settings → Trigger** permet de choisir la touche push-to-talk parmi des
+  préréglages (Fn, Right Command, Right Option, F13) ; le changement s'applique
+  à chaud, sans redémarrage.
+
+### Corrigés
+- **Coche fantôme dans le menu.** Une ligne décochée conservait sa coche verte
+  (`attributedTitle` AppKit prime sur `.title`) ; touche aussi Model/Language et
+  le toggle presse-papiers.
+
 ## [Cross-platform] — macOS + Linux/X11 (2026-06-17)
 
 ### Ajoutés

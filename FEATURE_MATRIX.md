@@ -60,7 +60,8 @@ Tiers are defined in `openspec/specs/TESTING-TIERS.md`.
 | pynput listener arms under X11 | Linux | live-driven | `tests/test_e2e_smoke_linux.py::TestLivePynputListener` | UNVERIFIED on Wayland / no perm |
 | Clipboard round-trip (osascript) | macOS | live-driven | `tests/test_e2e_smoke.py::TestRealOsascriptClipboard` | UNVERIFIED w/o osascript |
 | xdotool injection wires + runs | Linux | live-driven | `tests/test_e2e_smoke_linux.py::TestXdotoolInjection` | UNVERIFIED w/o xdotool / X11 |
-| Push-to-talk → text in focused app | macOS | manual-ui | operator | hold Fn, speak, release, confirm glyphs land |
+| Push-to-talk → text in focused app | macOS | manual-ui | operator | hold trigger (Fn default), speak, release, confirm glyphs land |
+| Trigger selectable from menu | macOS | manual-ui | operator | Settings → Trigger, pick a preset, hold the new key (live, no restart) |
 | Push-to-talk → text in focused app | Linux | manual-ui | operator | hold Right Ctrl, speak, release, confirm glyphs land |
 | Menu bar dropdown renders + reacts | macOS | manual-ui | operator | status dot, settings, model/lang checks |
 | Tray menu renders + reacts | Linux | manual-ui | operator | pystray labels, toggles |

@@ -13,7 +13,7 @@
 
 ## 1. Overview
 
-**Whispy** is a macOS local voice dictation utility that runs as a menu bar daemon. The user holds the **Fn** key to record audio and releases it to automatically transcribe and inject text into the active text field. All processing is local — no data leaves the machine.
+**Whispy** is a macOS local voice dictation utility that runs as a menu bar daemon. The user holds a push-to-talk trigger key (the **Fn** key by default, selectable from the menu — Fn, Right Command, Right Option, or F13) to record audio and releases it to automatically transcribe and inject text into the active text field. All processing is local — no data leaves the machine.
 
 ### Tech Stack
 

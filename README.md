@@ -277,6 +277,8 @@ You can edit `~/.config/whispy/config.json` to change:
 - `trigger` — the push-to-talk key/combo. Leave it `null` (or omit it) to use the
   platform default: the **Fn** key on macOS, **Right Ctrl** (`ctrl_r`) on Linux.
   Set a macOS keycode (integer) or a key/combo name (string) to override.
+  On macOS you can also pick the trigger from the menu bar (**Settings → Trigger**:
+  Fn, Right Command, Right Option, or F13) — the change applies live, no restart.
 
 The HTTP `PORT` (default 9090) is defined near the top of `whispy_daemon.py`.
 
