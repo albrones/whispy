@@ -373,3 +373,125 @@ class TestTranscribe:
 
         result = audio.transcribe(audio_path, mock_whisper_model)
         assert result == "hello world"
+
+
+# ---------------------------------------------------------------------------
+# Streaming segmentation (configure_streaming + capture-side chunk emission)
+# ---------------------------------------------------------------------------
+
+
+class TestStreamingCapture:
+    """Streaming mode buffers PCM and emits chunks on silence/length boundaries."""
+
+    @staticmethod
+    def _block(level_int16: int, n: int = 1600) -> bytes:
+        import numpy as np
+
+        # level 0 -> digital silence; otherwise noise (reliably "speech" to the
+        # WebRTC VAD across every frame, unlike a constant DC level).
+        if level_int16 == 0:
+            return bytes(n * 2)
+        return np.random.RandomState(0).randint(-level_int16, level_int16, n).astype(np.int16).tobytes()
+
+    def _start_streaming(self, sm, mocker, on_chunk, **kw):
+        spy = _install_spy_sd(mocker)
+        audio = AudioEngine(sm)
+        audio.configure_streaming(True, on_chunk, **kw)
+        audio.start()
+        # The closure callback the spy captured; drive it with crafted blocks.
+        return audio, spy.instances[-1]._callback
+
+    def test_emits_chunk_on_silence_boundary(self, sm, mocker):
+        chunks: list[str] = []
+        audio, cb = self._start_streaming(
+            sm, mocker, chunks.append, pause_ms=200, min_chunk_s=0.1, max_chunk_s=10.0
+        )
+        speech = self._block(8000)  # loud -> level ~1.0
+        silence = self._block(0)
+        for _ in range(5):  # 0.5s speech
+            cb(speech, 1600, None, None)
+        for _ in range(4):  # silence accumulates past pause_ms (0.2s)
+            cb(silence, 1600, None, None)
+        assert len(chunks) >= 1
+        assert os.path.exists(chunks[0])
+
+    def test_no_whole_file_written_in_streaming(self, sm, mocker):
+        chunks: list[str] = []
+        audio, cb = self._start_streaming(sm, mocker, chunks.append)
+        # The legacy whole-recording WAV is never opened in streaming mode.
+        assert audio._wave is None
+        cb(self._block(8000), 1600, None, None)
+        assert audio._wave is None
+
+    def test_tail_flushed_on_stop(self, sm, mocker):
+        chunks: list[str] = []
+        audio, cb = self._start_streaming(
+            sm, mocker, chunks.append, pause_ms=5000, min_chunk_s=0.1, max_chunk_s=60.0
+        )
+        # Speech with no closing pause -> nothing emitted until stop flushes tail.
+        for _ in range(5):
+            cb(self._block(8000), 1600, None, None)
+        assert chunks == []
+        audio.stop()
+        assert len(chunks) == 1
+        assert os.path.exists(chunks[0])
+
+    def test_pure_silence_emits_nothing(self, sm, mocker):
+        chunks: list[str] = []
+        audio, cb = self._start_streaming(sm, mocker, chunks.append, pause_ms=200, min_chunk_s=0.1)
+        for _ in range(20):
+            cb(self._block(0), 1600, None, None)
+        audio.stop()
+        assert chunks == []
+
+    def test_segmenter_error_is_contained(self, sm, mocker):
+        # An error inside segmentation must be logged and swallowed, never raised
+        # into the PortAudio callback.
+        audio, cb = self._start_streaming(sm, mocker, lambda _p: None)
+        mocker.patch.object(audio, "_feed_segmenter", side_effect=RuntimeError("boom"))
+        # Calling the capture callback must not raise.
+        cb(self._block(8000), 1600, None, None)
+
+    def test_non_streaming_unchanged(self, sm, mocker):
+        # With streaming off, the legacy single-file path still writes one WAV.
+        _install_spy_sd(mocker)
+        audio = AudioEngine(sm)
+        audio.start()  # spy fires callback with ~1s silence
+        path = audio.recording_path
+        assert os.path.exists(path)
+        audio.stop()
+
+
+class TestSegmentPcm:
+    """segment_pcm replays PCM through the real segmenter (validation seam)."""
+
+    def test_emits_multiple_chunks_on_silence_gap(self, sm):
+        import numpy as np
+
+        audio = AudioEngine(sm)
+        speech = (np.ones(1600, dtype=np.int16) * 8000).tobytes()
+        silence = bytes(1600 * 2)
+        # Lead-in silence (as in a real recording) seeds the noise floor low;
+        # then: utterance, pause, utterance.
+        pcm = silence * 3 + speech * 4 + silence * 5 + speech * 4
+        paths = audio.segment_pcm(pcm, pause_ms=200, min_chunk_s=0.1, max_chunk_s=10.0)
+        try:
+            assert len(paths) >= 2
+            for p in paths:
+                assert os.path.exists(p)
+        finally:
+            for p in paths:
+                if os.path.exists(p):
+                    os.remove(p)
+
+    def test_pure_silence_emits_no_chunks(self, sm):
+        audio = AudioEngine(sm)
+        paths = audio.segment_pcm(bytes(1600 * 2) * 20, pause_ms=200, min_chunk_s=0.1)
+        assert paths == []
+
+    def test_restores_live_state(self, sm):
+        # segment_pcm must not leave the engine wired to its temporary sink.
+        audio = AudioEngine(sm)
+        audio.segment_pcm(bytes(1600 * 2) * 5)
+        assert audio._on_chunk is None
+        assert audio._segmenter is None

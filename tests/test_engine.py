@@ -451,3 +451,220 @@ class TestRunTranscriptionPath:
 
         engine.run_transcription()
         assert transcribe.call_args[1]["audio_path"] == str(wav)
+
+
+# ---------------------------------------------------------------------------
+# Streaming / incremental transcription (chunk pipeline + FSM-1)
+# ---------------------------------------------------------------------------
+
+
+def _make_streaming_engine(config_path, mocker):
+    """Engine with streaming enabled, a loaded model, and inject/transcribe spied."""
+    from whispy.core.engine import Engine
+
+    ds = DictationState()
+    ds.config["streaming_enabled"] = True
+    eng = Engine(ds, config_path)
+    eng.state.model = MagicMock()  # non-None so chunks transcribe
+    return eng
+
+
+def _chunk_file(tmp_path, name):
+    p = tmp_path / name
+    p.write_bytes(b"\x00" * 6000)
+    return str(p)
+
+
+class TestStreamingChunkPipeline:
+    def test_chunks_accumulate_without_mid_recording_injection(self, config_path, mocker, tmp_path):
+        # Chunks transcribed during recording are buffered, never typed mid-
+        # recording (that would steal focus). The FSM worker types once on release.
+        eng = _make_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["alpha", "beta"])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+
+        for n in ("a.wav", "b.wav"):
+            eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, n))
+
+        inject.assert_not_called()
+        assert eng._chunk_texts == ["alpha", "beta"]
+
+    def test_chunks_transcribed_independently(self, config_path, mocker, tmp_path):
+        # The previous chunk's text is never fed back as decoder context: each
+        # call's initial_prompt depends only on the custom vocabulary.
+        eng = _make_streaming_engine(config_path, mocker)
+        eng.state.config["custom_vocabulary"] = ["Whispy"]
+        transcribe = mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["one", "two"])
+        mocker.patch.object(eng._text_injector, "inject")
+
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"))
+
+        prompts = [c.kwargs["initial_prompt"] for c in transcribe.call_args_list]
+        assert prompts == ["Whispy", "Whispy"]
+
+    def test_empty_chunk_injects_nothing(self, config_path, mocker, tmp_path):
+        eng = _make_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", return_value=None)
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+        inject.assert_not_called()
+
+    def test_worker_survives_chunk_error_and_drains(self, config_path, mocker, tmp_path):
+        eng = _make_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=RuntimeError("boom"))
+        mocker.patch.object(eng._text_injector, "inject")
+        eng.start_chunk_worker()
+        try:
+            eng._enqueue_chunk(_chunk_file(tmp_path, "a.wav"))
+            eng._chunk_queue.join()  # would hang if the worker died on the error
+        finally:
+            eng.stop_chunk_worker()
+
+    def test_mid_recording_chunks_do_not_set_is_transcribing(self, config_path, mocker, tmp_path):
+        eng = _make_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", return_value="hi")
+        mocker.patch.object(eng._text_injector, "inject")
+        eng._state_machine.start_recording()  # RECORDING
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+        assert eng.state.is_transcribing is False
+        assert eng._state_machine.is_recording is True
+
+    def test_tail_flush_drains_and_returns_idle(self, config_path, mocker, tmp_path):
+        import time
+
+        eng = _make_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["bonjour", "le monde"])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        mocker.patch.object(eng._notifier, "transcription_succeeded")
+
+        eng.start_chunk_worker()
+        eng.start_transcription_worker()
+        try:
+            eng._on_fsm_recording(None)  # reset per-recording accumulators
+            eng._state_machine.start_recording()
+            eng._enqueue_chunk(_chunk_file(tmp_path, "c1.wav"))
+            eng._state_machine.stop_recording()  # -> TRANSCRIBING
+            eng._enqueue_chunk(_chunk_file(tmp_path, "tail.wav"))  # tail chunk
+            eng.state.stop_event.set()
+            deadline = time.time() + 5.0
+            while eng._state_machine.current_state.name != "IDLE" and time.time() < deadline:
+                time.sleep(0.02)
+            assert eng._state_machine.current_state.name == "IDLE"
+            # Assembled once on release — not per chunk.
+            inject.assert_called_once_with("bonjour le monde")
+        finally:
+            eng.stop_transcription_worker()
+            eng.stop_chunk_worker()
+
+
+class TestStreamFileSeam:
+    """engine.stream_file: deterministic streaming seam (no mic, no inject)."""
+
+    def _wav(self, tmp_path, name="a.wav"):
+        import wave
+
+        p = tmp_path / name
+        with wave.open(str(p), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(b"\x00" * 32000)
+        return str(p)
+
+    def test_returns_ordered_chunk_texts(self, config_path, mocker, tmp_path):
+        eng = _make_streaming_engine(config_path, mocker)
+        wav = self._wav(tmp_path)
+        mocker.patch.object(eng._audio_engine, "segment_pcm", return_value=["c1", "c2"])
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["un", "deux"])
+        cleanup = mocker.patch.object(eng._audio_engine, "cleanup_audio_file")
+        assert eng.stream_file(wav) == ["un", "deux"]
+        # Each chunk file is cleaned up after transcription.
+        assert cleanup.call_count == 2
+
+    def _speech_wav(self, tmp_path, name="speech.wav"):
+        import wave
+
+        import numpy as np
+
+        p = tmp_path / name
+        pcm = np.random.RandomState(0).randint(-9000, 9000, 16000).astype(np.int16).tobytes()
+        with wave.open(str(p), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(pcm)
+        return str(p)
+
+    def test_real_segmentation_path(self, config_path, mocker, tmp_path):
+        # Exercise the REAL segment_pcm (not mocked) so a kwarg mismatch between
+        # stream_file and segment_pcm is caught — the bug that crashed /stream-file.
+        eng = _make_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", return_value="chunk text")
+        result = eng.stream_file(self._speech_wav(tmp_path))
+        assert result is not None
+        assert all(isinstance(t, str) for t in result)
+
+    def test_none_when_model_unloaded(self, config_path, mocker, tmp_path):
+        eng = _make_streaming_engine(config_path, mocker)
+        eng.state.model = None
+        assert eng.stream_file(self._wav(tmp_path)) is None
+
+    def test_none_when_file_missing(self, config_path, mocker):
+        eng = _make_streaming_engine(config_path, mocker)
+        assert eng.stream_file("/nope/missing.wav") is None
+
+
+class TestStreamingRuntimeToggle:
+    """update_config re-wires streaming and the chunk worker at runtime."""
+
+    def test_enable_wires_audio_and_starts_worker(self, config_path, mocker):
+        from whispy.core.engine import Engine
+
+        ds = DictationState()
+        ds.config["streaming_enabled"] = False
+        eng = Engine(ds, config_path)
+        assert eng._streaming is False
+        eng._transcription_running = True  # simulate a started engine
+        start_spy = mocker.patch.object(eng, "start_chunk_worker")
+        stop_spy = mocker.patch.object(eng, "stop_chunk_worker")
+
+        eng.update_config({"streaming_enabled": True})
+
+        assert eng._streaming is True
+        assert eng._audio_engine._streaming is True
+        start_spy.assert_called_once()
+        stop_spy.assert_not_called()
+
+    def test_disable_stops_worker(self, config_path, mocker):
+        from whispy.core.engine import Engine
+
+        ds = DictationState()
+        ds.config["streaming_enabled"] = True
+        eng = Engine(ds, config_path)
+        assert eng._streaming is True
+        eng._transcription_running = True
+        start_spy = mocker.patch.object(eng, "start_chunk_worker")
+        stop_spy = mocker.patch.object(eng, "stop_chunk_worker")
+
+        eng.update_config({"streaming_enabled": False})
+
+        assert eng._streaming is False
+        assert eng._audio_engine._streaming is False
+        stop_spy.assert_called_once()
+        start_spy.assert_not_called()
+
+    def test_toggle_before_start_does_not_touch_worker(self, config_path, mocker):
+        from whispy.core.engine import Engine
+
+        ds = DictationState()
+        eng = Engine(ds, config_path)  # not started: _transcription_running is False
+        start_spy = mocker.patch.object(eng, "start_chunk_worker")
+        stop_spy = mocker.patch.object(eng, "stop_chunk_worker")
+
+        eng.update_config({"streaming_enabled": True})
+
+        assert eng._streaming is True
+        start_spy.assert_not_called()
+        stop_spy.assert_not_called()
+

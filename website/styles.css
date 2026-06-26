@@ -270,6 +270,10 @@ code { font-family: var(--mono); color: var(--green); }
 .dd-tick { width: 14px; color: var(--green); opacity: 0; margin-right: 2px; }
 .dd-check.is-checked .dd-tick { opacity: 1; }
 .dd-check { justify-content: flex-start; }
+/* Toggle rows keep the title left-aligned (like Model/Language) with the tick
+   trailing at the right, so all settings titles line up. */
+.dd-toggle .dd-tick { opacity: 0; margin-right: 0; }
+.dd-toggle.is-checked .dd-tick { opacity: 1; }
 .is-langrow.is-active { background: var(--green); color: #06120f; }
 .is-langrow.is-active .dd-val { color: rgba(6, 18, 15, 0.7); }
 

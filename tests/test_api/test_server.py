@@ -268,6 +268,45 @@ class TestPostTranscribeFile:
         assert "error" in body
 
 
+class TestPostStreamFile:
+    """Test POST /stream-file — the deterministic streaming validation seam."""
+
+    def test_returns_ordered_chunk_texts(self, test_server, tmp_path):
+        _, port, engine = test_server
+        engine.stream_file = lambda path: ["alpha", "beta"]
+        wav = tmp_path / "x.wav"
+        status, body = _post(port, "/stream-file", {"path": str(wav)})
+        assert status == 200
+        assert body["texts"] == ["alpha", "beta"]
+        assert body["text"] == "alpha beta"
+
+    def test_missing_path_returns_400(self, test_server):
+        _, port, _ = test_server
+        status, body = _post(port, "/stream-file", {})
+        assert status == 400
+
+    def test_model_not_loaded_returns_409(self, test_server, tmp_path):
+        _, port, engine = test_server
+        engine.stream_file = lambda path: None
+        status, body = _post(port, "/stream-file", {"path": str(tmp_path / "x.wav")})
+        assert status == 409
+
+    def test_no_chunks_is_200_empty(self, test_server, tmp_path):
+        # Silence yields no chunks (ran, nothing usable) — 200 with empty list.
+        _, port, engine = test_server
+        engine.stream_file = lambda path: []
+        status, body = _post(port, "/stream-file", {"path": str(tmp_path / "silence.wav")})
+        assert status == 200
+        assert body["texts"] == []
+        assert body["text"] == ""
+
+    def test_path_outside_allow_dir_returns_403(self, test_server):
+        _, port, engine = test_server
+        engine.stream_file = lambda path: pytest.fail("must not stream a disallowed path")
+        status, body = _post(port, "/stream-file", {"path": "/etc/passwd"})
+        assert status == 403
+
+
 class TestApiSecurity:
     """Auth, DNS-rebinding, and body-size defenses on the control API."""
 

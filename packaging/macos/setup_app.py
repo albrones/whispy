@@ -71,6 +71,11 @@ OPTIONS = {
     ],
     "includes": [
         "_cffi_backend",
+        # WebRTC VAD for streaming segmentation: a top-level pure module plus its
+        # compiled C extension. Without both, `import webrtcvad` fails in the
+        # bundle and the segmenter silently degrades to the energy fallback.
+        "webrtcvad",
+        "_webrtcvad",
         "objc",
         "Quartz",
         "AVFoundation",

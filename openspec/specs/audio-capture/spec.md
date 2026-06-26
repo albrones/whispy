@@ -9,7 +9,6 @@ transcription failure isolation. Capture is performed through the cross-platform
 recording path. Created by change `define-test-perimeter`.
 
 Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
-
 ## Requirements
 ### Requirement: Recording readiness wait
 The audio engine SHALL capture audio via the cross-platform `sounddevice` (PortAudio) backend rather than a `sox` subprocess, writing the same 16 kHz mono WAV at the established recording path so transcription is unaffected. The engine SHALL wait for the capture stream to begin delivering audio before returning from start, so that the audio device's cold-start delay does not produce an empty first recording. The wait SHALL terminate when capture has started, when the stream fails to open, or when a readiness timeout elapses — and SHALL never block indefinitely.
@@ -123,3 +122,31 @@ Each recording SHALL write to a unique path captured at recording start, so a re
 #### Scenario: Trigger fires during transcription
 - **WHEN** a new recording starts while the transcription worker is still reading the prior recording
 - **THEN** the new recording SHALL write to a different file and the worker's file SHALL remain intact until cleanup
+
+### Requirement: Live PCM buffering and segmentation hook
+When streaming is enabled, the audio engine SHALL buffer captured int16 frames in
+memory for the current chunk and run a silence/length segmentation detector over
+the frames inside the capture callback, reusing the per-block RMS level already
+computed for the waveform. On a chunk boundary the engine SHALL make the
+accumulated audio available for transcription as a self-contained 16 kHz mono WAV
+at a unique path, leaving the existing single-file capture path in place for the
+non-streaming mode. The segmentation work SHALL run within the existing capture
+callback's exception containment so a detector error is logged and never raised
+into the PortAudio backend.
+
+#### Scenario: Frames are buffered and segmented during capture
+- **WHEN** streaming is enabled and the capture callback receives audio frames
+- **THEN** the engine SHALL accumulate the frames for the current chunk and evaluate the silence/length segmentation detector on them
+
+#### Scenario: Chunk boundary produces a transcribable WAV
+- **WHEN** the segmentation detector signals a chunk boundary
+- **THEN** the engine SHALL write the accumulated audio as a unique 16 kHz mono WAV and make it available to the chunk pipeline
+
+#### Scenario: Detector error is contained
+- **WHEN** the segmentation detector raises inside the capture callback
+- **THEN** the error SHALL be logged and contained, and SHALL NOT propagate into the audio backend
+
+#### Scenario: Non-streaming capture is unchanged
+- **WHEN** streaming is disabled
+- **THEN** capture SHALL write a single WAV at the established recording path exactly as before, with no per-chunk emission
+

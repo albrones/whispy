@@ -283,6 +283,119 @@ def run_semantic_checks(base_url: str) -> list[CheckResult]:
     return out
 
 
+def _build_multi_utterance_wav(dest: Path) -> bool:
+    """Concatenate fr_speech + silence + fr_speech into ``dest`` (under allow-dir).
+
+    Two utterances split by the committed 1 s silence gap → the streaming
+    segmenter must cut on that pause and yield ≥2 chunks. Returns False if the
+    source fixtures are missing.
+    """
+    import wave
+
+    fr = FIXTURES / "fr_speech.wav"
+    sil = FIXTURES / "silence.wav"
+    if not fr.exists() or not sil.exists():
+        return False
+    with wave.open(str(fr), "rb") as w:
+        params = w.getparams()
+        fr_frames = w.readframes(w.getnframes())
+    with wave.open(str(sil), "rb") as w:
+        sil_frames = w.readframes(w.getnframes())
+    with wave.open(str(dest), "wb") as w:
+        w.setparams(params)
+        w.writeframes(fr_frames)
+        w.writeframes(sil_frames)
+        w.writeframes(fr_frames)
+    return True
+
+
+def run_streaming_checks(base_url: str) -> list[CheckResult]:
+    """Deterministic streaming checks over ``POST /stream-file`` (no mic).
+
+    Proves the live segmentation + per-chunk transcription wiring end to end:
+    a known utterance streams to the expected tokens, and a two-utterance clip
+    split by a silence gap is cut into ≥2 chunks. UNVERIFIED when the model never
+    loads.
+    """
+    plat = sys.platform
+    out: list[CheckResult] = []
+
+    if not _wait_model(base_url, time.monotonic() + 120):
+        return [
+            CheckResult(
+                "Streaming chunk transcription (HTTP)",
+                Outcome.UNVERIFIED,
+                "model never loaded (not cached / offline?)",
+                tier="live-driven",
+                platform=plat,
+            )
+        ]
+
+    # 1. Known speech streams to the expected tokens (proves the seam transcribes).
+    fr = FIXTURES / "fr_speech.wav"
+    if fr.exists():
+        try:
+            _http("POST", f"{base_url}/config", timeout=10, body={"language": "fr"})
+            resp = _http("POST", f"{base_url}/stream-file", timeout=120, body={"path": str(fr)})
+            texts = resp.get("texts") or []
+            got = _tokens(resp.get("text") or "")
+            missing = [t for t in ("test", "fini") if t not in got]
+            ok = texts and not missing
+            out.append(
+                CheckResult(
+                    "Streaming chunk transcription (HTTP)",
+                    Outcome.PASS if ok else Outcome.FAIL,
+                    f"{len(texts)} chunk(s), text={resp.get('text')!r}"
+                    if ok
+                    else f"missing {missing} / no chunks: {resp!r}",
+                    tier="live-driven",
+                    platform=plat,
+                )
+            )
+        except (urllib.error.URLError, OSError) as exc:
+            out.append(
+                CheckResult(
+                    "Streaming chunk transcription (HTTP)",
+                    Outcome.FAIL,
+                    f"/stream-file drive failed: {exc}",
+                    tier="live-driven",
+                    platform=plat,
+                )
+            )
+
+    # 2. A two-utterance clip split by silence is segmented into ≥2 chunks.
+    multi = FIXTURES / "_stream_multi_tmp.wav"
+    if _build_multi_utterance_wav(multi):
+        try:
+            _http("POST", f"{base_url}/config", timeout=10, body={"language": "fr"})
+            resp = _http("POST", f"{base_url}/stream-file", timeout=120, body={"path": str(multi)})
+            texts = resp.get("texts") or []
+            out.append(
+                CheckResult(
+                    "Streaming segments on silence (≥2 chunks)",
+                    Outcome.PASS if len(texts) >= 2 else Outcome.FAIL,
+                    f"{len(texts)} chunks: {texts!r}"
+                    if len(texts) >= 2
+                    else f"expected ≥2 chunks, got {len(texts)}: {texts!r}",
+                    tier="live-driven",
+                    platform=plat,
+                )
+            )
+        except (urllib.error.URLError, OSError) as exc:
+            out.append(
+                CheckResult(
+                    "Streaming segments on silence (≥2 chunks)",
+                    Outcome.FAIL,
+                    f"/stream-file drive failed: {exc}",
+                    tier="live-driven",
+                    platform=plat,
+                )
+            )
+        finally:
+            multi.unlink(missing_ok=True)
+    return out
+
+
 def drive_cycle(base_url: str, record_seconds: float = 1.0) -> list[CheckResult]:
     """Drive a record→transcribe cycle over HTTP and classify the results."""
     plat = sys.platform
@@ -406,4 +519,5 @@ def run_live_drive(record_seconds: float = 1.0) -> list[CheckResult]:
             ]
         results = drive_cycle(base_url, record_seconds=record_seconds)
         results.extend(run_semantic_checks(base_url))
+        results.extend(run_streaming_checks(base_url))
         return results

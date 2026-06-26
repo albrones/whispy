@@ -6,6 +6,7 @@ into a unified interface for the UI and API layers.
 
 import logging
 import os
+import queue
 import sys
 import threading
 import time
@@ -192,6 +193,23 @@ class Engine:
         self._transcription_thread: threading.Thread | None = None
         self._transcription_running = False
 
+        # --- Streaming / incremental transcription ---
+        # When enabled, the audio engine emits silence/length-bounded chunks onto
+        # this queue during RECORDING; a single chunk worker transcribes + injects
+        # them in order while recording continues (FSM-1: the FSM stays RECORDING).
+        self._streaming = bool(state.config.get("streaming_enabled", False))
+        self._chunk_queue: queue.Queue[str] = queue.Queue()
+        self._chunk_thread: threading.Thread | None = None
+        self._chunk_worker_running = False
+        # Reset per recording: whether any chunk has injected text yet (drives the
+        # inter-chunk separating space) and whether any chunk produced text at all
+        # (drives the single success sound on release).
+        self._chunk_any_text = False
+        # Chunk texts accumulate here during recording and are typed once on
+        # release (avoids mid-recording focus disruption in full-screen apps).
+        self._chunk_texts: list[str] = []
+        self._apply_streaming_config()
+
         # Register FSM callbacks to keep DictationState in sync
         self._state_machine.on_state_change(State.RECORDING, self._on_fsm_recording)
         self._state_machine.on_state_change(State.TRANSCRIBING, self._on_fsm_transcribing)
@@ -201,6 +219,9 @@ class Engine:
         """Sync DictationState when FSM enters RECORDING."""
         self.state.is_recording = True
         self.state.is_transcribing = False
+        # Fresh per-recording streaming accounting.
+        self._chunk_any_text = False
+        self._chunk_texts = []
         self._notify_recording_start()
 
     def _on_fsm_transcribing(self, _state: State) -> None:
@@ -386,6 +407,97 @@ class Engine:
 
         return text
 
+    # -- Streaming chunk pipeline (FSM-1: runs during RECORDING) --
+
+    def _apply_streaming_config(self) -> None:
+        """(Re)wire the audio engine's streaming from the current config.
+
+        Called at init and whenever streaming config changes at runtime (e.g. the
+        menu toggle). Sets ``self._streaming`` and pushes the segmentation params
+        to the audio engine; the chunk-worker lifecycle is managed by the caller.
+        """
+        cfg = self.state.config
+        self._streaming = bool(cfg.get("streaming_enabled", False))
+        self._audio_engine.configure_streaming(
+            self._streaming,
+            self._enqueue_chunk,
+            pause_ms=cfg.get("pause_ms", 600),
+            min_chunk_s=cfg.get("min_chunk_s", 0.4),
+            max_chunk_s=cfg.get("max_chunk_s", 12.0),
+            aggressiveness=cfg.get("vad_aggressiveness", 2),
+        )
+
+    def _enqueue_chunk(self, path: str) -> None:
+        """Audio-callback sink: queue a chunk WAV for the chunk worker.
+
+        Runs on the capture-callback thread (and on ``stop()`` for the tail), so
+        it must stay cheap — it only enqueues.
+        """
+        self._chunk_queue.put(path)
+
+    def _transcribe_and_inject_chunk(self, path: str) -> None:
+        """Transcribe one chunk and inject its text in order, append-only.
+
+        Reuses the same decoder params, custom-vocabulary prompt, and cleaning as
+        the whole-recording path; chunks stay independent (no previous-text
+        feedback). Always removes the chunk file when done.
+        """
+        try:
+            if self.state.model is None or not os.path.exists(path):
+                return
+            vocab = self.state.config.get("custom_vocabulary") or []
+            initial_prompt = ", ".join(vocab) if vocab else None
+            text = self._audio_engine.transcribe(
+                audio_path=path,
+                model=self.state.model,
+                language=self.state.config.get("language", "fr"),
+                beam_size=self.state.config.get("beam_size", 1),
+                best_of=self.state.config.get("best_of", 2),
+                auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
+                min_recording_duration=self.state.config.get("min_chunk_s", 0.4),
+                initial_prompt=initial_prompt,
+            )
+            if not text:
+                return
+            cleaned = clean_text(text)
+            if not cleaned:
+                return
+            self.state.last_transcription = cleaned
+            self._chunk_any_text = True
+            # Accumulate; the FSM worker types the assembled text once on release.
+            # Typing mid-recording disrupts focus in full-screen apps.
+            self._chunk_texts.append(cleaned)
+        except Exception:
+            logger.exception("[engine] chunk transcription failed")
+        finally:
+            self._audio_engine.cleanup_audio_file(path)
+
+    def _chunk_worker_loop(self) -> None:
+        """Single ordered consumer of the chunk queue (FIFO → in-order inject)."""
+        while self._chunk_worker_running:
+            try:
+                path = self._chunk_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                self._transcribe_and_inject_chunk(path)
+            finally:
+                self._chunk_queue.task_done()
+
+    def start_chunk_worker(self) -> None:
+        """Start the streaming chunk worker (no-op when streaming is disabled)."""
+        if not self._streaming or self._chunk_worker_running:
+            return
+        self._chunk_worker_running = True
+        self._chunk_thread = threading.Thread(target=self._chunk_worker_loop, name="chunk-worker", daemon=True)
+        self._chunk_thread.start()
+
+    def stop_chunk_worker(self) -> None:
+        """Stop the streaming chunk worker."""
+        self._chunk_worker_running = False
+        if self._chunk_thread and self._chunk_thread.is_alive():
+            self._chunk_thread.join(timeout=5.0)
+
     def transcribe_file(self, audio_path: str) -> str | None:
         """Transcribe a given WAV with the current config — no inject, no delete.
 
@@ -418,6 +530,62 @@ class Engine:
         # Model ran and file was present: empty/None means "no speech" (e.g.
         # silence) → "". None is reserved for not-loaded / missing-file above.
         return clean_text(text) if text else ""
+
+    def stream_file(self, audio_path: str) -> list[str] | None:
+        """Deterministic streaming seam: replay a WAV through live segmentation.
+
+        Drives the same segmenter + per-chunk transcription the live streaming
+        path uses, against an arbitrary file, WITHOUT a mic, keystroke injection,
+        or deleting the source. Returns the ordered list of cleaned chunk texts
+        (empty list = no chunk yielded usable text), or ``None`` when the model is
+        unloaded or the file is missing/unreadable. The validation harness drives
+        this over ``POST /stream-file`` so streaming chunking is verifiable
+        without a microphone.
+        """
+        import wave
+
+        if self.state.model is None:
+            return None
+        if not os.path.exists(audio_path):
+            return None
+        try:
+            with wave.open(audio_path, "rb") as wf:
+                pcm = wf.readframes(wf.getnframes())
+        except (OSError, wave.Error):
+            return None
+
+        cfg = self.state.config
+        min_chunk_s = cfg.get("min_chunk_s", 0.4)
+        paths = self._audio_engine.segment_pcm(
+            pcm,
+            pause_ms=cfg.get("pause_ms", 600),
+            min_chunk_s=min_chunk_s,
+            max_chunk_s=cfg.get("max_chunk_s", 12.0),
+            aggressiveness=cfg.get("vad_aggressiveness", 2),
+        )
+
+        vocab = cfg.get("custom_vocabulary") or []
+        initial_prompt = ", ".join(vocab) if vocab else None
+        texts: list[str] = []
+        for path in paths:
+            try:
+                text = self._audio_engine.transcribe(
+                    audio_path=path,
+                    model=self.state.model,
+                    language=cfg.get("language", "fr"),
+                    beam_size=cfg.get("beam_size", 1),
+                    best_of=cfg.get("best_of", 2),
+                    auto_detect_min_duration=cfg.get("auto_detect_min_duration", 0.5),
+                    min_recording_duration=min_chunk_s,
+                    initial_prompt=initial_prompt,
+                )
+                if text:
+                    cleaned = clean_text(text)
+                    if cleaned:
+                        texts.append(cleaned)
+            finally:
+                self._audio_engine.cleanup_audio_file(path)
+        return texts
 
     # -- Fn key listener --
 
@@ -486,9 +654,23 @@ class Engine:
                     self.state.stop_event.clear()
                     self._notify_status_change()
 
-                    text = None
+                    produced_text = False
                     try:
-                        text = self.run_transcription()
+                        if self._streaming:
+                            # FSM-1 tail: chunks (incl. the tail flushed by
+                            # stop()) are transcribed by the chunk worker. Wait
+                            # for the queue to drain so the FSM leaves
+                            # TRANSCRIBING only once all chunks are handled.
+                            self._chunk_queue.join()
+                            # Type the assembled text once, now that recording
+                            # stopped (no mid-recording injection / focus steal).
+                            assembled = " ".join(self._chunk_texts).strip()
+                            if assembled:
+                                self.state.last_transcription = assembled
+                                self._text_injector.inject(assembled)
+                            produced_text = self._chunk_any_text
+                        else:
+                            produced_text = bool(self.run_transcription())
                     except Exception:
                         # A transcription failure must not kill the worker or
                         # wedge the FSM in TRANSCRIBING — log and recover below.
@@ -501,7 +683,7 @@ class Engine:
                         self._notify_status_change()
 
                     # Success sound only on a real transcription.
-                    if text:
+                    if produced_text:
                         self._notifier.transcription_succeeded()
 
         self._transcription_thread = threading.Thread(target=_worker, name="transcription-worker", daemon=True)
@@ -527,6 +709,23 @@ class Engine:
             self._text_injector.update_config(updates["copy_to_clipboard"])
         if "model_size" in updates:
             needs_reload = True
+
+        # Streaming toggle / param change: re-wire the audio engine and, if the
+        # engine is already running, start or stop the chunk worker to match.
+        streaming_keys = {
+            "streaming_enabled",
+            "pause_ms",
+            "min_chunk_s",
+            "max_chunk_s",
+            "vad_aggressiveness",
+        }
+        if streaming_keys & updates.keys():
+            self._apply_streaming_config()
+            if self._transcription_running:  # engine has been started
+                if self._streaming:
+                    self.start_chunk_worker()
+                else:
+                    self.stop_chunk_worker()
         return needs_reload
 
     # -- Lifecycle --
@@ -558,9 +757,11 @@ class Engine:
             ensure_automation_access()
         self.start_fn_listener()
         self.start_transcription_worker()
+        self.start_chunk_worker()
         load_model_async(self)
 
     def stop(self) -> None:
         """Stop all engine components."""
         self.stop_transcription_worker()
+        self.stop_chunk_worker()
         self.stop_fn_listener()

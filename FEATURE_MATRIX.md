@@ -51,6 +51,11 @@ Tiers are defined in `openspec/specs/TESTING-TIERS.md`.
 | Language selection honored | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | fr/en fixtures decode in the configured language |
 | Config change applies over HTTP | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | `/config` sets language; `/config` GET reflects it |
 | /transcribe-file endpoint (deterministic seam) | both | unit-mocked | `tests/test_api/` | transcribes given WAV with current config, no inject/delete |
+| Streaming chunk transcription (HTTP) | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | fixture `fr_speech.wav` via `/stream-file`; expects tokens test+fini across chunks |
+| Streaming segments on silence (≥2 chunks) | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | fr+silence+fr clip via `/stream-file` cut into ≥2 chunks |
+| VAD speech segmentation detector | both | unit-pure | `tests/test_segmentation.py` | webrtcvad pause/max-length cuts, onset not clipped, energy fallback |
+| Streaming types assembled text on release | both | unit-mocked | `tests/test_engine.py::TestStreamingChunkPipeline`, `tests/test_engine.py::TestStreamFileSeam` | chunks transcribed during recording, buffered, typed once on release (no mid-recording focus steal) |
+| /stream-file endpoint (deterministic streaming seam) | both | unit-mocked | `tests/test_api/`, `tests/test_audio.py::TestSegmentPcm`, `tests/test_engine.py::TestStreamFileSeam` | replays WAV through live segmentation; returns ordered chunk texts, no inject/delete |
 | Event tap arms with permission | macOS | live-driven | `tests/test_e2e_smoke.py::TestLiveEventTap` | CGEventTap; UNVERIFIED w/o Input Monitoring |
 | pynput listener arms under X11 | Linux | live-driven | `tests/test_e2e_smoke_linux.py::TestLivePynputListener` | UNVERIFIED on Wayland / no perm |
 | Clipboard round-trip (osascript) | macOS | live-driven | `tests/test_e2e_smoke.py::TestRealOsascriptClipboard` | UNVERIFIED w/o osascript |

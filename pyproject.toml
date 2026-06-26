@@ -11,6 +11,10 @@ dependencies = [
     "faster-whisper",
     # Cross-platform audio capture (PortAudio). Hard runtime dependency.
     "sounddevice",
+    # Voice-activity detection for streaming segmentation. The maintained
+    # binary-wheel fork (no pkg_resources/setuptools runtime dep; works on
+    # Python 3.12+). The segmenter degrades to an energy gate if it is absent.
+    "webrtcvad-wheels",
     # macOS-only: CGEventTap hotkey + rumps menu bar.
     "pyobjc-framework-Quartz; sys_platform=='darwin'",
     # macOS-only: AVFoundation drives the microphone TCC prompt + status check

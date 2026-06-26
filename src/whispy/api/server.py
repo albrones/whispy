@@ -149,6 +149,37 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
             self._json_response(200, {"text": text})
 
+        elif self.path == "/stream-file":
+            # Deterministic streaming seam: replay a known WAV through live
+            # segmentation + per-chunk transcription (no mic, no inject, no
+            # delete). Returns the ordered chunk texts so validation can verify
+            # chunking without a microphone.
+            body = self._read_body()
+            if body is None:
+                return
+            path = body.get("path")
+            if not path:
+                self._json_response(400, {"error": "missing 'path'"})
+                return
+            allow_dir = getattr(self.server, "allow_dir", None) or transcribe_allow_dir()
+            try:
+                resolved = Path(path).resolve()
+                resolved.relative_to(Path(allow_dir).resolve())
+            except (ValueError, OSError):
+                self._json_response(403, {"error": "path not allowed"})
+                return
+            try:
+                texts = engine.stream_file(str(resolved))
+            except Exception as exc:
+                # Never drop the connection on an internal error — return 500 so
+                # the caller sees a clear failure instead of a closed socket.
+                self._json_response(500, {"error": f"stream-file failed: {exc}"})
+                return
+            if texts is None:
+                self._json_response(409, {"error": "model not loaded or file missing", "path": path})
+                return
+            self._json_response(200, {"texts": texts, "text": " ".join(texts)})
+
         elif self.path == "/config":
             body = self._read_body()
             if body is None:

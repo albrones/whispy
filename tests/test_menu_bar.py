@@ -143,3 +143,4 @@ class TestStatusDisplayMarshaling:
 
         app._update_status_on_main.assert_called_once_with()
         app_helper.callAfter.assert_not_called()
+

@@ -225,3 +225,82 @@ class TestEngineAudioWithMocks:
         engine._state_machine.transition_to(State.IDLE)
         assert ds.is_recording is False
         assert ds.is_transcribing is False
+
+
+# ---------------------------------------------------------------------------
+# Streaming end-to-end: capture callback -> chunk queue -> transcribe -> inject
+# ---------------------------------------------------------------------------
+
+
+class TestStreamingEndToEnd:
+    """Drive the wired streaming path with a mocked model and fake capture."""
+
+    @staticmethod
+    def _speech(n: int = 1600) -> bytes:
+        import numpy as np
+
+        # Random noise reads as "speech" to webrtcvad across every frame.
+        return np.random.RandomState(1).randint(-9000, 9000, n).astype(np.int16).tobytes()
+
+    @staticmethod
+    def _silence(n: int = 1600) -> bytes:
+        return bytes(n * 2)
+
+    def test_streaming_wires_callback_to_chunk_queue(self, config_path, mocker, tmp_path):
+        import itertools
+
+        import whispy.core.audio as audio_module
+
+        ds = DictationState()
+        ds.config["streaming_enabled"] = True
+        ds.config["pause_ms"] = 200
+        ds.config["min_chunk_s"] = 0.1
+        ds.config["max_chunk_s"] = 10.0
+        engine = Engine(ds, config_path)
+        engine.state.model = mocker.MagicMock()
+
+        counter = itertools.count()
+        mocker.patch.object(engine._audio_engine, "transcribe", side_effect=lambda **k: f"w{next(counter)}")
+        inject = mocker.patch.object(engine._text_injector, "inject")
+
+        captured = {}
+        real_factory = audio_module.sd.RawInputStream
+
+        def _factory(*a, **kw):
+            inst = real_factory(*a, **kw)
+            captured["cb"] = kw.get("callback") or (a[3] if len(a) > 3 else None)
+            return inst
+
+        mocker.patch.object(audio_module.sd, "RawInputStream", side_effect=_factory)
+
+        engine.start_chunk_worker()
+        try:
+            engine._on_fsm_recording(None)
+            engine.start_recording()
+            cb = captured["cb"]
+            # Two utterances separated by a clear pause.
+            for _ in range(5):
+                cb(self._speech(), 1600, None, None)
+            for _ in range(5):
+                cb(self._silence(), 1600, None, None)
+            for _ in range(5):
+                cb(self._speech(), 1600, None, None)
+            engine.stop_recording()  # flushes the tail onto the queue
+            engine._chunk_queue.join()
+        finally:
+            engine.stop_chunk_worker()
+
+        # Callback -> segmenter -> queue -> worker wiring produced ordered chunks,
+        # buffered (not typed mid-recording). The release path types them once.
+        inject.assert_not_called()
+        assert len(engine._chunk_texts) >= 2
+        assert engine._chunk_texts == sorted(engine._chunk_texts, key=lambda s: int(s[1:]))
+
+    def test_streaming_disabled_uses_whole_file_path(self, config_path, mocker):
+        # streaming off -> no chunk wiring; the legacy run_transcription path runs.
+        ds = DictationState()
+        ds.config["streaming_enabled"] = False
+        engine = Engine(ds, config_path)
+        assert engine._streaming is False
+        # configure_streaming was never enabled on the audio engine.
+        assert engine._audio_engine._streaming is False

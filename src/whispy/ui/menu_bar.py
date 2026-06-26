@@ -123,11 +123,12 @@ class WhisperMenuBarApp(rumps.App):
             self.language_menu.add(item)
         self._update_language_title()
 
-        # Clipboard toggle
+        # Clipboard toggle — trailing check so the title aligns left with the
+        # Model/Language rows. (Streaming is always on; no toggle.)
         self.copy_menu = rumps.MenuItem("Copy to clipboard", callback=self._on_toggle_copy)
         self.copy_menu._label = "Copy to clipboard"
         menu_theme.apply_title(
-            self.copy_menu, menu_theme.check_title("Copy to clipboard", cfg.get("copy_to_clipboard", False))
+            self.copy_menu, menu_theme.toggle_title("Copy to clipboard", cfg.get("copy_to_clipboard", False))
         )
 
         # Usage hint (disabled label).
@@ -176,7 +177,7 @@ class WhisperMenuBarApp(rumps.App):
         for code, item in self._lang_items.items():
             menu_theme.apply_title(item, menu_theme.check_title(item._label, code == cfg["language"]))
         menu_theme.apply_title(
-            self.copy_menu, menu_theme.check_title(self.copy_menu._label, cfg.get("copy_to_clipboard", False))
+            self.copy_menu, menu_theme.toggle_title(self.copy_menu._label, cfg.get("copy_to_clipboard", False))
         )
         # Status line carries the green dot; rebuilding it re-reads the appearance.
         self.update_status_display()
@@ -321,7 +322,7 @@ class WhisperMenuBarApp(rumps.App):
 
     def _on_toggle_copy(self, sender: rumps.MenuItem) -> None:
         enabled = not self.engine.state.config.get("copy_to_clipboard", False)
-        menu_theme.apply_title(sender, menu_theme.check_title(sender._label, enabled))
+        menu_theme.apply_title(sender, menu_theme.toggle_title(sender._label, enabled))
         self.engine.update_config({"copy_to_clipboard": enabled})
 
     def _on_reload(self, _sender: Any) -> None:

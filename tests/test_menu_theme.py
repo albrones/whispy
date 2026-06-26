@@ -85,6 +85,17 @@ class TestBuildersPlainFallback:
         assert menu_theme.CHECK not in out
         assert out.endswith("French")
 
+    def test_toggle_title_checked_has_trailing_tick(self, monkeypatch):
+        _force_no_appkit(monkeypatch)
+        out = menu_theme.toggle_title("Copy to clipboard", True)
+        assert isinstance(out, str)
+        assert out.startswith("Copy to clipboard")  # title left-aligned
+        assert out.rstrip().endswith(menu_theme.CHECK)  # tick trails
+
+    def test_toggle_title_unchecked_is_plain(self, monkeypatch):
+        _force_no_appkit(monkeypatch)
+        assert menu_theme.toggle_title("Copy to clipboard", False) == "Copy to clipboard"
+
     def test_supported_false_without_appkit(self, monkeypatch):
         _force_no_appkit(monkeypatch)
         assert menu_theme.supported() is False

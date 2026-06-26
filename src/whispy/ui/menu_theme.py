@@ -113,6 +113,16 @@ def check_title(text, checked):
     return f"      {text}"
 
 
+def toggle_title(text, checked):
+    """Toggle row with a TRAILING green ✓ when on, so the title stays left-aligned
+    with the other (un-ticked) settings rows. Plain title when off."""
+    if not checked:
+        return text
+    label = f"{text}   {CHECK}"
+    s = attributed(label, accent_ranges=[(len(label) - 1, 1)])
+    return s if s is not None else label
+
+
 def apply_title(item, value) -> None:
     """Set a rumps MenuItem's title from ``value``.
 

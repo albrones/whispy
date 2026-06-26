@@ -98,8 +98,55 @@ today: what the user *changed* after text was injected.
 - **Prompt budget:** keep the effective vocabulary short; cap and decay in
   Phase 3.
 
+## Part 3 — Streaming / incremental transcription
+
+The legacy path was record-then-transcribe: nothing happened until the trigger
+key was released, then the **whole** recording was transcribed in one block.
+Transcription time scales with audio length (measured RTF ≈ 0.15 on `small`
+int8), so long dictations produced a long post-release wait (~9 s after 60 s of
+speech) and the text landed as one paste.
+
+Streaming segments the live capture on **silence** (and a **max length**) and
+transcribes + injects each chunk while recording continues, in order. The
+post-release wait shrinks to the last chunk only (~1–2 s) and text appears
+incrementally. Each chunk keeps the same per-chunk guards as the whole-recording
+path (short-clip discard, VAD filter, `temperature=0`, credit stripping) and
+chunks stay independent (`condition_on_previous_text=False`, no previous-text
+feedback) — preserving the anti-snowball-hallucination stance.
+
+Segmentation uses **WebRTC VAD** (`webrtcvad-wheels`) to find pauses — a
+gain-independent voice detector, so it does not mis-cut mid-word the way a raw
+energy threshold does. If the dependency is missing, the segmenter degrades to a
+simple energy gate.
+
+Chunks are transcribed *during* recording but the assembled text is typed **once
+on release** — so the result appears near-instantly instead of after a multi-
+second whole-file pass, and synthetic keystrokes never fire mid-recording (which
+stole focus from full-screen apps). Streaming is **on by default**; toggle it in
+the menu (Settings → Streaming transcription).
+
+### Config keys (in `~/.config/whispy/config.json`)
+
+| Key | Default | Meaning |
+| --- | ------- | ------- |
+| `streaming_enabled` | `true` | Master switch (also in the menu). Off → legacy whole-recording path. |
+| `pause_ms` | `600` | Trailing silence (ms) that closes a chunk at a natural pause. |
+| `min_chunk_s` | `0.4` | Chunks shorter than this are discarded (per-chunk hallucination guard). |
+| `max_chunk_s` | `12.0` | Hard cap: force-flush run-on speech with no pause so no single packet grows huge. |
+| `vad_aggressiveness` | `2` | WebRTC VAD aggressiveness (0–3); higher = more eager to call audio non-speech. |
+
+### Caveat: model speed vs. real time
+
+Streaming keeps pace only while the model transcribes faster than real time
+(RTF < 1). Measured: `small` ≈ 0.15, `medium` ≈ 0.18–0.37. **`large-v3`** can
+approach RTF 1.0 under concurrent capture — the chunk queue may then lag (text is
+delayed, never lost; `max_chunk_s` still bounds chunk size). Streaming is tuned
+for `small`/`medium`; treat `large-v3` + streaming as best-effort.
+
 ## Status
 
 - ✅ Part 1 confirmed and documented.
 - ✅ Phase 1 (custom vocabulary) implemented and tested.
 - ⏳ Phases 2–4 planned here; each warrants its own OpenSpec change.
+- ✅ Part 3 (streaming) implemented and tested; **on by default** (WebRTC VAD
+  segmentation, types the assembled text once on release).

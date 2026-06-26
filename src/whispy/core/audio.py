@@ -13,10 +13,12 @@ import tempfile
 import threading
 import uuid
 import wave
+from collections.abc import Callable
 
 import numpy as np
 from faster_whisper import WhisperModel
 
+from .segmentation import SpeechSegmenter
 from .state_machine import StateMachine
 
 # ``sounddevice`` loads libportaudio at import time, which is absent on headless
@@ -100,6 +102,113 @@ class AudioEngine:
         # make capture deliver silent (all-zero) buffers.
         self._level = 0.0
 
+        # --- Streaming / incremental transcription ---
+        # When enabled, the capture callback segments the live stream on silence
+        # (and a max length) and hands each chunk to ``_on_chunk`` for the engine
+        # to transcribe + inject while recording continues. Off by default: the
+        # legacy single-file path is used verbatim.
+        self._streaming = False
+        self._on_chunk: Callable[[str], None] | None = None
+        self._seg_kwargs: dict[str, float] = {}
+        self._segmenter: SpeechSegmenter | None = None
+        self._chunk_buf = bytearray()
+
+    def configure_streaming(
+        self,
+        enabled: bool,
+        on_chunk: Callable[[str], None] | None = None,
+        *,
+        pause_ms: float = 600,
+        min_chunk_s: float = 0.4,
+        max_chunk_s: float = 12.0,
+        aggressiveness: int = 2,
+    ) -> None:
+        """Enable/disable live segmentation and register the chunk sink.
+
+        ``on_chunk`` is called (from the capture callback thread, and from
+        ``stop()`` for the tail) with the path of a self-contained WAV to
+        transcribe. The engine wires it to its chunk queue.
+        """
+        self._streaming = bool(enabled)
+        self._on_chunk = on_chunk
+        self._seg_kwargs = {
+            "pause_ms": pause_ms,
+            "min_chunk_s": min_chunk_s,
+            "max_chunk_s": max_chunk_s,
+            "aggressiveness": aggressiveness,
+        }
+
+    def _emit_chunk(self) -> None:
+        """Write the buffered chunk to a unique WAV and hand it to the sink.
+
+        Called from the capture callback (on a boundary) and from ``stop()`` (the
+        tail). No-op when the buffer is empty. Errors are contained by the caller.
+        """
+        if not self._chunk_buf:
+            return
+        path = self._new_recording_path()
+        with wave.open(path, "wb") as wf:
+            wf.setnchannels(CHANNELS)
+            wf.setsampwidth(SAMPLE_WIDTH)
+            wf.setframerate(SAMPLE_RATE)
+            wf.writeframes(bytes(self._chunk_buf))
+        self._chunk_buf = bytearray()
+        if self._on_chunk is not None:
+            self._on_chunk(path)
+
+    def _feed_segmenter(self, raw: bytes) -> None:
+        """Drive the VAD segmenter with one captured block.
+
+        All audio is retained in the chunk buffer; the segmenter only decides
+        when to cut. The segmenter resets its own timing on a boundary.
+        """
+        if self._segmenter is None:
+            return
+        self._chunk_buf.extend(raw)
+        if self._segmenter.feed(raw):
+            self._emit_chunk()
+
+    def segment_pcm(
+        self,
+        pcm: bytes,
+        *,
+        pause_ms: float = 600,
+        min_chunk_s: float = 0.4,
+        max_chunk_s: float = 12.0,
+        aggressiveness: int = 2,
+        block_frames: int = 1600,
+    ) -> list[str]:
+        """Replay raw int16 PCM through the live segmenter; return chunk WAV paths.
+
+        Deterministic seam for validation: drives the SAME ``_feed_segmenter`` /
+        ``_emit_chunk`` (and the same VAD segmenter) the capture callback uses, so
+        a fixture WAV exercises streaming segmentation end to end without a
+        microphone. Each emitted chunk is written to a unique WAV; the caller
+        transcribes and cleans them up. Restores any live capture state.
+        """
+        paths: list[str] = []
+        prev_sink, prev_seg, prev_buf = (self._on_chunk, self._segmenter, self._chunk_buf)
+        self._on_chunk = paths.append
+        self._segmenter = SpeechSegmenter(
+            pause_ms=pause_ms,
+            min_chunk_s=min_chunk_s,
+            max_chunk_s=max_chunk_s,
+            aggressiveness=aggressiveness,
+        )
+        self._chunk_buf = bytearray()
+        step = block_frames * CHANNELS * SAMPLE_WIDTH
+        try:
+            for i in range(0, len(pcm), step):
+                raw = pcm[i : i + step]
+                if not raw:
+                    continue
+                self._feed_segmenter(raw)
+            if self._segmenter.flush_tail():
+                self._emit_chunk()
+        finally:
+            self._on_chunk, self._segmenter, self._chunk_buf = (prev_sink, prev_seg, prev_buf)
+        return paths
+
     def start(self) -> bool:
         """Start recording audio. Returns False if already recording.
 
@@ -120,6 +229,11 @@ class AudioEngine:
         self._recording_path = self._new_recording_path()
         self._level = 0.0
 
+        # Fresh segmenter + empty chunk buffer for a streaming recording.
+        if self._streaming:
+            self._segmenter = SpeechSegmenter(**self._seg_kwargs)
+            self._chunk_buf = bytearray()
+
         if sd is None:
             logger.warning("[audio] sounddevice backend unavailable — cannot capture audio.")
             self._ready.set()
@@ -133,23 +247,31 @@ class AudioEngine:
                 if status:
                     logger.debug("[audio] stream status: %s", status)
                 raw = bytes(indata)
-                # Open the WAV lazily on first audio so a failed stream never
-                # truncates a prior recording. Serialize handle access against
-                # stop() via the lock.
-                with self._wave_lock:
-                    if self._wave is None:
-                        self._wave = wave.open(self._recording_path, "wb")
-                        self._wave.setnchannels(CHANNELS)
-                        self._wave.setsampwidth(SAMPLE_WIDTH)
-                        self._wave.setframerate(SAMPLE_RATE)
-                    self._wave.writeframes(raw)
-                self._frames_written += frames
                 # Update the live level for the waveform: normalized RMS of the
-                # int16 block (gain 10, matching the old AudioLevelMonitor).
+                # int16 block (gain 10, matching the old AudioLevelMonitor). Done
+                # first so the streaming segmenter can consume the same level.
                 samples = np.frombuffer(raw, dtype=np.int16)
                 if samples.size:
                     rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2))) / 32768.0
                     self._level = min(rms * 10.0, 1.0)
+
+                if self._streaming:
+                    # Segment the live stream: buffer the chunk, and on a silence/
+                    # length boundary write it out and hand it to the sink. No
+                    # whole-file WAV is written in streaming mode.
+                    self._feed_segmenter(raw)
+                else:
+                    # Legacy path: open the WAV lazily on first audio so a failed
+                    # stream never truncates a prior recording. Serialize handle
+                    # access against stop() via the lock.
+                    with self._wave_lock:
+                        if self._wave is None:
+                            self._wave = wave.open(self._recording_path, "wb")
+                            self._wave.setnchannels(CHANNELS)
+                            self._wave.setsampwidth(SAMPLE_WIDTH)
+                            self._wave.setframerate(SAMPLE_RATE)
+                        self._wave.writeframes(raw)
+                self._frames_written += frames
             except Exception:
                 logger.exception("[audio] capture callback error — frame dropped")
             finally:
@@ -214,6 +336,15 @@ class AudioEngine:
             except Exception as exc:
                 logger.debug("[audio] stream close error: %s", exc)
             self._stream = None
+
+        # Streaming tail: the stream is stopped, so the callback can no longer
+        # touch the buffer; flush any pending speech as the final chunk.
+        if self._streaming and self._segmenter is not None and self._segmenter.flush_tail():
+            try:
+                self._emit_chunk()
+            except Exception:
+                logger.exception("[audio] tail chunk flush failed")
+            self._segmenter.reset_chunk()
 
         with self._wave_lock:
             if self._wave is not None:
