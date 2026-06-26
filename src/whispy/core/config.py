@@ -18,6 +18,22 @@ SUPPORTED_LANGUAGES: dict[str, str] = {
     "en": "English",
 }
 
+# Curated push-to-talk trigger presets for the menu UI: ordered (label, value)
+# where value is None for the platform default (Fn on macOS) or a macOS keycode.
+# Keycodes are Carbon virtual keycodes (what CGEvent reports). Only keys that
+# work as a *hold* without blocking typing or stealing system shortcuts are
+# listed — letter/space/Esc keys and the Caps Lock toggle are deliberately out.
+# ponytail: confirm each keycode against a real CGEventTap before trusting it
+# (see tasks 1.2 / 4.2) — the keycode table in event_decode names some of these
+# differently, but matching/decoding is by raw keycode, and the label here is
+# what the menu shows, so a wrong name there does not mislead the UI.
+TRIGGER_PRESETS: list[tuple[str, int | None]] = [
+    ("Fn", None),  # platform default; None keeps "default" semantics (keycode 63)
+    ("Right Command", 54),
+    ("Right Option", 61),
+    ("F13", 105),
+]
+
 # Model presets for UI display
 MODEL_PRESETS: dict[str, dict[str, str]] = {
     "tiny": {

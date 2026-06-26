@@ -223,6 +223,34 @@ class TestEngineConfigUpdate:
         assert engine.state.config["model_size"] == "base"
         assert engine.state.config["language"] == "fr"
 
+    def test_trigger_change_restarts_listener_when_active(self, engine, mocker):
+        stop = mocker.patch.object(engine, "stop_fn_listener")
+        start = mocker.patch.object(engine, "start_fn_listener")
+        engine.state.fn_listener_active = True
+        engine.update_config({"trigger": 54})
+        stop.assert_called_once()
+        start.assert_called_once()
+        assert engine.state.config["trigger"] == 54
+
+    def test_trigger_change_no_restart_when_listener_inactive(self, engine, mocker):
+        stop = mocker.patch.object(engine, "stop_fn_listener")
+        start = mocker.patch.object(engine, "start_fn_listener")
+        engine.state.fn_listener_active = False
+        engine.update_config({"trigger": 54})
+        stop.assert_not_called()
+        start.assert_not_called()
+        assert engine.state.config["trigger"] == 54
+
+    def test_start_fn_listener_uses_resolved_trigger(self, engine, mocker):
+        # start_fn_listener must read the freshly-saved trigger via resolve_trigger.
+        import dataclasses
+
+        engine.state.config["trigger"] = 61
+        make = mocker.MagicMock(return_value=mocker.MagicMock())
+        engine._adapters = dataclasses.replace(engine._adapters, make_hotkey_listener=make)
+        engine.start_fn_listener()
+        assert make.call_args.kwargs["trigger"] == 61
+
     def test_settings_survive_restart(self, engine, config_path):
         """Selecting settings then reloading from disk (a restart) keeps them.
 

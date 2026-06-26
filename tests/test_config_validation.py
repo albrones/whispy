@@ -12,12 +12,29 @@ if _project_root in sys.path:
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
-from whispy.core.config import _validate_config
+from whispy.core.config import TRIGGER_PRESETS, _validate_config
 from whispy.core.engine import (
     DEFAULT_CONFIG,
     load_config,
     save_config,
 )
+from whispy.hardware.event_decode import _KEYCODE_TO_NAME
+
+
+class TestTriggerPresets:
+    """The curated push-to-talk trigger presets exposed to the menu UI."""
+
+    def test_every_preset_keycode_is_known(self):
+        # The UI fallback names a configured trigger via keycode_to_name; every
+        # non-default preset keycode must resolve to a real entry (not keyNN).
+        for label, value in TRIGGER_PRESETS:
+            if value is None:
+                continue
+            assert value in _KEYCODE_TO_NAME, f"{label} keycode {value} missing from table"
+
+    def test_fn_preset_value_is_none(self):
+        # Fn stays None so resolve_trigger maps it to the platform default.
+        assert TRIGGER_PRESETS[0] == ("Fn", None)
 
 # ---------------------------------------------------------------------------
 # min_recording_duration validation

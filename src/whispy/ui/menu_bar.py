@@ -12,9 +12,11 @@ from PyObjCTools import AppHelper
 from ..core.engine import (
     MODEL_PRESETS,
     SUPPORTED_LANGUAGES,
+    TRIGGER_PRESETS,
     Engine,
 )
 from ..core.paths import daemon_script_exists, resolve_app_bundle, resolve_daemon_script
+from ..hardware.event_decode import keycode_to_name
 from . import menu_theme
 from .unicode_anim import IDLE_FRAME, WAVEROWS_INTERVAL, select_frame
 from .waveform_window import WaveformWindow
@@ -131,9 +133,18 @@ class WhisperMenuBarApp(rumps.App):
             self.copy_menu, menu_theme.toggle_title("Copy to clipboard", cfg.get("copy_to_clipboard", False))
         )
 
-        # Usage hint (disabled label).
-        self.fn_status_item = rumps.MenuItem("Hold Fn to dictate", callback=None)
-        self.fn_status_item.set_callback(None)
+        # Trigger (push-to-talk key) selection — submenu title reflects the
+        # current choice, each item shows a check, mirroring Model/Language.
+        self.trigger_menu = rumps.MenuItem("Trigger")
+        self._trigger_items: list[rumps.MenuItem] = []
+        for label, value in TRIGGER_PRESETS:
+            item = rumps.MenuItem(label, callback=self._on_trigger_select)
+            item._trigger_value = value
+            item._label = label
+            menu_theme.apply_title(item, menu_theme.check_title(label, self._trigger_is_active(value)))
+            self._trigger_items.append(item)
+            self.trigger_menu.add(item)
+        self._update_trigger_title()
 
         # Reload and quit
         self.reload_item = rumps.MenuItem("Restart", callback=self._on_reload)
@@ -148,8 +159,7 @@ class WhisperMenuBarApp(rumps.App):
             self.model_menu,
             self.language_menu,
             self.copy_menu,
-            None,
-            self.fn_status_item,
+            self.trigger_menu,
             None,
             self.reload_item,
             quit_item,
@@ -163,6 +173,31 @@ class WhisperMenuBarApp(rumps.App):
     def _update_language_title(self) -> None:
         cur = self.engine.state.config["language"]
         self.language_menu.title = f"Language: {SUPPORTED_LANGUAGES.get(cur, cur)}"
+
+    def _trigger_is_active(self, value: int | None) -> bool:
+        """True if the given preset value matches the configured trigger.
+
+        Fn (the platform default) is stored as None, so an unset/empty config
+        trigger matches it; other presets match their raw keycode.
+        """
+        cur = self.engine.state.config.get("trigger")
+        if value is None:
+            return cur in (None, "")
+        return cur == value
+
+    def _trigger_label(self) -> str:
+        """Human label for the active trigger: a preset label if one matches,
+        else the keycode's name (covers a hand-edited config value)."""
+        cur = self.engine.state.config.get("trigger")
+        for label, value in TRIGGER_PRESETS:
+            if self._trigger_is_active(value):
+                return label
+        if isinstance(cur, int):
+            return keycode_to_name(cur)
+        return str(cur)
+
+    def _update_trigger_title(self) -> None:
+        self.trigger_menu.title = f"Trigger: {self._trigger_label()}"
 
     def _refresh_accents(self) -> None:
         """Rebuild every accented title for the current appearance.
@@ -179,6 +214,8 @@ class WhisperMenuBarApp(rumps.App):
         menu_theme.apply_title(
             self.copy_menu, menu_theme.toggle_title(self.copy_menu._label, cfg.get("copy_to_clipboard", False))
         )
+        for item in self._trigger_items:
+            menu_theme.apply_title(item, menu_theme.check_title(item._label, self._trigger_is_active(item._trigger_value)))
         # Status line carries the green dot; rebuilding it re-reads the appearance.
         self.update_status_display()
 
@@ -319,6 +356,17 @@ class WhisperMenuBarApp(rumps.App):
             menu_theme.apply_title(item, menu_theme.check_title(item._label, code == new_code))
         self.engine.update_config({"language": new_code})
         self._update_language_title()
+
+    def _on_trigger_select(self, sender: rumps.MenuItem) -> None:
+        new_value = sender._trigger_value
+        if self._trigger_is_active(new_value):
+            return
+        # Persist and apply live: update_config restarts the listener so the new
+        # push-to-talk key works now, not only after a Restart.
+        self.engine.update_config({"trigger": new_value})
+        for item in self._trigger_items:
+            menu_theme.apply_title(item, menu_theme.check_title(item._label, self._trigger_is_active(item._trigger_value)))
+        self._update_trigger_title()
 
     def _on_toggle_copy(self, sender: rumps.MenuItem) -> None:
         enabled = not self.engine.state.config.get("copy_to_clipboard", False)

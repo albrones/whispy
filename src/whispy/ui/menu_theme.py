@@ -109,15 +109,23 @@ def check_title(text, checked):
         label = f"{CHECK}  {text}"
         s = attributed(label, accent_ranges=[(0, 1)])
         return s if s is not None else label
-    # Unchecked: spacer matches "✓  " width; nothing to accent → plain is fine.
-    return f"      {text}"
+    # Unchecked: spacer matches "✓  " width; nothing to accent. Still return an
+    # attributed string (not a bare str) so apply_title routes through
+    # setAttributedTitle_ — AppKit's attributedTitle wins over .title, so a plain
+    # .title would NOT clear a previously-set ✓ and the check would linger.
+    label = f"      {text}"
+    s = attributed(label)
+    return s if s is not None else label
 
 
 def toggle_title(text, checked):
     """Toggle row with a TRAILING green ✓ when on, so the title stays left-aligned
     with the other (un-ticked) settings rows. Plain title when off."""
     if not checked:
-        return text
+        # Attributed (not bare str) so apply_title clears any previously-set
+        # trailing ✓ via setAttributedTitle_ — see check_title.
+        s = attributed(text)
+        return s if s is not None else text
     label = f"{text}   {CHECK}"
     s = attributed(label, accent_ranges=[(len(label) - 1, 1)])
     return s if s is not None else label

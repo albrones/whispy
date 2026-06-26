@@ -6,7 +6,7 @@ TBD - created by archiving change architectural-retrospective-and-stabilization.
 Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
 ## Requirements
 ### Requirement: Configuration Loading
-The engine SHALL load and maintain the application configuration, providing access to model settings and language preferences. The default language SHALL be French (`"fr"`) and clipboard copy SHALL be disabled by default (`False`). The engine SHALL also apply text cleaning to strip Whisper watermark credits from transcription output before text injection. The engine SHALL validate configuration keys against `DEFAULT_CONFIG` before persisting to disk.
+The engine SHALL load and maintain the application configuration, providing access to model settings and language preferences. The default language SHALL be French (`"fr"`) and clipboard copy SHALL be disabled by default (`False`). The engine SHALL also apply text cleaning to strip Whisper watermark credits from transcription output before text injection. The engine SHALL validate configuration keys against `DEFAULT_CONFIG` before persisting to disk. When a configuration update changes the `trigger` key, the engine SHALL restart the key listener so the new trigger takes effect without a manual Restart.
 
 #### Scenario: Configuration Update
 - **WHEN** a configuration change (e.g. model size) is detected
@@ -37,6 +37,12 @@ _Tier: unit-mocked — `test_e2e.py` (injection path with subprocess mocked)._
 - **THEN** only known keys are saved and a warning is logged to stderr
 
 _Tier: unit-pure — `test_config_validation.py`._
+
+#### Scenario: Trigger change restarts the listener
+- **WHEN** `update_config` is called with a new `trigger` value while the key listener is active
+- **THEN** the engine SHALL stop and restart the listener with the resolved trigger, so the new key is live without a manual Restart
+
+_Tier: unit-mocked — listener stop/start asserted with the hotkey adapter mocked._
 
 ### Requirement: Restart uses correct entry point
 The menu bar "Restart" item SHALL launch the application using the correct entry point file `whispy_daemon.py` located at the project root. The resolution of that path and the check for its existence SHALL be performed by a pure, unit-tested helper independent of the menu bar UI; the menu callback SHALL delegate path resolution to that helper and only then perform the relaunch and quit.

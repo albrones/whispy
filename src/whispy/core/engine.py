@@ -22,6 +22,7 @@ from .config import (
     DEFAULT_CONFIG,
     MODEL_PRESETS,
     SUPPORTED_LANGUAGES,
+    TRIGGER_PRESETS,
     load_config,
     save_config,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "DEFAULT_CONFIG",
     "MODEL_PRESETS",
     "SUPPORTED_LANGUAGES",
+    "TRIGGER_PRESETS",
     "load_config",
     "save_config",
     "DEFAULT_TRIGGER_KEYCODE",
@@ -709,6 +711,15 @@ class Engine:
             self._text_injector.update_config(updates["copy_to_clipboard"])
         if "model_size" in updates:
             needs_reload = True
+
+        # Trigger change: restart the listener so the new key is live now, not
+        # only after a Restart. start_fn_listener re-reads resolve_trigger(), so
+        # it picks up the value just saved above. Guard on an active listener —
+        # a config update before the engine starts is a no-op (the listener will
+        # read the right trigger when it starts normally).
+        if "trigger" in updates and self.state.fn_listener_active:
+            self.stop_fn_listener()
+            self.start_fn_listener()
 
         # Streaming toggle / param change: re-wire the audio engine and, if the
         # engine is already running, start or stop the chunk worker to match.
