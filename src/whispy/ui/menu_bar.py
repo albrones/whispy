@@ -1,6 +1,5 @@
 """Menu bar UI via rumps for status, animation, and settings."""
 
-import shlex
 import subprocess
 import sys
 from typing import Any
@@ -17,9 +16,30 @@ from ..core.engine import (
 )
 from ..core.paths import daemon_script_exists, resolve_app_bundle, resolve_daemon_script
 from ..hardware.event_decode import keycode_to_name
+from ..platform.macos import login_item
 from . import menu_theme
 from .unicode_anim import IDLE_FRAME, WAVEROWS_INTERVAL, select_frame
 from .waveform_window import WaveformWindow
+
+# Detached relaunch waiter for Restart. Run as `python -c <this> <cmd> <args...>`:
+# it polls the :9090 single-instance lock until the quitting instance releases
+# it (connection refused), then launches the replacement. This outlives the
+# instance that spawns it, so the new daemon never races the old one onto a
+# fallback port. ~5 s timeout then launches anyway, so a wedged old process
+# can't strand the user without Whispy.
+_RELAUNCH_WAITER = (
+    "import socket,subprocess,sys,time\n"
+    "deadline=time.time()+5.0\n"
+    "while time.time()<deadline:\n"
+    "    s=socket.socket(); s.settimeout(0.25)\n"
+    "    try:\n"
+    "        s.connect(('127.0.0.1',9090))\n"
+    "    except OSError:\n"
+    "        break\n"  # refused → port free → old instance gone
+    "    else:\n"
+    "        s.close(); time.sleep(0.2)\n"  # still listening → keep waiting
+    "subprocess.Popen(sys.argv[1:])\n"
+)
 
 
 class WhisperMenuBarApp(rumps.App):
@@ -146,6 +166,22 @@ class WhisperMenuBarApp(rumps.App):
             self.trigger_menu.add(item)
         self._update_trigger_title()
 
+        # Start at login (macOS .app bundle only). SMAppService.mainAppService
+        # registers the *running bundle*, so this is meaningful only when we run
+        # from a .app and the framework is available (macOS 13+). The loose
+        # script path autostarts via its LaunchAgent instead, so hide it there.
+        # State is a persisted setting (cfg["start_at_login"]); the OS
+        # registration is reconciled to it below.
+        self.login_item_menu = None
+        if resolve_app_bundle() is not None and login_item.available():
+            self._reconcile_login_item(cfg.get("start_at_login", False))
+            self.login_item_menu = rumps.MenuItem("Start at login", callback=self._on_toggle_login_item)
+            self.login_item_menu._label = "Start at login"
+            menu_theme.apply_title(
+                self.login_item_menu,
+                menu_theme.toggle_title("Start at login", cfg.get("start_at_login", False)),
+            )
+
         # Reload and quit
         self.reload_item = rumps.MenuItem("Restart", callback=self._on_reload)
         quit_item = rumps.MenuItem("Quit", callback=self._on_quit, key="q")
@@ -160,6 +196,7 @@ class WhisperMenuBarApp(rumps.App):
             self.language_menu,
             self.copy_menu,
             self.trigger_menu,
+            *([self.login_item_menu] if self.login_item_menu is not None else []),
             None,
             self.reload_item,
             quit_item,
@@ -373,37 +410,60 @@ class WhisperMenuBarApp(rumps.App):
         menu_theme.apply_title(sender, menu_theme.toggle_title(sender._label, enabled))
         self.engine.update_config({"copy_to_clipboard": enabled})
 
+    @staticmethod
+    def _reconcile_login_item(want_enabled: bool) -> None:
+        """Sync the OS login-item registration to the persisted setting."""
+        if want_enabled and not login_item.is_enabled():
+            login_item.enable()
+        elif not want_enabled and login_item.is_enabled():
+            login_item.disable()
+
+    def _on_toggle_login_item(self, sender: rumps.MenuItem) -> None:
+        # Persisted setting: flip config, then sync the OS registration to it.
+        enabled = not self.engine.state.config.get("start_at_login", False)
+        self.engine.update_config({"start_at_login": enabled})
+        if enabled:
+            login_item.enable()
+        else:
+            login_item.disable()
+        menu_theme.apply_title(sender, menu_theme.toggle_title(sender._label, enabled))
+
     def _on_reload(self, _sender: Any) -> None:
-        # Inside Whispy.app the daemon script does not exist as a loose file;
-        # relaunch the whole bundle instead. `open -n` starts a fresh instance,
-        # then we quit this one (the new process binds :9090 once we release it).
+        # Restart hands the :9090 single-instance lock from this instance to the
+        # replacement without overlap: a detached waiter polls until we release
+        # the port, then launches. We must NOT force a parallel instance
+        # (no `open -n`) — with the port fallback gone, a racing new instance
+        # would fail to bind rather than drift, so sequencing is required.
         bundle = resolve_app_bundle()
         if bundle is not None:
-            # Delay the relaunch so this instance fully exits and frees :9090
-            # before the new one binds it (otherwise the new daemon drifts to
-            # 9091+). Detached shell: sleep, then open a fresh instance.
-            subprocess.Popen(["/bin/sh", "-c", f"sleep 1; /usr/bin/open -n {shlex.quote(str(bundle))}"])
-            rumps.quit_application()
-            return
+            # Inside Whispy.app the daemon is not a loose file; relaunch the
+            # whole bundle. Plain `open` (not `-n`) launches it once we've quit.
+            launch = ["/usr/bin/open", str(bundle)]
+        else:
+            # Source-tree / venv run: re-exec the daemon entry-point script.
+            script_path = resolve_daemon_script()
+            if not daemon_script_exists(script_path):
+                try:
+                    from AppKit import NSAlert
 
-        # Source-tree / venv run: re-exec the daemon entry-point script.
-        script_path = resolve_daemon_script()
-        if not daemon_script_exists(script_path):
-            try:
-                from AppKit import NSAlert
+                    alert = NSAlert.alloc().init()
+                    alert.setMessageText_("Restart file not found")
+                    alert.setInformativeText_(
+                        f"Expected restart script at:\n{script_path}\n\nPlease reinstall Whispy."
+                    )
+                    alert.addButtonWithTitle_("OK")
+                    alert.runModal()
+                except ImportError:
+                    print(
+                        f"[menu] Restart script not found: {script_path}",
+                        file=sys.stderr,
+                    )
+                return
+            launch = [sys.executable, str(script_path)]
 
-                alert = NSAlert.alloc().init()
-                alert.setMessageText_("Restart file not found")
-                alert.setInformativeText_(f"Expected restart script at:\n{script_path}\n\nPlease reinstall Whispy.")
-                alert.addButtonWithTitle_("OK")
-                alert.runModal()
-            except ImportError:
-                print(
-                    f"[menu] Restart script not found: {script_path}",
-                    file=sys.stderr,
-                )
-            return
-        subprocess.Popen([sys.executable, str(script_path)])
+        # Spawn the detached waiter first so it outlives this instance, then quit
+        # to release the lock; the waiter relaunches once the port is free.
+        subprocess.Popen([sys.executable, "-c", _RELAUNCH_WAITER, *launch])
         rumps.quit_application()
 
     def _on_quit(self, _sender: Any) -> None:

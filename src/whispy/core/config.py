@@ -59,6 +59,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "beam_size": 1,
     "best_of": 2,
     "copy_to_clipboard": False,
+    # Register the app as a macOS login item (start at login). macOS .app
+    # bundle only; ignored on the loose-script path (LaunchAgent handles it).
+    "start_at_login": False,
     "auto_detect_min_duration": 0.5,
     "min_recording_duration": 0.3,
     # User-curated terms (names, jargon) used to bias transcription toward the
@@ -148,6 +151,15 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
             file=sys.stderr,
         )
         validated["copy_to_clipboard"] = DEFAULT_CONFIG["copy_to_clipboard"]
+
+    # Validate start_at_login (must be bool)
+    sal = validated.get("start_at_login")
+    if not isinstance(sal, bool):
+        print(
+            f"[config] Invalid start_at_login '{sal}', defaulting to {DEFAULT_CONFIG['start_at_login']}",
+            file=sys.stderr,
+        )
+        validated["start_at_login"] = DEFAULT_CONFIG["start_at_login"]
 
     # Validate auto_detect_min_duration (must be positive number)
     adm = validated.get("auto_detect_min_duration")

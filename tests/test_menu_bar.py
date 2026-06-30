@@ -116,6 +116,136 @@ class TestCheckmarkInvariant:
         assert checked == ["base"]
 
 
+class TestLoginItemToggle:
+    """_on_toggle_login_item persists the setting in config and syncs the OS."""
+
+    def _sender(self, label="Start at login"):
+        # _menuitem=None forces apply_title's plain-string path (sets .title).
+        return SimpleNamespace(_label=label, _menuitem=None, title=label)
+
+    def _app(self, current):
+        engine = MagicMock()
+        engine.state.config = {"start_at_login": current}
+        return SimpleNamespace(engine=engine)
+
+    def test_off_then_persists_true_enables_and_titles_on(self, mocker, monkeypatch):
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        import whispy.ui.menu_bar as mb
+
+        li = mocker.patch.object(mb, "login_item")
+        app = self._app(current=False)
+        sender = self._sender()
+
+        WhisperMenuBarApp._on_toggle_login_item(app, sender)
+
+        app.engine.update_config.assert_called_once_with({"start_at_login": True})
+        li.enable.assert_called_once_with()
+        li.disable.assert_not_called()
+        assert sender.title.rstrip().endswith(menu_theme.CHECK)
+
+    def test_on_then_persists_false_disables_and_titles_off(self, mocker, monkeypatch):
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        import whispy.ui.menu_bar as mb
+
+        li = mocker.patch.object(mb, "login_item")
+        app = self._app(current=True)
+        sender = self._sender()
+
+        WhisperMenuBarApp._on_toggle_login_item(app, sender)
+
+        app.engine.update_config.assert_called_once_with({"start_at_login": False})
+        li.disable.assert_called_once_with()
+        li.enable.assert_not_called()
+        assert not sender.title.rstrip().endswith(menu_theme.CHECK)
+
+
+class TestLoginItemReconcile:
+    """_reconcile_login_item syncs OS registration to the saved setting."""
+
+    def test_enables_when_wanted_but_os_off(self, mocker):
+        import whispy.ui.menu_bar as mb
+
+        li = mocker.patch.object(mb, "login_item")
+        li.is_enabled.return_value = False
+        WhisperMenuBarApp._reconcile_login_item(True)
+        li.enable.assert_called_once_with()
+        li.disable.assert_not_called()
+
+    def test_disables_when_not_wanted_but_os_on(self, mocker):
+        import whispy.ui.menu_bar as mb
+
+        li = mocker.patch.object(mb, "login_item")
+        li.is_enabled.return_value = True
+        WhisperMenuBarApp._reconcile_login_item(False)
+        li.disable.assert_called_once_with()
+        li.enable.assert_not_called()
+
+    def test_noop_when_already_in_sync(self, mocker):
+        import whispy.ui.menu_bar as mb
+
+        li = mocker.patch.object(mb, "login_item")
+        li.is_enabled.return_value = True
+        WhisperMenuBarApp._reconcile_login_item(True)
+        li.enable.assert_not_called()
+        li.disable.assert_not_called()
+
+
+class TestLoginItemUnwrap:
+    """register/unregister return a bare bool under raw loadBundle (no
+    BridgeSupport), or an (ok, error) tuple with metadata. _unwrap handles both."""
+
+    def test_bare_bool(self):
+        from whispy.platform.macos.login_item import _unwrap
+
+        assert _unwrap(True) == (True, None)
+        assert _unwrap(False) == (False, None)
+
+    def test_tuple(self):
+        from whispy.platform.macos.login_item import _unwrap
+
+        assert _unwrap((True, None)) == (True, None)
+        ok, err = _unwrap((False, "boom"))
+        assert ok is False and err == "boom"
+
+
+class TestRestartHandoff:
+    """_on_reload hands the :9090 lock to the replacement without a parallel
+    instance: a detached port-free waiter relaunches, and we never force-new."""
+
+    def test_bundle_restart_uses_waiter_and_no_force_new(self, mocker):
+        import whispy.ui.menu_bar as mb
+
+        mocker.patch.object(mb, "resolve_app_bundle", return_value="/Apps/Whispy.app")
+        popen = mocker.patch.object(mb.subprocess, "Popen")
+        quit_app = mocker.patch.object(mb.rumps, "quit_application")
+
+        WhisperMenuBarApp._on_reload(SimpleNamespace(), None)
+
+        popen.assert_called_once()
+        argv = popen.call_args[0][0]
+        assert argv[0] == sys.executable and argv[1] == "-c"
+        assert argv[2] == mb._RELAUNCH_WAITER  # detached port-free waiter
+        assert "/usr/bin/open" in argv and "/Apps/Whispy.app" in argv
+        assert "-n" not in argv  # must NOT force a parallel instance
+        quit_app.assert_called_once()
+
+    def test_source_restart_reexecs_script_via_waiter(self, mocker):
+        import whispy.ui.menu_bar as mb
+
+        mocker.patch.object(mb, "resolve_app_bundle", return_value=None)
+        mocker.patch.object(mb, "resolve_daemon_script", return_value="/src/whispy_daemon.py")
+        mocker.patch.object(mb, "daemon_script_exists", return_value=True)
+        popen = mocker.patch.object(mb.subprocess, "Popen")
+        quit_app = mocker.patch.object(mb.rumps, "quit_application")
+
+        WhisperMenuBarApp._on_reload(SimpleNamespace(), None)
+
+        argv = popen.call_args[0][0]
+        assert argv[:3] == [sys.executable, "-c", mb._RELAUNCH_WAITER]
+        assert "/src/whispy_daemon.py" in argv
+        quit_app.assert_called_once()
+
+
 class TestStatusDisplayMarshaling:
     """update_status_display must hop to the main thread before touching AppKit."""
 
