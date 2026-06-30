@@ -35,10 +35,22 @@ if [[ "${1:-}" == "--uninstall" ]]; then
         rm -f "$HOME/.config/systemd/user/whispy.service"
         command -v systemctl &>/dev/null && systemctl --user daemon-reload 2>/dev/null || true
     else
-        echo -e "${YELLOW}Removing LaunchAgent and .venv directory...${NC}"
-        PLIST_PATH="$HOME/Library/LaunchAgents/com.whispy.plist"
-        launchctl unload "$PLIST_PATH" 2>/dev/null || true
-        rm -f "$PLIST_PATH"
+        # Remove any legacy LaunchAgents (the macOS install no longer creates
+        # one). Two pre-rebrand ids exist: com.whisper-dictation (oldest,
+        # "Whisper Dictation") and com.whispy (intermediate). bootout is the
+        # modern unload; fall back to unload. Both ids listed in one place.
+        echo -e "${YELLOW}Removing any legacy LaunchAgents and .venv directory...${NC}"
+        for id in com.whisper-dictation com.whispy; do
+            PLIST_PATH="$HOME/Library/LaunchAgents/$id.plist"
+            launchctl bootout "gui/$(id -u)/$id" 2>/dev/null || true
+            launchctl unload "$PLIST_PATH" 2>/dev/null || true
+            rm -f "$PLIST_PATH"
+        done
+        # The login-item registration lives with the .app bundle (SMAppService),
+        # so it clears when the app is removed. Toggle it off in-app first if the
+        # app is still installed, then delete the bundle:
+        echo "If installed, remove the app: rm -rf /Applications/Whispy.app"
+        echo "(turn off \"Start at login\" in the menu first to drop the login item)"
     fi
     rm -rf "$VENV_DIR"
     echo -e "${GREEN}Uninstallation complete.${NC}"
@@ -149,65 +161,23 @@ UNITEOF
 fi
 
 # -------------------------------------------------------------------------
-# macOS: LaunchAgent
+# macOS: venv only. The supported macOS install is the signed Whispy.app
+# bundle (stable "Whispy" TCC identity that survives Python upgrades), and
+# autostart is the in-app "Start at login" toggle (SMAppService) — NOT a
+# LaunchAgent. This script only provisions the build prerequisites; `make app`
+# turns the venv into dist/Whispy.app. (Linux still gets a systemd unit above,
+# since it has no .app/SMAppService equivalent.)
 # -------------------------------------------------------------------------
-LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
-LAUNCH_AGENT_NAME="com.whispy"
-PLIST_PATH="$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_NAME.plist"
-
-mkdir -p "$LAUNCH_AGENT_DIR"
-
-cat > "$PLIST_PATH" << PLISTEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>$LAUNCH_AGENT_NAME</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$PYTHON_BIN</string>
-        <string>$DAEMON_PATH</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>WorkingDirectory</key>
-    <string>$SCRIPT_DIR</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    </dict>
-    <key>StandardOutPath</key>
-    <string>$HOME/.whispy.log</string>
-    <key>StandardErrorPath</key>
-    <string>$HOME/.whispy-error.log</string>
-</dict>
-</plist>
-PLISTEOF
-
-echo -e "${GREEN}[OK] LaunchAgent installed at $PLIST_PATH${NC}"
-
+echo -e "${GREEN}[OK] venv ready.${NC}"
 echo ""
-echo -e "${YELLOW}=== Required Permissions ===${NC}"
+echo -e "${YELLOW}Next: build and install the app${NC}"
+echo "  make app                          # builds & signs dist/Whispy.app"
+echo "  cp -R dist/Whispy.app /Applications/"
+echo "  open /Applications/Whispy.app"
 echo ""
-echo "1. Microphone:        System Settings -> Privacy & Security -> Microphone -> enable iTerm2/Terminal"
-echo "2. Accessibility:     System Settings -> Privacy & Security -> Accessibility -> enable python"
-echo "                      python path: $PYTHON_BIN"
-echo "3. Input Monitoring:  System Settings -> Privacy & Security -> Input Monitoring -> enable python3"
-echo "                      python path: $PYTHON_BIN"
-echo ""
-
-launchctl unload "$PLIST_PATH" 2>/dev/null || true
-launchctl load "$PLIST_PATH"
-echo -e "${GREEN}[OK] LaunchAgent loaded. Daemon starting...${NC}"
-echo ""
-echo "The model will be downloaded automatically on first run (model: $WHISPER_MODEL_NAME)"
-echo ""
-echo "Logs: tail -f ~/.whispy.log ~/.whispy-error.log"
-echo "Test: curl http://localhost:9090/status"
+echo "The model downloads automatically on first run (model: $WHISPER_MODEL_NAME)."
+echo "Grant the Whispy microphone prompt on first launch; enable autostart with"
+echo "the in-app \"Start at login\" toggle."
 echo ""
 echo -e "${YELLOW}To uninstall:${NC}"
 echo "./install.sh --uninstall"

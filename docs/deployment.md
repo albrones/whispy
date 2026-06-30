@@ -53,5 +53,4 @@ If the Vercel project also has Git integration enabled, a push could deploy
 
 - [`ci.yml`](../.github/workflows/ci.yml) — lint + test the Python app.
 - [`release.yml`](../.github/workflows/release.yml) — on `v*` tag push, create a
-  GitHub release and bump the Homebrew formula. See
-  [`docs/homebrew.md`](homebrew.md) for the Homebrew flow.
+  GitHub release (source tarball auto-attached).

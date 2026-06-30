@@ -20,27 +20,24 @@ Everything runs locally; no data is sent over the internet.
 curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash
 ```
 
-Downloads Whispy into `~/.local/share/whispy` and runs the installer (virtualenv,
-icons, and a background service — a LaunchAgent on macOS, a `systemd --user` unit
-on Linux/X11). Pick a model with:
+Works on macOS and Linux from one command. On **macOS** it builds and installs
+the signed `Whispy.app` into `/Applications` (the only supported macOS install);
+on **Linux/X11** it sets up a virtualenv and a `systemd --user` service. Source
+lives in `~/.local/share/whispy`. Pick a model with:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | WHISPER_MODEL=medium bash
 ```
 
-**Homebrew:**
+> The macOS build needs the Xcode Command Line Tools (`xcode-select --install`).
+> If they're missing, the installer prints the manual `make app` steps instead.
 
-```bash
-brew install albrones/whispy/whispy
-brew services start whispy
-```
-
-**Native macOS app (most robust permissions):**
+**Native macOS app (by hand):**
 
 ```bash
 git clone https://github.com/albrones/whispy.git
 cd whispy && ./install.sh   # creates the .venv
-make app                    # builds & ad-hoc-signs dist/Whispy.app
+make app                    # builds & signs dist/Whispy.app
 cp -R dist/Whispy.app /Applications/
 open /Applications/Whispy.app
 ```
@@ -49,10 +46,11 @@ This bundles Python *inside* `Whispy.app`, so the microphone / Accessibility /
 Input-Monitoring grants attach to a stable **"Whispy"** identity and **survive
 Python upgrades** — unlike the script/LaunchAgent paths, whose grant breaks
 whenever the interpreter path changes (e.g. a 3.13 → 3.14 upgrade). On first
-launch, accept the **Whispy** microphone prompt. To start at login, add
-`Whispy.app` to **System Settings → General → Login Items**, and remove any old
-`com.whispy` LaunchAgent (`./install.sh --uninstall`) so the daemon doesn't run
-twice.
+launch, accept the **Whispy** microphone prompt. To start at login, flip the
+**Start at login** toggle in the menu bar menu (or add `Whispy.app` to
+**System Settings → General → Login Items** by hand). Either way, remove any old
+LaunchAgent — both the older `com.whisper-dictation` and the `com.whispy` ones
+(`./install.sh --uninstall`) — so the daemon doesn't run twice.
 
 `make app` also creates a free, self-signed **"Whispy Local Signing"**
 certificate in your login keychain (via `packaging/macos/create_signing_cert.sh`)
@@ -81,7 +79,7 @@ Audio capture uses [`sounddevice`](https://python-sounddevice.readthedocs.io)
 (PortAudio), installed automatically as a Python dependency on every platform.
 
 **macOS** (Apple Silicon or Intel):
-- [Homebrew](https://brew.sh) (for the Homebrew install path)
+- Xcode Command Line Tools (`xcode-select --install`) to build `Whispy.app`
 
 **Linux** (X11 session):
 - An **X11 session** (not Wayland — see the note above)
@@ -120,8 +118,9 @@ cd whispy
 The script automatically manages:
 - Python virtual environment creation
 - Installation of `faster-whisper`
-- Setup and launching the background service (a `LaunchAgent` on macOS, a
-  `systemd --user` unit on Linux/X11)
+- On **Linux/X11**, setup and launching of a `systemd --user` service. On
+  **macOS** it only builds the venv — run `make app` to produce `Whispy.app`
+  (autostart is the in-app "Start at login" toggle, no LaunchAgent)
 
 To use a different model:
 ```bash
@@ -141,7 +140,7 @@ The daemon needs microphone access to capture audio.
   shows as "Whispy" under **System Settings → Privacy & Security → Microphone**
   and persists across Python upgrades. If you ever clicked "Don't Allow", reset
   it with `tccutil reset Microphone com.whispy` and relaunch.
-- **Script / LaunchAgent path:** the responsible process is the bare Python
+- **Dev (`make run`):** the responsible process is the bare Python
   interpreter. Enable **iTerm**/**Terminal** under Microphone, and accept the
   first-recording popup. Note: a bare interpreter has no usage-description
   Info.plist, so on recent macOS the prompt may never appear and capture
@@ -174,12 +173,10 @@ The daemon requires this permission to simulate keyboard input via `osascript`.
 
 ### 4. Restart Daemon After Permissions Update
 
-If you changed permissions, run these commands to ensure the daemon picks up the new settings:
+If you changed permissions, restart Whispy so the daemon picks up the new settings:
 
-```bash
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.whispy.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whispy.plist
-```
+- **macOS:** Whispy menu bar → **Restart** (or quit and reopen `/Applications/Whispy.app`).
+- **Linux:** `systemctl --user restart whispy.service`.
 
 ## Usage
 
@@ -286,34 +283,43 @@ The HTTP `PORT` (default 9090) is defined near the top of `whispy_daemon.py`.
 
 ### 🔄 How do I manually restart Whispy?
 
-If you update the code or change permissions, you can restart the Whispy background service (daemon) with:
+- **macOS:** Whispy menu bar → **Restart**, or quit and reopen `/Applications/Whispy.app`.
+- **Linux:** `systemctl --user restart whispy.service`.
 
-```bash
-launchctl unload ~/Library/LaunchAgents/com.whispy.plist
-launchctl load ~/Library/LaunchAgents/com.whispy.plist
-```
-
-Or simply rerun the install script:
-
-```bash
-./install.sh
-```
+Running from source (development)? `make run` launches the daemon in the
+foreground against your working tree — no build or install step.
 
 ### 🗑️ How do I uninstall Whispy?
 
-With the new install script, you can uninstall everything in one command:
+**macOS** (the `.app` is removed by deleting it; that also drops the "Start at
+login" item):
+
+```bash
+# 1. Quit Whispy (menu bar → Quit).
+# 2. Remove the venv and any legacy LaunchAgents (both the older
+#    com.whisper-dictation and the com.whispy ones):
+./install.sh --uninstall
+# 3. Delete the app bundle:
+rm -rf /Applications/Whispy.app
+# 4. (optional) wipe settings, auth token, and logs:
+rm -rf ~/.config/whispy ~/.whispy.log ~/.whispy-error.log
+# Doing it by hand instead of ./install.sh --uninstall? Boot out and delete both:
+#   launchctl bootout "gui/$(id -u)/com.whisper-dictation" 2>/dev/null || true
+#   rm -f ~/Library/LaunchAgents/com.whisper-dictation.plist
+#   launchctl bootout "gui/$(id -u)/com.whispy" 2>/dev/null || true
+#   rm -f ~/Library/LaunchAgents/com.whispy.plist
+```
+
+**Linux** (removes the `systemd --user` unit and the venv):
 
 ```bash
 ./install.sh --uninstall
 ```
 
-Or manually:
-
-```bash
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.whispy.plist
-rm ~/Library/LaunchAgents/com.whispy.plist
-rm -rf whispy/.venv
-```
+> macOS permission grants (Microphone / Accessibility / Input Monitoring) are
+> tied to the `Whispy.app` identity and persist across reinstalls of the same
+> bundle. A fresh `make app` build re-signs the bundle, so macOS may ask you to
+> re-approve them after reinstalling — that is expected.
 
 ### 📄 Where are the logs?
 
@@ -329,13 +335,19 @@ tail -f ~/.whispy.log ~/.whispy-error.log
 ### ❓ FAQ
 
 **Q: Will Whispy start automatically at each reboot?**  
-A: Yes, the LaunchAgent ensures Whispy starts at every login.
+A: On macOS, enable the in-app **Settings → Start at login** toggle (registered
+via `SMAppService` — no LaunchAgent). On Linux, the `systemd --user` unit
+installed by `install.sh` starts it at login.
 
 **Q: Can I use a different Python version or environment?**  
 A: The install script creates its own virtual environment in `.venv` and uses it automatically.
 
 **Q: How do I update Whispy?**  
-A: Pull the latest code (`git pull`) and rerun `./install.sh`.
+A: Pull the latest code (`git pull`), then on **macOS** rebuild and reinstall
+the bundle: `./install.sh && make app && cp -R dist/Whispy.app /Applications/`,
+then relaunch it. On **Linux**, rerun `./install.sh` (it reinstalls the venv and
+reloads the systemd unit). Running `/Applications/Whispy.app` from an old build
+is the usual reason a code or settings fix "doesn't take" — rebuild the bundle.
 
 **Q: What if I want to use a different Whisper model?**  
 A: Run `WHISPER_MODEL=medium ./install.sh` (see model table above).
@@ -344,7 +356,9 @@ A: Run `WHISPER_MODEL=medium ./install.sh` (see model table above).
 A: Check with `curl -H "Authorization: Bearer $(cat ~/.config/whispy/config.token)" http://localhost:9090/status` or look for the process in Activity Monitor.
 
 **Q: How do I extend or debug Whispy?**  
-A: Edit the Python files, then reload the LaunchAgent as above.
+A: Edit the Python files, then run `make run` to launch the daemon in the
+foreground against your working tree (logs stream to the terminal). No bundle
+rebuild needed for source runs; rebuild with `make app` only to ship the `.app`.
 
 ---
 

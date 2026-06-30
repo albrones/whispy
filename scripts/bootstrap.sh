@@ -5,9 +5,11 @@ set -euo pipefail
 #
 #   curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash
 #
-# Clones (or updates) Whispy into a managed directory and runs install.sh from
-# there. The source must persist at a stable path because install.sh performs an
-# editable install and the LaunchAgent points at whispy_daemon.py / icons/.
+# Clones (or updates) Whispy into a managed directory, then routes by OS:
+#   Linux  -> install.sh (venv + systemd --user unit), unchanged.
+#   macOS  -> install.sh (venv) + `make app` + install Whispy.app to
+#             /Applications. The source must persist at a stable path because
+#             install.sh performs an editable install the .app build reads.
 #
 # Environment overrides:
 #   WHISPY_HOME    install location (default: ~/.local/share/whispy)
@@ -73,6 +75,53 @@ fi
 echo -e "${GREEN}[OK] Source ready at $WHISPY_HOME${NC}"
 echo ""
 
-# Hand off to the existing installer (creates venv, icons, LaunchAgent).
-# WHISPER_MODEL is honored by install.sh if exported.
-exec "$WHISPY_HOME/install.sh"
+# Route by OS. WHISPER_MODEL is honored by install.sh if exported.
+case "$(uname -s)" in
+Linux)
+    # Linux: venv + systemd --user unit (unchanged).
+    exec "$WHISPY_HOME/install.sh"
+    ;;
+Darwin)
+    # macOS: install.sh provisions the venv; the supported install is the
+    # signed Whispy.app, autostart is the in-app "Start at login" toggle.
+    "$WHISPY_HOME/install.sh"
+
+    # Migrate upgraders: a legacy LaunchAgent would fight the .app for :9090.
+    # Two pre-rebrand ids exist — com.whisper-dictation (oldest, "Whisper
+    # Dictation") and com.whispy (intermediate). Remove both before launching
+    # the app; keep $WHISPY_HOME (it is the current install's clone).
+    for id in com.whisper-dictation com.whispy; do
+        LEGACY_PLIST="$HOME/Library/LaunchAgents/$id.plist"
+        if [ -f "$LEGACY_PLIST" ]; then
+            echo -e "${YELLOW}Removing legacy $id LaunchAgent...${NC}"
+            launchctl bootout "gui/$(id -u)/$id" 2>/dev/null || true
+            launchctl unload "$LEGACY_PLIST" 2>/dev/null || true
+            rm -f "$LEGACY_PLIST"
+        fi
+    done
+
+    # Building Whispy.app needs the Xcode Command Line Tools (py2app + codesign).
+    # If absent, print the manual steps instead of failing opaquely.
+    if ! xcode-select -p >/dev/null 2>&1; then
+        echo -e "${YELLOW}Xcode Command Line Tools not found — finish manually:${NC}"
+        echo "  xcode-select --install        # then re-run, or:"
+        echo "  cd \"$WHISPY_HOME\" && make app"
+        echo "  cp -R dist/Whispy.app /Applications/ && open /Applications/Whispy.app"
+        exit 0
+    fi
+
+    echo -e "${YELLOW}Building Whispy.app...${NC}"
+    make -C "$WHISPY_HOME" app
+    rm -rf /Applications/Whispy.app
+    cp -R "$WHISPY_HOME/dist/Whispy.app" /Applications/
+    echo -e "${GREEN}[OK] Installed /Applications/Whispy.app${NC}"
+    open /Applications/Whispy.app
+    echo ""
+    echo "Grant the Whispy microphone prompt on first launch; enable autostart"
+    echo "with the in-app \"Start at login\" toggle."
+    ;;
+*)
+    echo -e "${RED}Unsupported OS: $(uname -s). Whispy supports macOS and Linux (X11).${NC}"
+    exit 1
+    ;;
+esac

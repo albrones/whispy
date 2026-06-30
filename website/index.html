@@ -113,6 +113,7 @@
             </div>
           </div>
           <div class="dd-item dd-toggle is-checked"><span>Copy to clipboard</span><span class="dd-tick">✓</span></div>
+          <div class="dd-item dd-toggle"><span>Start at login</span><span class="dd-tick">✓</span></div>
           <div class="dd-sep"></div>
           <div class="dd-item dd-hint">Hold your key to dictate</div>
           <div class="dd-sep"></div>
@@ -173,7 +174,7 @@
         </article>
         <article class="card">
           <h3>Lives in the tray</h3>
-          <p>Runs quietly as a background daemon in the menu bar (macOS) or system tray (Linux). No window to manage.</p>
+          <p>Runs quietly as a background daemon in the menu bar (macOS) or system tray (Linux). No window to manage — flip <em>Start at login</em> and it's there every boot.</p>
         </article>
         <article class="card">
           <h3>Tunable models</h3>
@@ -262,12 +263,9 @@
         <button class="btn btn-copy" type="button" data-copy-target="install-curl" aria-label="Copy install command">Copy</button>
       </div>
 
-      <p class="install-alt">On macOS, prefer Homebrew?</p>
-      <div class="install-block">
-        <pre class="codeblock" id="install-brew"><code>brew install albrones/whispy/whispy
-brew services start whispy</code></pre>
-        <button class="btn btn-copy" type="button" data-copy-target="install-brew" aria-label="Copy Homebrew command">Copy</button>
-      </div>
+      <p class="install-alt">On macOS this builds and installs the signed
+        <code>Whispy.app</code> (needs the Xcode Command Line Tools). Autostart
+        is the in-app "Start at login" toggle.</p>
 
       <p class="install-alt">On Linux, install the system deps first (X11 session
         required — Wayland users pick an "Xorg"/"X11" session at login):</p>

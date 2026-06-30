@@ -10,6 +10,20 @@
   préréglages (Fn, Right Command, Right Option, F13) ; le changement s'applique
   à chaud, sans redémarrage.
 
+### Changés
+- **Install macOS consolidé sur `Whispy.app`.** Une seule commande
+  (`curl … | bash`) détecte l'OS : macOS construit et installe le bundle signé
+  `Whispy.app` dans `/Applications` ; Linux/X11 garde venv + `systemd --user`.
+  `install.sh` macOS ne crée plus de LaunchAgent (autostart = toggle in-app
+  « Start at login »). Les installs existantes voient leur LaunchAgent
+  `com.whispy` retiré automatiquement (fin du double daemon sur `:9090`).
+
+### Supprimés
+- **Formula Homebrew.** `packaging/homebrew/whispy.rb`, le bump de tap dans
+  `release.yml`, le secret `HOMEBREW_TAP_TOKEN`, `docs/homebrew.md` et son test.
+  (Un *Cask* — l'outil correct pour une app GUI — reste une piste future,
+  bloquée sur la notarisation.)
+
 ### Corrigés
 - **Coche fantôme dans le menu.** Une ligne décochée conservait sa coche verte
   (`attributedTitle` AppKit prime sur `.title`) ; touche aussi Model/Language et
