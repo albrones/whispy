@@ -379,3 +379,56 @@ class TestUnknownEndpoints:
         status, body = _post(port, "/nonexistent")
         assert status == 404
         assert "error" in body
+
+
+class TestSingleInstanceLock:
+    """The :9090 bind is the single-instance lock: no port drift by default."""
+
+    def _engine(self):
+        return Engine(DictationState())
+
+    def test_binds_free_port(self):
+        from whispy.api.server import start_http_server
+
+        port = _find_free_port()
+        server = start_http_server(self._engine(), auth_token=TEST_TOKEN, start_port=port)
+        try:
+            assert server.server_address[1] == port
+        finally:
+            server.shutdown()
+
+    def test_raises_when_port_busy_no_drift(self):
+        # A second instance must fail fast on a busy port, NOT drift to port+1.
+        from whispy.api.server import start_http_server
+
+        port = _find_free_port()
+        holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        holder.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        holder.bind(("127.0.0.1", port))
+        holder.listen(1)
+        try:
+            with pytest.raises(OSError):
+                start_http_server(self._engine(), auth_token=TEST_TOKEN, start_port=port)
+        finally:
+            holder.close()
+
+    def test_harness_path_still_drifts(self):
+        # The headless harness opts into drift (max_attempts>1) so it can run
+        # beside a live daemon; verify it lands on the next free port.
+        from whispy.api.server import start_http_server
+
+        port = _find_free_port()
+        holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        holder.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        holder.bind(("127.0.0.1", port))
+        holder.listen(1)
+        server = None
+        try:
+            server = start_http_server(
+                self._engine(), auth_token=TEST_TOKEN, start_port=port, max_attempts=5
+            )
+            assert server.server_address[1] != port
+        finally:
+            holder.close()
+            if server is not None:
+                server.shutdown()

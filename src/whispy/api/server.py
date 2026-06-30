@@ -247,9 +247,15 @@ def start_http_server(
     engine: Engine,
     auth_token: str | None = None,
     start_port: int = PORT,
-    max_attempts: int = 10,
+    max_attempts: int = 1,
 ) -> HTTPServer:
-    """Start HTTP server in a daemon thread, trying consecutive ports if needed.
+    """Start HTTP server in a daemon thread; bind ``start_port`` exclusively.
+
+    The ``:9090`` bind doubles as the single-instance lock: with the default
+    ``max_attempts=1`` a busy port raises ``OSError`` instead of drifting, so a
+    second daemon fails fast. The validation harness passes a higher
+    ``max_attempts`` so a throwaway headless instance can run beside a live
+    daemon on the next free port.
 
     ``auth_token`` is the per-install secret required on every request; when set,
     unauthenticated callers are rejected with ``401``.

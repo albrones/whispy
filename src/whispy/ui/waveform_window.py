@@ -38,6 +38,17 @@ from PyObjCTools import AppHelper
 
 logger = logging.getLogger(__name__)
 
+# Collection behavior that lets a non-activating accessory panel float over any
+# Space, including another app's full-screen Space, without joining the window
+# cycle. Re-applied on every show (not just at init) so the pill reliably lands
+# on the *active* Space each time, not the one that was active at first show.
+_FULLSCREEN_OVERLAY_BEHAVIOR = (
+    NSWindowCollectionBehaviorCanJoinAllSpaces
+    | NSWindowCollectionBehaviorFullScreenAuxiliary
+    | NSWindowCollectionBehaviorStationary
+    | NSWindowCollectionBehaviorIgnoresCycle
+)
+
 # Layout (points)
 PILL_WIDTH = 168.0
 PILL_HEIGHT = 52.0
@@ -200,13 +211,9 @@ class WaveformWindow:
         window.setIgnoresMouseEvents_(True)
         window.setMovable_(False)
         # Float above everything, including other apps' fullscreen spaces.
+        # (Re-applied per show in _show_on_main; set here too for completeness.)
         window.setLevel_(NSScreenSaverWindowLevel)
-        window.setCollectionBehavior_(
-            NSWindowCollectionBehaviorCanJoinAllSpaces
-            | NSWindowCollectionBehaviorFullScreenAuxiliary
-            | NSWindowCollectionBehaviorStationary
-            | NSWindowCollectionBehaviorIgnoresCycle
-        )
+        window.setCollectionBehavior_(_FULLSCREEN_OVERLAY_BEHAVIOR)
 
         view = WaveformView.alloc().initWithFrame_(frame)
         if self._audio_monitor is not None:
@@ -231,9 +238,21 @@ class WaveformWindow:
             logger.warning("[waveform] window not initialized, cannot show")
             return
 
+        # Re-apply the Space-joining behavior and window level on every show. A
+        # full-screen app frontmost when recording starts is the active Space;
+        # re-asserting these here (not only at first init) is what makes the pill
+        # land on it reliably without needing a restart.
+        self._window.setLevel_(NSScreenSaverWindowLevel)
+        self._window.setCollectionBehavior_(_FULLSCREEN_OVERLAY_BEHAVIOR)
+
+        # Resolve against the active screen each show; fall back to the first
+        # screen if mainScreen() is unavailable (no key window).
         screen = NSScreen.mainScreen()
         if screen is None:
-            logger.warning("[waveform] no main screen")
+            screens = NSScreen.screens()
+            screen = screens[0] if screens else None
+        if screen is None:
+            logger.warning("[waveform] no screen available")
             return
         vf = screen.visibleFrame()
         x = vf.origin.x + (vf.size.width - PILL_WIDTH) / 2.0

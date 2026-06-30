@@ -67,6 +67,25 @@ class TestWaveformClasses:
         assert view._level > 0.0
         assert view._target_level == 0.8
 
+    def test_show_reapplies_fullscreen_behavior_and_level(self):
+        # Every show must re-assert the Space-joining behavior and screen-saver
+        # level so the pill lands on the active full-screen Space, not only on
+        # the process's first show. Tamper after init to prove re-application.
+        from AppKit import NSScreenSaverWindowLevel
+
+        from whispy.ui.waveform_window import _FULLSCREEN_OVERLAY_BEHAVIOR
+
+        win = WaveformWindow()
+        win._ensure_initialized()
+        win._window.setCollectionBehavior_(0)
+        win._window.setLevel_(0)
+        try:
+            win._show_on_main()
+            assert win._window.collectionBehavior() == _FULLSCREEN_OVERLAY_BEHAVIOR
+            assert win._window.level() == NSScreenSaverWindowLevel
+        finally:
+            win.destroy()
+
 
 class TestMenuBarWaveformWiring:
     def test_init_creates_waveform_components(self):

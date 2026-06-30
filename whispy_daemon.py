@@ -81,7 +81,10 @@ def run_headless():
     engine.start()
 
     token = load_or_create_token(CONFIG_PATH)
-    http_server = start_http_server(engine, auth_token=token)
+    # Headless is a test subject that may run beside the live daemon on :9090,
+    # so let it drift to the next free port (the single-instance lock applies to
+    # the real menu-bar daemon, not the throwaway harness instance).
+    http_server = start_http_server(engine, auth_token=token, max_attempts=10)
     port = http_server.server_address[1]
 
     stop = threading.Event()
@@ -120,6 +123,21 @@ def main():
 
     engine = Engine(state, config_path=CONFIG_PATH)
 
+    # Acquire the single-instance lock by binding :9090 BEFORE any heavy or
+    # device-grabbing init (model load, event tap, audio) or UI. A second
+    # daemon fails the bind here and exits fast instead of drifting to another
+    # port and running in parallel (which corrupted settings and put the pill
+    # on the wrong Space). The per-install token gates every request.
+    token = load_or_create_token(CONFIG_PATH)
+    try:
+        http_server = start_http_server(engine, auth_token=token)
+    except OSError:
+        print(
+            "[main] Another Whispy instance is already running on :9090; exiting.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     # Create the platform tray UI (rumps menu bar on macOS, pystray on Linux);
     # it registers its own engine status callbacks.
     app = engine._adapters.make_tray(engine)
@@ -127,10 +145,6 @@ def main():
 
     # Start all components
     engine.start()
-
-    # Start HTTP server (require the per-install token on every request)
-    token = load_or_create_token(CONFIG_PATH)
-    http_server = start_http_server(engine, auth_token=token)
 
     # Handle SIGTERM for graceful shutdown
     def _handle_sigterm(*_args):
