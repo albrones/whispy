@@ -26,7 +26,7 @@
 | Fn Key Detection | `pyobjc-framework-Quartz` (CGEventTap) |
 | Text Injection | `osascript` (AppleScript / System Events) |
 | HTTP Server | `http.server` (stdlib, port 9090) |
-| Daemon | macOS LaunchAgent (`com.whispy.plist`) |
+| Daemon | macOS: `Whispy.app` bundle (autostart via in-app login item, `SMAppService`) · Linux: `systemd --user` unit |
 
 ---
 
@@ -375,14 +375,12 @@ Quit [q]
 1. Checks for python3
 2. Creates `.venv` if needed → installs `faster-whisper`, `pyobjc-framework-Quartz`, `rumps`, `Pillow`
 3. Generates icons via `generate_icons.py` if missing
-4. Creates LaunchAgent `com.whispy.plist` → `~/Library/LaunchAgents/`
-5. Loads the LaunchAgent
+4. **macOS:** provisions the venv only — `make app` then builds `Whispy.app` (py2app). Autostart is the in-app "Start at login" toggle (`SMAppService`); **no LaunchAgent is created**.
+5. **Linux:** installs and enables a `systemd --user` unit (`whispy.service`).
 
-**LaunchAgent Plist:**
-- Program: `.venv/bin/python3 whispy_daemon.py`
-- RunAtLoad: true, KeepAlive: true
-- StandardOut: `~/.whispy.log`, StandardError: `~/.whispy-error.log`
-- PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`
+`install.sh --uninstall` removes the venv and, on macOS, boots out + deletes any legacy `com.whisper-dictation` / `com.whispy` LaunchAgent left by a pre-rebrand install.
+
+**Distribution:** the signed `Whispy.app` is the sole recommended macOS install — built locally (so it is **not** Gatekeeper-quarantined), no Homebrew and no notarized download. The `curl | bash` one-liner (`scripts/bootstrap.sh`) automates clone → `install.sh` → `make app` → copy to `/Applications`. Linux installs via the same one-liner or `./install.sh` directly (venv + systemd).
 
 **`generate_icons.py`:** Creates 5 icons (22x22 PNG, black/transparent) via PIL:
 - `mic-idle.png` — Microphone only
@@ -420,7 +418,7 @@ Quit [q]
 whispy/
 ├── whispy_daemon.py             # Entry point
 ├── pyproject.toml               # Project config, dependencies, pytest
-├── install.sh                   # Setup script (venv, LaunchAgent)
+├── install.sh                   # Setup (venv; macOS .app via make app, Linux systemd)
 ├── generate_icons.py            # Icon generation (PIL)
 ├── src/whispy/                  # Python package
 │   ├── core/                    # Engine, state machine, audio, config
