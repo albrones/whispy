@@ -7,7 +7,6 @@ requirement that Whispy v1 enforces at startup. These adapters provide the same
 behavior contract as their macOS counterparts.
 
 Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
-
 ## Requirements
 ### Requirement: Linux X11 hotkey listening
 On Linux, the hotkey listener SHALL detect the configured trigger key globally under an X11 session using `pynput`, emitting press and release events to the engine. When the global listen cannot be established, it SHALL degrade gracefully and emit an actionable message to stderr rather than crash.
@@ -79,3 +78,11 @@ The Linux hotkey listener SHALL warn the user when started under a Wayland sessi
 #### Scenario: Restart after a missed release
 - **WHEN** the listener is (re)started while its internal held flag was left set
 - **THEN** `start()` SHALL reset the held flag so the next press is detected
+
+### Requirement: Advertised Linux install path is honest
+The documented Linux install path SHALL actually install and start the daemon, OR the documentation SHALL NOT advertise an install path that does not function on Linux.
+
+#### Scenario: User follows the Linux install instructions
+- **WHEN** a Linux user runs the install path the docs advertise for Linux
+- **THEN** either the daemon SHALL be installed and started (e.g. via a `systemd --user` unit), OR the docs SHALL clearly scope that path to macOS and present the supported Linux procedure — never silently no-op
+

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Install scripts do not require sox
-The install scripts (`install.sh`, `bootstrap.sh`) and the Homebrew formula SHALL NOT require or gate on `sox`, since the audio backend uses sounddevice/PortAudio.
+The install scripts (`install.sh`, `bootstrap.sh`) SHALL NOT require or gate on `sox`, since the audio backend uses sounddevice/PortAudio.
 
 #### Scenario: Clean machine without sox
 - **WHEN** the one-liner installer runs on a machine that does not have `sox`
