@@ -371,7 +371,7 @@ A hidden `_version` key tracks migrations (`CONFIG_VERSION = 1`). There is **no*
 
 **Test files** (`tests/`):
 
-`test_state_machine.py`, `test_engine.py`, `test_audio.py`, `test_injection.py`, `test_integration.py`, `test_e2e.py`, `test_e2e_smoke.py`, `test_e2e_smoke_linux.py`, `test_event_tap_e2e.py`, `test_event_decode.py`, `test_language_detection.py`, `test_transcription_quality.py`, `test_segmentation.py`, `test_text_cleaning.py`, `test_config_validation.py`, `test_simplify_config_ui.py`, `test_menu_bar.py`, `test_menu_theme.py`, `test_waveform.py`, `test_anim_frames.py`, `test_level_math.py`, `test_auth.py`, `test_paths.py`, `test_permissions.py`, `test_platform_detect.py`, `test_linux_adapters.py`, `test_doctor.py`, `test_error_handling.py`, `test_install_scripts.py`, `test_deploy_workflow.py`, `test_validation_core.py`, `test_website.py`, plus `tests/test_api/test_server.py`.
+`test_state_machine.py`, `test_engine.py`, `test_audio.py`, `test_injection.py`, `test_integration.py`, `test_e2e.py`, `test_e2e_smoke.py`, `test_e2e_smoke_linux.py`, `test_event_tap_e2e.py`, `test_event_decode.py`, `test_language_detection.py`, `test_transcription_quality.py`, `test_segmentation.py`, `test_text_cleaning.py`, `test_config_validation.py`, `test_simplify_config_ui.py`, `test_menu_bar.py`, `test_menu_theme.py`, `test_waveform.py`, `test_anim_frames.py`, `test_level_math.py`, `test_auth.py`, `test_paths.py`, `test_permissions.py`, `test_platform_detect.py`, `test_linux_adapters.py`, `test_doctor.py`, `test_error_handling.py`, `test_install_scripts.py`, `test_validation_core.py`, `test_website.py`, plus `tests/test_api/test_server.py`.
 
 ---
 

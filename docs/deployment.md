@@ -4,50 +4,64 @@ This document covers how the Whispy promotional website is deployed.
 
 ## Overview
 
-The static site under [`website/`](../website) is deployed to Vercel by the
-[`deploy-website.yml`](../.github/workflows/deploy-website.yml) GitHub Actions
-workflow:
+The static site under [`website/`](../website) is deployed by **Vercel's
+native Git integration**, connected directly to the `albrones/whispy`
+repository (Vercel project: `whispy`). There is no GitHub Actions workflow
+involved — Vercel watches the repo itself and builds/deploys on every push:
 
-| Trigger                                   | Result                  |
-| ----------------------------------------- | ----------------------- |
-| Pull request changing `website/**`        | Vercel **preview** deploy |
-| Push to `main` changing `website/**`      | Vercel **production** deploy |
-| App-only commit (no `website/` change)    | _no deploy_             |
-| `v*` version tag push                     | _no deploy_ (handled by `release.yml`) |
+| Trigger                    | Result                        |
+| --------------------------- | ------------------------------ |
+| Push to `main`               | Vercel **production** deploy   |
+| Pull request (any branch)   | Vercel **preview** deploy       |
 
-The workflow is path-filtered to `website/**`, so application changes and
-release tags never trigger a website deploy. Before any deploy step runs, a
-validation step asserts that `website/index.html` and its core local assets
-exist — the same invariant covered by `tests/test_website.py`.
+Because the site has no build step (see below), Vercel deploys on *every*
+push, not just ones touching `website/**` — there is no path filter. For a
+static, build-free site this is cheap and acceptable; it also means an
+app-only commit still triggers a (no-op, near-instant) deploy.
 
-## Required repository secrets
+## Configuration
 
-Set these under **Settings → Secrets and variables → Actions** in the GitHub
-repository:
+All configuration is versioned in the repo root, so it travels with the code
+instead of living in unversioned Vercel project settings:
 
-| Secret              | What it is                                | How to obtain |
-| ------------------- | ----------------------------------------- | ------------- |
-| `VERCEL_TOKEN`      | Personal Vercel access token              | Vercel dashboard → **Account Settings → Tokens → Create** |
-| `VERCEL_ORG_ID`     | Vercel team/organization id               | Run `vercel link` locally, then read `.vercel/project.json` (`orgId`) |
-| `VERCEL_PROJECT_ID` | Vercel project id for the website         | Same `.vercel/project.json` (`projectId`) |
+- **[`vercel.json`](../vercel.json)** — tells Vercel this is a static site
+  with no build step and that the deployable output is the `website/`
+  directory:
 
-To generate the org/project ids: from the repo root run `npx vercel link`,
-select (or create) the Vercel project for the website, and Vercel writes
-`.vercel/project.json` containing both ids. (`.vercel/` is git-ignored — copy
-the values into the GitHub secrets above; do not commit it.)
+  ```json
+  {
+    "$schema": "https://openapi.vercel.sh/vercel.json",
+    "framework": null,
+    "buildCommand": "",
+    "outputDirectory": "website"
+  }
+  ```
 
-In the Vercel project settings, set the **Root Directory** to `website` so the
-build picks up `website/vercel.json` and the static files.
+- **[`.vercelignore`](../.vercelignore)** — restricts what gets uploaded to
+  Vercel to the site itself (`website/**` and `vercel.json`), excluding the
+  Python app, `.venv`, and local env files. This matters for CLI deploys run
+  from a local checkout (`vercel deploy`); a Git-integration build instead
+  clones the repository directly on Vercel's side, so `.vercelignore` isn't
+  what scopes those builds — `outputDirectory` in `vercel.json` is.
 
-## Avoiding double deploys
+No GitHub repository secrets are required for this deploy path — Vercel
+authenticates and builds independently once the Git integration is
+connected. The `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` secrets used by the
+prior Actions-based workflow are no longer needed and can be deleted from
+the repository's **Settings → Secrets and variables → Actions**.
 
-If the Vercel project also has Git integration enabled, a push could deploy
-**twice** (once via Vercel's own Git hook, once via this workflow). Pick one:
+## Manual deploy fallback
 
-- **Recommended:** disable Vercel's Git auto-deploy for this project
-  (Vercel project → **Settings → Git → Ignored Build Step** / disconnect Git),
-  and let `deploy-website.yml` be the single source of deploys.
-- Or remove the workflow and rely solely on Vercel's Git integration.
+If you ever need to deploy outside of the normal push/PR flow (e.g. to debug
+a Vercel-specific issue locally), run from the repo root:
+
+```bash
+npx vercel deploy --prod
+```
+
+This requires the local checkout to be linked to the Vercel project first
+(`npx vercel link`, which writes `.vercel/project.json` — git-ignored, never
+commit it).
 
 ## Related pipelines
 
