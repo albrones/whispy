@@ -5,6 +5,7 @@ transcribes via faster-whisper, integrating with the state machine for
 lifecycle management. The same recorder serves macOS and Linux.
 """
 
+import glob
 import logging
 import os
 import re
@@ -52,6 +53,42 @@ WHISPER_CREDIT_RE = re.compile(
 RECORDING_PATH = os.path.join(tempfile.gettempdir(), "whispy.wav")
 
 
+def _open_recording_wav(path: str) -> wave.Wave_write:
+    """Create (or truncate) a recording WAV with 0o600 permissions.
+
+    Recording WAVs briefly hold captured voice audio; a plain
+    ``wave.open(path, "wb")`` creates the file under the process umask (often
+    ~0644 on Linux), leaving it world-readable in the shared temp dir. Creating
+    the file via ``os.open`` with an explicit mode first closes that window —
+    the OS ignores the mode argument on an already-existing file, so the
+    subsequent ``wave.open`` (which just opens it normally) never widens the
+    permissions back. Returns a normal ``Wave_write`` so callers keep using it
+    exactly like ``wave.open`` (including ``with``).
+    """
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.close(fd)
+    return wave.open(path, "wb")
+
+
+def _cleanup_stale_recordings() -> None:
+    """Best-effort removal of leftover whispy-*.wav files from a prior crash.
+
+    Each recording writes to a unique ``whispy-<uuid>.wav`` path (see
+    ``_new_recording_path``); a crash — or a transcription exception before
+    the run_transcription ``finally``-cleanup fix — could leave one behind
+    indefinitely, holding recorded voice audio. Runs once per AudioEngine
+    startup and must never fail startup itself.
+    """
+    try:
+        for stale in glob.glob(os.path.join(tempfile.gettempdir(), "whispy-*.wav")):
+            try:
+                os.remove(stale)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
 def strip_whisper_credit(text: str) -> str:
     """Remove Whisper credit/watermark prefixes from transcribed text.
 
@@ -84,6 +121,10 @@ class AudioEngine:
     """
 
     def __init__(self, state_machine: StateMachine):
+        # Best-effort: clear out any whispy-*.wav left by a prior crash before
+        # this instance starts writing its own — never fails startup.
+        _cleanup_stale_recordings()
+
         self._sm = state_machine
         self._stream = None
         self._wave = None
@@ -147,7 +188,7 @@ class AudioEngine:
         if not self._chunk_buf:
             return
         path = self._new_recording_path()
-        with wave.open(path, "wb") as wf:
+        with _open_recording_wav(path) as wf:
             wf.setnchannels(CHANNELS)
             wf.setsampwidth(SAMPLE_WIDTH)
             wf.setframerate(SAMPLE_RATE)
@@ -266,7 +307,7 @@ class AudioEngine:
                     # access against stop() via the lock.
                     with self._wave_lock:
                         if self._wave is None:
-                            self._wave = wave.open(self._recording_path, "wb")
+                            self._wave = _open_recording_wav(self._recording_path)
                             self._wave.setnchannels(CHANNELS)
                             self._wave.setsampwidth(SAMPLE_WIDTH)
                             self._wave.setframerate(SAMPLE_RATE)

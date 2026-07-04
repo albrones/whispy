@@ -9,6 +9,7 @@ This is the main entry point. All logic is in src/whispy/.
 """
 
 import logging
+import logging.handlers
 import os
 import signal
 import sys
@@ -39,7 +40,9 @@ logging.basicConfig(
     level=logging.INFO,
     format="[%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(Path.home() / ".whispy.log", encoding="utf-8"),
+        logging.handlers.RotatingFileHandler(
+            Path.home() / ".whispy.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+        ),
         logging.StreamHandler(),
     ],
 )

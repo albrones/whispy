@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 # Ensure src/ is on the path, and remove project root to avoid whispy.py shadowing
 _project_root = str(Path(__file__).parent.parent)
 if _project_root in sys.path:
@@ -208,6 +210,69 @@ class TestCleanupAudioFile:
         audio = AudioEngine(MagicMock())
         # Just verify it doesn't crash with default path
         audio.cleanup_audio_file()
+
+
+# ---------------------------------------------------------------------------
+# Recording WAV permissions (privacy: never world-readable, whatever the umask)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permission bits only")
+class TestRecordingFilePermissions:
+    """Every recording WAV must be created 0o600, regardless of the umask."""
+
+    def test_new_recording_wav_is_owner_only(self, sm, mocker):
+        _install_spy_sd(mocker)
+        old_umask = os.umask(0o022)  # a permissive umask a real system might have
+        try:
+            audio = AudioEngine(sm)
+            audio.start()  # spy fires the callback synchronously, opening the WAV
+        finally:
+            os.umask(old_umask)
+        mode = os.stat(audio.recording_path).st_mode & 0o777
+        assert mode == 0o600
+
+    def test_chunk_wav_is_owner_only(self, sm):
+        audio = AudioEngine(sm)
+        chunks: list[str] = []
+        audio._on_chunk = chunks.append
+        audio._chunk_buf = bytearray(b"\x00" * 3200)
+        old_umask = os.umask(0o022)
+        try:
+            audio._emit_chunk()
+        finally:
+            os.umask(old_umask)
+        assert len(chunks) == 1
+        mode = os.stat(chunks[0]).st_mode & 0o777
+        assert mode == 0o600
+
+
+# ---------------------------------------------------------------------------
+# Stale recording sweep (privacy: crashes must not leak WAVs forever)
+# ---------------------------------------------------------------------------
+
+
+class TestStaleRecordingSweep:
+    """AudioEngine startup removes leftover whispy-*.wav files from a crash."""
+
+    def test_sweeps_stale_whispy_wavs_on_init(self, sm):
+        import tempfile
+        import uuid
+
+        stale = os.path.join(tempfile.gettempdir(), f"whispy-{uuid.uuid4().hex}.wav")
+        with open(stale, "wb") as f:
+            f.write(b"\x00" * 100)
+        assert os.path.exists(stale)
+
+        AudioEngine(sm)
+
+        assert not os.path.exists(stale)
+
+    def test_sweep_failure_does_not_break_startup(self, mocker):
+        # A listing/removal error must never prevent the AudioEngine from
+        # starting up.
+        mocker.patch.object(audio_module.glob, "glob", side_effect=OSError("boom"))
+        AudioEngine(MagicMock())  # must not raise
 
 
 # ---------------------------------------------------------------------------

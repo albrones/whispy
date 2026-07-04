@@ -37,6 +37,22 @@ def _commands(popen_mock):
     return [call.args[0] for call in popen_mock.call_args_list]
 
 
+def _wait_communicate(popen_instance, n, timeout=2.0):
+    """Wait until the off-thread worker has completed at least n communicate() calls.
+
+    Popen(cmd) and the subsequent communicate(input=...) happen as two
+    separate calls from the worker thread; waiting only on Popen's call count
+    (``_wait_calls``) can observe the nth Popen() before its communicate()
+    has run, racing assertions that inspect ``communicate.call_args_list``.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if popen_instance.communicate.call_count >= n:
+            return True
+        time.sleep(0.01)
+    return popen_instance.communicate.call_count >= n
+
+
 # ---------------------------------------------------------------------------
 # Clipboard injection mode
 # ---------------------------------------------------------------------------
@@ -51,7 +67,10 @@ class TestClipboardInjection:
         injector = TextInjector(copy_to_clipboard=True)
         injector.inject("hello")
 
-        assert _wait_calls(popen_mock, 2)
+        # Wait for the full sequence (pbcopy, paste, restore) to drain so no
+        # background step is left pending (with its restore delay) once this
+        # test returns and the subprocess mocks are torn down.
+        assert _wait_communicate(popen_instance, 3)
         cmds = _commands(popen_mock)
         # First step copies via pbcopy (text via stdin, never interpolated).
         assert cmds[0] == ["pbcopy"]
@@ -65,9 +84,72 @@ class TestClipboardInjection:
         injector = TextInjector(copy_to_clipboard=True)
         injector.inject("hello")
 
-        assert _wait_calls(popen_mock, 2)  # pbcopy then paste
+        assert _wait_communicate(popen_instance, 3)  # pbcopy, paste, restore
         # The text reaches pbcopy (the first step) as stdin bytes, not as an arg.
         assert popen_instance.communicate.call_args_list[0].kwargs.get("input") == b"hello"
+
+
+# ---------------------------------------------------------------------------
+# Clipboard snapshot/restore (privacy: transcript must not linger on the
+# pasteboard, and the user's previous clipboard must survive dictation)
+# ---------------------------------------------------------------------------
+
+
+def _ok_pbpaste(run_mock, stdout: bytes = b"") -> None:
+    """Configure the mocked subprocess.run (pbpaste snapshot) to succeed."""
+    run_mock.return_value.returncode = 0
+    run_mock.return_value.stdout = stdout
+
+
+class TestClipboardRestore:
+    """The clipboard is snapshotted before overwrite and restored after paste."""
+
+    def test_snapshot_taken_before_pbcopy(self, mock_subprocess):
+        run_mock, _, popen_instance = mock_subprocess
+        _ok(popen_instance)
+        _ok_pbpaste(run_mock, stdout=b"previous clipboard")
+        injector = TextInjector(copy_to_clipboard=True)
+        injector.inject("hello")
+
+        # The snapshot is taken synchronously, before the pbcopy/paste/restore
+        # sequence is even spawned off-thread, so this call is guaranteed to
+        # have happened by the time inject() returns.
+        run_mock.assert_called_once()
+        assert run_mock.call_args.args[0] == ["pbpaste"]
+
+        # Drain the background sequence before returning: otherwise its
+        # pending restore step (after its short delay) could still fire once
+        # a later test's subprocess mocks are active, polluting their counts.
+        assert _wait_communicate(popen_instance, 3)
+
+    def test_restore_runs_after_paste_with_snapshot_content(self, mock_subprocess):
+        run_mock, popen_mock, popen_instance = mock_subprocess
+        _ok(popen_instance)
+        _ok_pbpaste(run_mock, stdout=b"previous clipboard")
+        injector = TextInjector(copy_to_clipboard=True)
+        injector.inject("hello")
+
+        assert _wait_communicate(popen_instance, 3)  # pbcopy, paste, restore
+        cmds = _commands(popen_mock)
+        assert cmds[2] == ["pbcopy"]
+        assert popen_instance.communicate.call_args_list[2].kwargs.get("input") == b"previous clipboard"
+
+    def test_pbpaste_failure_does_not_break_injection(self, mock_subprocess):
+        run_mock, popen_mock, popen_instance = mock_subprocess
+        _ok(popen_instance)
+        run_mock.side_effect = OSError("pbpaste not found")
+        injector = TextInjector(copy_to_clipboard=True)
+        injector.inject("hello")
+
+        # The transcript still gets copied and pasted despite the snapshot
+        # failing; the restore step falls back to an empty snapshot instead
+        # of crashing.
+        assert _wait_communicate(popen_instance, 3)
+        cmds = _commands(popen_mock)
+        assert cmds[0] == ["pbcopy"]
+        assert popen_instance.communicate.call_args_list[0].kwargs.get("input") == b"hello"
+        assert cmds[2] == ["pbcopy"]
+        assert popen_instance.communicate.call_args_list[2].kwargs.get("input") == b""
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +231,7 @@ class TestInjectionIsNeverCode:
         injector = TextInjector(copy_to_clipboard=True)
         injector.inject(self.EVIL)
 
-        assert _wait_calls(popen_mock, 2)  # pbcopy then paste
+        assert _wait_communicate(popen_instance, 3)  # pbcopy, paste, restore
         # Exact bytes to pbcopy stdin — no escaping, no shell, no AppleScript.
         assert popen_instance.communicate.call_args_list[0].kwargs.get("input") == self.EVIL.encode("utf-8")
         # No argv anywhere contains an `-e` script carrying the text.
@@ -174,7 +256,7 @@ class TestInjectionIsNeverCode:
         injector = TextInjector(copy_to_clipboard=True)
         injector.inject(r"path\to\file")
 
-        assert _wait_calls(popen_mock, 2)  # pbcopy then paste
+        assert _wait_communicate(popen_instance, 3)  # pbcopy, paste, restore
         assert popen_instance.communicate.call_args_list[0].kwargs.get("input") == rb"path\to\file"
 
 

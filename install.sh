@@ -53,6 +53,34 @@ if [[ "${1:-}" == "--uninstall" ]]; then
         echo "(turn off \"Start at login\" in the menu first to drop the login item)"
     fi
     rm -rf "$VENV_DIR"
+
+    # -------------------------------------------------------------------
+    # User data (config incl. API token, logs, downloaded Whisper model) is
+    # kept by default -- a reinstall would otherwise re-download the model
+    # (0.5-3 GB). Only offer to remove it when there's an actual person at
+    # the prompt (a TTY); non-interactive runs (e.g. bootstrap.sh piped via
+    # `curl | bash`) always keep the data instead of blocking.
+    # -------------------------------------------------------------------
+    CONFIG_DIR="$HOME/.config/whispy"
+    # faster-whisper caches models in the HuggingFace hub cache, which is
+    # SHARED with any other tool that uses huggingface_hub -- never delete
+    # the whole hub directory, only the faster-whisper model snapshots
+    # (named "models--Systran--faster-whisper-<size>") inside it.
+    MODEL_CACHE_GLOB="$HOME/.cache/huggingface/hub/models--Systran--faster-whisper-*"
+
+    REMOVE_DATA="n"
+    if [ -t 0 ]; then
+        read -r -p "Also remove config ($CONFIG_DIR, includes the API token), logs, and the downloaded Whisper model cache? [y/N] " REMOVE_DATA || true
+    fi
+    if [[ "$REMOVE_DATA" =~ ^[Yy]$ ]]; then
+        rm -rf "$CONFIG_DIR"
+        rm -f "$HOME"/.whispy.log "$HOME"/.whispy.log.* "$HOME"/.whispy-error.log "$HOME"/.whispy-error.log.*
+        rm -rf $MODEL_CACHE_GLOB
+        echo -e "${GREEN}Removed config, logs, and the Whisper model cache.${NC}"
+    else
+        echo -e "${YELLOW}Keeping config, logs, and the Whisper model cache (rerun ./install.sh --uninstall to remove them later).${NC}"
+    fi
+
     echo -e "${GREEN}Uninstallation complete.${NC}"
     exit 0
 fi

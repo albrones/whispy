@@ -182,7 +182,7 @@ class WaveformPill {
     en: el('[data-demo-sub="en"]'),
   };
 
-  let lang = "fr";
+  let lang = "en";
 
   function setCaption(text, mode) {
     caption.textContent = text;
@@ -287,7 +287,7 @@ class WaveformPill {
   // Render the calm end-state for users who prefer reduced motion.
   if (REDUCE_MOTION) {
     brailleEl.textContent = IDLE_FRAME;
-    output.textContent = PHRASES.fr;
+    output.textContent = PHRASES.en;
     setCaption("Hold your key, speak, release", "idle");
     return;
   }
@@ -297,10 +297,10 @@ class WaveformPill {
     if (started) return;
     started = true;
     while (true) {
-      await dictate(); // French
-      await switchLanguage("en"); // change language from the tray
       await dictate(); // English
-      await switchLanguage("fr"); // back to French, loop
+      await switchLanguage("fr"); // change language from the tray
+      await dictate(); // French
+      await switchLanguage("en"); // back to English, loop
     }
   }
 

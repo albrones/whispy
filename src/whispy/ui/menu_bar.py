@@ -280,8 +280,20 @@ class WhisperMenuBarApp(rumps.App):
             self._visualization.show()
 
     def _on_fn_released(self) -> None:
-        """Hide the waveform when FN is released."""
+        """Hide the waveform when FN is released.
+
+        Also warns when the dictation was pointless: the model is still
+        loading, so run_transcription would have silently produced nothing.
+        """
         self._visualization.hide()
+        if self.engine.state.model is None and self.engine.state.model_loading:
+            self._pending_alerts.append(
+                (
+                    "Model still loading",
+                    "Whispy is still loading the transcription model — try again in a moment.",
+                    None,
+                )
+            )
 
     def _on_recording_start(self) -> None:
         """Show the recording waveform (level comes from the capture stream)."""

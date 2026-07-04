@@ -55,7 +55,7 @@ MODEL_PRESETS: dict[str, dict[str, str]] = {
 # Default configuration values
 DEFAULT_CONFIG: dict[str, Any] = {
     "model_size": "small",
-    "language": "fr",
+    "language": "en",
     "beam_size": 1,
     "best_of": 2,
     "copy_to_clipboard": False,

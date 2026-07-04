@@ -117,7 +117,7 @@ class TestFullWorkflow:
         # 1. Engine is created and initialized
         assert engine.state is state
         assert engine.state.config["model_size"] == "small"
-        assert engine.state.config["language"] == "fr"
+        assert engine.state.config["language"] == "en"
 
         status = engine.get_status()
         assert status["is_recording"] is False
@@ -343,7 +343,7 @@ class TestHTTPAPIWithEngine:
         status, body = _http_get(port, "/config")
         assert status == 200
         assert body["model_size"] == "small"
-        assert body["language"] == "fr"
+        assert body["language"] == "en"
 
     def test_post_config_updates_and_persists(self, test_server, tmp_path):
         """Test POST /config updates engine config and persists to disk."""
@@ -653,18 +653,23 @@ class TestTextInjector:
         return mock_popen.call_count >= n
 
     def test_inject_via_clipboard(self, mocker):
-        """Clipboard mode copies via pbcopy (stdin) then pastes with Cmd+V."""
+        """Clipboard mode snapshots the clipboard, copies via pbcopy (stdin),
+        pastes with Cmd+V, then restores the snapshot."""
         mock_popen, inst = self._mock_popen(mocker)
         injector = TextInjector(copy_to_clipboard=True)
 
         injector.inject("hello world")
 
-        assert self._wait(mock_popen, 2)
+        assert self._wait(mock_popen, 4)
         cmds = [c.args[0] for c in mock_popen.call_args_list]
-        assert cmds[0] == ["pbcopy"]
-        assert cmds[1][0] == "osascript"
-        assert any('keystroke "v"' in str(a) for a in cmds[1])
-        # Text reaches pbcopy via stdin, never as an argument.
+        assert cmds[0] == ["pbpaste"]  # snapshot of the user's clipboard
+        assert cmds[1] == ["pbcopy"]
+        assert cmds[2][0] == "osascript"
+        assert any('keystroke "v"' in str(a) for a in cmds[2])
+        assert cmds[3] == ["pbcopy"]  # restore the snapshot after the paste
+        # Text reaches pbcopy via stdin, never as an argument. (The pbpaste
+        # snapshot runs through subprocess.run's context manager, so its
+        # communicate() lands on the __enter__ child mock, not on inst.)
         assert inst.communicate.call_args_list[0].kwargs.get("input") == b"hello world"
 
     def test_inject_via_keystrokes(self, mocker):

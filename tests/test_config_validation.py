@@ -89,7 +89,7 @@ class TestSaveConfigFiltering:
 
         saved = json.loads(config_path.read_text())
         assert saved["model_size"] == "base"
-        assert saved["language"] == "fr"
+        assert saved["language"] == "en"
         for key in DEFAULT_CONFIG:
             assert key in saved
 

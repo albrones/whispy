@@ -102,9 +102,9 @@ class EventTapListener:
         )
         if tap is None:
             print(
-                "[event-tap] CGEventTapCreate failed — grant Input Monitoring to python3:\n"
-                "  System Settings → Privacy & Security → Input Monitoring → add python3\n"
-                "  Then restart: launchctl kickstart -k gui/$(id -u)/com.whispy",
+                "[event-tap] CGEventTapCreate failed — grant Input Monitoring to Whispy:\n"
+                "  System Settings → Privacy & Security → Input Monitoring → add Whispy\n"
+                "  Then restart Whispy: menu → Restart, or `open -a Whispy`",
                 file=sys.stderr,
             )
             return
@@ -130,7 +130,7 @@ class EventTapListener:
             return
         else:
             print(
-                "[event-tap] Timed out waiting for CFRunLoop to start — Input Monitoring may not be granted to python3",
+                "[event-tap] Timed out waiting for CFRunLoop to start — Input Monitoring may not be granted to Whispy",
                 file=sys.stderr,
             )
 

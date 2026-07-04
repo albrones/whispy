@@ -3,6 +3,8 @@
 import json
 import threading
 
+import pytest
+
 from whispy.core.engine import (
     DEFAULT_CONFIG,
     DictationState,
@@ -50,7 +52,7 @@ class TestLoadConfig:
 
         loaded = load_config(config_file)
         assert loaded["model_size"] == "medium"
-        assert loaded["language"] == "fr"
+        assert loaded["language"] == "en"
 
     def test_unknown_keys_in_config_are_ignored(self, tmp_dir):
         config_dir = tmp_dir / ".config" / "whispy"
@@ -68,11 +70,11 @@ class TestLoadConfig:
         for key in DEFAULT_CONFIG:
             assert key in loaded
 
-    def test_default_language_is_french(self, tmp_dir):
+    def test_default_language_is_english(self, tmp_dir):
         config_file = tmp_dir / "nonexistent" / "config.json"
         loaded = load_config(config_file)
-        assert loaded["language"] == "fr"
-        assert DEFAULT_CONFIG["language"] == "fr"
+        assert loaded["language"] == "en"
+        assert DEFAULT_CONFIG["language"] == "en"
 
     def test_default_copy_to_clipboard_is_false(self, tmp_dir):
         config_file = tmp_dir / "nonexistent" / "config.json"
@@ -118,12 +120,12 @@ class TestSaveConfig:
         """Test that save_config overwrites the config at the given path."""
         config_path = tmp_path / "config.json"
         # Write a known config first
-        config_path.write_text(json.dumps({"model_size": "tiny", "language": "en"}))
+        config_path.write_text(json.dumps({"model_size": "tiny", "language": "fr"}))
 
         save_config(dict(DEFAULT_CONFIG), config_path)
         saved = json.loads(config_path.read_text())
         assert saved["model_size"] == "small"
-        assert saved["language"] == "fr"
+        assert saved["language"] == "en"
 
 
 # ---------------------------------------------------------------------------
@@ -258,14 +260,14 @@ class TestEngineConfigUpdate:
         load_config returns the chosen values, not the defaults.
         """
         engine.update_config(
-            {"model_size": "base", "language": "en", "copy_to_clipboard": True}
+            {"model_size": "base", "language": "fr", "copy_to_clipboard": True}
         )
 
         # Simulate a fresh process start: read the same file from scratch.
         reloaded = load_config(config_path)
 
         assert reloaded["model_size"] == "base"
-        assert reloaded["language"] == "en"
+        assert reloaded["language"] == "fr"
         assert reloaded["copy_to_clipboard"] is True
         # And they differ from the shipped defaults, so this isn't a false pass.
         assert reloaded["language"] != DEFAULT_CONFIG["language"]
@@ -531,6 +533,58 @@ class TestRunTranscriptionPath:
 
         engine.run_transcription()
         assert transcribe.call_args[1]["audio_path"] == str(wav)
+
+
+# ---------------------------------------------------------------------------
+# run_transcription always deletes the recorded WAV (privacy)
+# ---------------------------------------------------------------------------
+
+
+class TestRunTranscriptionCleanup:
+    """The recorded WAV must be removed no matter how transcription ends."""
+
+    def _prep(self, engine, mocker, tmp_path):
+        wav = tmp_path / "rec.wav"
+        wav.write_bytes(b"\x00" * 6000)
+        mocker.patch.object(type(engine._audio_engine), "recording_path", property(lambda self: str(wav)))
+        engine.state.model = MagicMock()
+        mocker.patch.object(engine._text_injector, "inject")
+        return wav
+
+    def test_deletes_wav_when_transcribe_returns_none(self, engine, mocker, tmp_path):
+        wav = self._prep(engine, mocker, tmp_path)
+        mocker.patch.object(engine._audio_engine, "transcribe", return_value=None)
+
+        engine.run_transcription()
+
+        assert not wav.exists()
+
+    def test_deletes_wav_when_transcribe_returns_empty_string(self, engine, mocker, tmp_path):
+        wav = self._prep(engine, mocker, tmp_path)
+        mocker.patch.object(engine._audio_engine, "transcribe", return_value="")
+
+        engine.run_transcription()
+
+        assert not wav.exists()
+
+    def test_deletes_wav_when_transcribe_raises(self, engine, mocker, tmp_path):
+        wav = self._prep(engine, mocker, tmp_path)
+        mocker.patch.object(engine._audio_engine, "transcribe", side_effect=RuntimeError("boom"))
+
+        with pytest.raises(RuntimeError):
+            engine.run_transcription()
+
+        assert not wav.exists()
+
+    def test_deletes_wav_when_model_not_loaded(self, engine, mocker, tmp_path):
+        wav = tmp_path / "rec.wav"
+        wav.write_bytes(b"\x00" * 6000)
+        mocker.patch.object(type(engine._audio_engine), "recording_path", property(lambda self: str(wav)))
+        engine.state.model = None
+
+        engine.run_transcription()
+
+        assert not wav.exists()
 
 
 # ---------------------------------------------------------------------------

@@ -339,6 +339,42 @@ class TestAlertQueue:
         popen.assert_called_once_with(["open", mb._SETTINGS_URLS["input_monitoring"]])
 
 
+class TestFnReleasedModelLoadingAlert:
+    """_on_fn_released warns when a dictation attempt raced the model load,
+    instead of the previous silent no-op (nothing transcribed, no feedback)."""
+
+    def _app(self, model, model_loading):
+        engine = SimpleNamespace(state=SimpleNamespace(model=model, model_loading=model_loading))
+        return SimpleNamespace(engine=engine, _visualization=MagicMock(), _pending_alerts=[])
+
+    def test_queues_alert_while_model_still_loading(self):
+        app = self._app(model=None, model_loading=True)
+
+        WhisperMenuBarApp._on_fn_released(app)
+
+        app._visualization.hide.assert_called_once_with()
+        [(subtitle, message, url)] = app._pending_alerts
+        assert subtitle == "Model still loading"
+        assert "loading" in message.lower()
+        assert url is None
+
+    def test_no_alert_once_model_is_loaded(self):
+        app = self._app(model=MagicMock(), model_loading=False)
+
+        WhisperMenuBarApp._on_fn_released(app)
+
+        assert app._pending_alerts == []
+
+    def test_no_alert_when_model_missing_but_not_loading(self):
+        # e.g. the model failed to load — that already has its own dedicated
+        # alert (on_model_load_failed); don't queue a second one here.
+        app = self._app(model=None, model_loading=False)
+
+        WhisperMenuBarApp._on_fn_released(app)
+
+        assert app._pending_alerts == []
+
+
 class TestStatusDisplayMarshaling:
     """update_status_display must hop to the main thread before touching AppKit."""
 

@@ -17,6 +17,7 @@ UI can prompt the user to fix the grant instead of failing quietly.
 import logging
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,10 @@ logger = logging.getLogger(__name__)
 # post synthetic keystrokes (errAEEventNotPermitted). Match on this numeric code
 # rather than the localized message, which varies by system language.
 KEYSTROKE_NOT_PERMITTED_CODE = "1002"
+
+# Delay before restoring the clipboard after a paste, so the target app has
+# time to read the pasted transcript before we overwrite it again.
+_CLIPBOARD_RESTORE_DELAY = 0.15
 
 
 class TextInjector:
@@ -64,22 +69,33 @@ class TextInjector:
         else:
             self._inject_via_keystrokes(text)
 
-    def _spawn(self, steps: list[tuple[list[str], bytes | None]], mode: str) -> None:
+    def _spawn(
+        self,
+        steps: list[tuple[list[str], bytes | None] | tuple[list[str], bytes | None, float]],
+        mode: str,
+    ) -> None:
         """Run a sequence of subprocess steps off-thread, classifying the result.
 
-        Each step is ``(cmd, stdin_bytes)``; ``stdin_bytes`` is fed to the
-        process stdin (this is how transcribed text reaches ``pbcopy``/
-        ``osascript`` — as data, never interpolated into a script). Steps run
-        sequentially in one worker thread, stopping at the first failure. The
-        failing (or final) step's exit is classified: a ``1002`` failure is a
-        keystroke-permission denial that fires the debounced callback; a clean
-        run resets the debounce so a later denial is surfaced again.
+        Each step is ``(cmd, stdin_bytes)`` or ``(cmd, stdin_bytes, delay)``;
+        ``stdin_bytes`` is fed to the process stdin (this is how transcribed
+        text reaches ``pbcopy``/``osascript`` — as data, never interpolated
+        into a script). The optional ``delay`` (seconds) is slept before that
+        step runs, e.g. to give a pasted-into app time to read the clipboard
+        before a later step restores it. Steps run sequentially in one worker
+        thread, stopping at the first failure. The failing (or final) step's
+        exit is classified: a ``1002`` failure is a keystroke-permission
+        denial that fires the debounced callback; a clean run resets the
+        debounce so a later denial is surfaced again.
         """
 
         def _run() -> None:
             rc = 0
             detail = ""
-            for cmd, stdin_data in steps:
+            for step in steps:
+                cmd, stdin_data, *rest = step
+                delay = rest[0] if rest else 0
+                if delay:
+                    time.sleep(delay)
                 proc = subprocess.Popen(
                     cmd,
                     stdin=subprocess.PIPE if stdin_data is not None else None,
@@ -135,13 +151,41 @@ class TextInjector:
         except Exception:  # pragma: no cover - defensive
             logger.exception("[inject] permission-denied callback failed")
 
+    def _snapshot_clipboard(self) -> bytes:
+        """Best-effort capture of the current clipboard text via ``pbpaste``.
+
+        Called synchronously, before the clipboard is overwritten, so the
+        prior content can be restored after paste. ``inject()`` is only ever
+        called from a worker thread (transcription / chunk assembly), never
+        from the event-tap thread, so a short blocking call here is safe. Any
+        failure (missing binary, non-zero exit, timeout) is logged and
+        treated as an empty snapshot — injection proceeds either way.
+        """
+        try:
+            result = subprocess.run(["pbpaste"], capture_output=True, timeout=2)
+        except Exception as exc:
+            logger.warning("[inject] clipboard snapshot failed: %s", exc)
+            return b""
+        if result.returncode != 0:
+            logger.warning("[inject] clipboard snapshot rc=%s", result.returncode)
+            return b""
+        return result.stdout
+
     def _inject_via_clipboard(self, text: str) -> None:
-        """Copy text to clipboard (via ``pbcopy`` stdin) and paste via Cmd+V.
+        """Copy text to clipboard (via ``pbcopy`` stdin), paste via Cmd+V, then
+        restore the clipboard to what it held before injection.
 
         The text is written to ``pbcopy``'s stdin, never interpolated into an
         AppleScript string, so it cannot be parsed or executed as code. The
-        paste step is a constant AppleScript with no user data.
+        paste step is a constant AppleScript with no user data. The clipboard
+        is snapshotted before it's overwritten and restored afterwards so the
+        (possibly sensitive) transcript doesn't linger on the pasteboard and
+        the user's previous clipboard isn't destroyed. If the paste step
+        itself fails (e.g. keystroke permission denied), ``_spawn`` stops the
+        sequence before the restore step runs, deliberately leaving the
+        transcript on the clipboard as the documented manual-paste fallback.
         """
+        snapshot = self._snapshot_clipboard()
         self._spawn(
             [
                 (["pbcopy"], text.encode("utf-8")),
@@ -149,6 +193,11 @@ class TextInjector:
                     ["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'],
                     None,
                 ),
+                # ponytail: pbpaste/pbcopy round-trip plain text only — if the
+                # clipboard held rich text, an image, or a file reference
+                # before dictation, that content is not restored, only its
+                # plain-text form (or nothing, if it had none).
+                (["pbcopy"], snapshot, _CLIPBOARD_RESTORE_DELAY),
             ],
             "clipboard",
         )

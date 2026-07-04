@@ -391,41 +391,48 @@ class Engine:
 
     def run_transcription(self) -> str | None:
         """Execute transcription synchronously (called from worker thread)."""
-        if self.state.model is None:
-            print("[transcribe] Model not loaded, skipping", file=sys.stderr)
-            return None
-
         # Capture the path ONCE: if a new recording starts mid-transcription it
         # rebinds the engine's recording_path to a different file, but this local
         # keeps pointing at the file we are actually transcribing.
         path = self._audio_engine.recording_path
         if not path or not os.path.exists(path):
+            # Nothing was recorded — no file to clean up.
             return None
 
-        # Bias the decoder toward the user's habitual terms, if any.
-        vocab = self.state.config.get("custom_vocabulary") or []
-        initial_prompt = ", ".join(vocab) if vocab else None
+        try:
+            if self.state.model is None:
+                print("[transcribe] Model not loaded, skipping", file=sys.stderr)
+                return None
 
-        text = self._audio_engine.transcribe(
-            audio_path=path,
-            model=self.state.model,
-            language=self.state.config.get("language", "fr"),
-            beam_size=self.state.config.get("beam_size", 1),
-            best_of=self.state.config.get("best_of", 2),
-            auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
-            min_recording_duration=self.state.config.get("min_recording_duration", 0.3),
-            initial_prompt=initial_prompt,
-        )
+            # Bias the decoder toward the user's habitual terms, if any.
+            vocab = self.state.config.get("custom_vocabulary") or []
+            initial_prompt = ", ".join(vocab) if vocab else None
 
-        if text:
-            # Strip Whisper watermark credits before injection
-            cleaned = clean_text(text)
-            if cleaned:
-                self.state.last_transcription = cleaned
-                self._text_injector.inject(cleaned)
+            text = self._audio_engine.transcribe(
+                audio_path=path,
+                model=self.state.model,
+                language=self.state.config.get("language", "en"),
+                beam_size=self.state.config.get("beam_size", 1),
+                best_of=self.state.config.get("best_of", 2),
+                auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
+                min_recording_duration=self.state.config.get("min_recording_duration", 0.3),
+                initial_prompt=initial_prompt,
+            )
+
+            if text:
+                # Strip Whisper watermark credits before injection
+                cleaned = clean_text(text)
+                if cleaned:
+                    self.state.last_transcription = cleaned
+                    self._text_injector.inject(cleaned)
+
+            return text
+        finally:
+            # The WAV holds recorded voice audio — delete it no matter how we
+            # got here: silent clip, model not loaded, or a transcription
+            # exception. Only the "nothing recorded" early return above (no
+            # file to begin with) skips this.
             self._audio_engine.cleanup_audio_file(path)
-
-        return text
 
     # -- Streaming chunk pipeline (FSM-1: runs during RECORDING) --
 
@@ -470,7 +477,7 @@ class Engine:
             text = self._audio_engine.transcribe(
                 audio_path=path,
                 model=self.state.model,
-                language=self.state.config.get("language", "fr"),
+                language=self.state.config.get("language", "en"),
                 beam_size=self.state.config.get("beam_size", 1),
                 best_of=self.state.config.get("best_of", 2),
                 auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
@@ -540,7 +547,7 @@ class Engine:
         text = self._audio_engine.transcribe(
             audio_path=audio_path,
             model=self.state.model,
-            language=self.state.config.get("language", "fr"),
+            language=self.state.config.get("language", "en"),
             beam_size=self.state.config.get("beam_size", 1),
             best_of=self.state.config.get("best_of", 2),
             auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
@@ -592,7 +599,7 @@ class Engine:
                 text = self._audio_engine.transcribe(
                     audio_path=path,
                     model=self.state.model,
-                    language=cfg.get("language", "fr"),
+                    language=cfg.get("language", "en"),
                     beam_size=cfg.get("beam_size", 1),
                     best_of=cfg.get("best_of", 2),
                     auto_detect_min_duration=cfg.get("auto_detect_min_duration", 0.5),

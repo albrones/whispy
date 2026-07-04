@@ -34,6 +34,9 @@ echo -e "${YELLOW}=== Whispy bootstrap ===${NC}"
 echo ""
 
 # Uninstall path: delegate to install.sh, then remove the managed source tree.
+# install.sh also offers to remove user data (config incl. API token, logs,
+# and the downloaded Whisper model cache) -- interactively only, so this
+# stays safe to pipe via `curl | bash` with no TTY (see install.sh).
 if [[ "${1:-}" == "--uninstall" ]]; then
     if [ -x "$WHISPY_HOME/install.sh" ]; then
         echo -e "${YELLOW}Running Whispy uninstall...${NC}"
