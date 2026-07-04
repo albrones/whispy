@@ -462,6 +462,58 @@ class TestModelLoadFailureSurfaced:
 
 
 # ---------------------------------------------------------------------------
+# Explicitly-denied startup permissions are surfaced (v1 blocker #2)
+# ---------------------------------------------------------------------------
+
+
+class TestPermissionMissingSurfaced:
+    """engine.start() fires on_permission_missing for explicit denials only."""
+
+    def _start_with_probe_results(self, engine, mocker, mic, inputmon, ax, auto):
+        from types import SimpleNamespace
+
+        from whispy.core import engine as engine_module
+
+        mocker.patch.object(engine, "_adapters", SimpleNamespace(name="macos"))
+        mocker.patch.object(engine, "start_fn_listener")
+        mocker.patch.object(engine, "start_transcription_worker")
+        mocker.patch.object(engine, "start_chunk_worker")
+        mocker.patch.object(engine_module, "load_model_async")
+        mocker.patch(
+            "whispy.platform.macos.permissions.ensure_microphone_access", return_value=mic
+        )
+        mocker.patch(
+            "whispy.platform.macos.permissions.ensure_input_monitoring_access",
+            return_value=inputmon,
+        )
+        mocker.patch(
+            "whispy.platform.macos.permissions.ensure_accessibility_access", return_value=ax
+        )
+        mocker.patch(
+            "whispy.platform.macos.permissions.ensure_automation_access", return_value=auto
+        )
+
+        fired: list[tuple[str, str]] = []
+        engine.on_permission_missing(lambda kind, msg: fired.append((kind, msg)))
+        engine.start()
+        return fired
+
+    def test_explicit_denials_fire_with_kind_and_guidance(self, engine, mocker):
+        fired = self._start_with_probe_results(
+            engine, mocker, mic=False, inputmon=False, ax=True, auto=True
+        )
+        assert [kind for kind, _ in fired] == ["microphone", "input_monitoring"]
+        assert "System Settings" in fired[0][1]
+
+    def test_granted_and_undetermined_stay_silent(self, engine, mocker):
+        # None = the system prompt is on screen; warning would be noise.
+        fired = self._start_with_probe_results(
+            engine, mocker, mic=True, inputmon=None, ax=None, auto=True
+        )
+        assert fired == []
+
+
+# ---------------------------------------------------------------------------
 # run_transcription captures the per-recording path (isolation)
 # ---------------------------------------------------------------------------
 

@@ -246,6 +246,99 @@ class TestRestartHandoff:
         quit_app.assert_called_once()
 
 
+class TestAlertWiring:
+    """Blocker fix: model-load failure and missing permissions must reach the
+    UI. The engine hooks exist; the bug class is a never-registered callback,
+    so assert __init__ actually registers them."""
+
+    def test_init_registers_alert_callbacks(self):
+        import inspect
+
+        src = inspect.getsource(WhisperMenuBarApp.__init__)
+        assert "on_model_load_failed" in src
+        assert "on_permission_missing" in src
+        assert "on_injection_permission_denied" in src
+
+
+class TestAlertQueue:
+    """Engine callbacks (worker threads) queue alerts; _show_alert drains them
+    on the main thread: notification + warning item + right settings pane."""
+
+    def _app(self):
+        return SimpleNamespace(_pending_alerts=[])
+
+    def test_model_load_failed_queues_without_settings_url(self):
+        import whispy.ui.menu_bar as mb
+
+        app = self._app()
+        WhisperMenuBarApp._on_model_load_failed(app, "download failed")
+        [(subtitle, message, url)] = app._pending_alerts
+        assert subtitle == "Model failed to load"
+        assert "download failed" in message
+        assert "Restart" in message  # actionable guidance
+        assert url is None  # not permission-related: no menu item to reveal
+
+    def test_permission_missing_queues_with_matching_pane(self):
+        import whispy.ui.menu_bar as mb
+
+        app = self._app()
+        WhisperMenuBarApp._on_permission_missing(app, "microphone", "mic denied")
+        WhisperMenuBarApp._on_permission_missing(app, "input_monitoring", "im denied")
+        urls = [url for _, _, url in app._pending_alerts]
+        assert urls == [
+            mb._SETTINGS_URLS["microphone"],
+            mb._SETTINGS_URLS["input_monitoring"],
+        ]
+
+    def test_injection_denied_targets_accessibility_pane(self):
+        import whispy.ui.menu_bar as mb
+
+        app = self._app()
+        WhisperMenuBarApp._on_injection_denied(app, "1002")
+        [(_, _, url)] = app._pending_alerts
+        assert url == mb._SETTINGS_URLS["accessibility"]
+
+    def test_show_alert_with_url_reveals_item_and_retargets_click(self, mocker):
+        import whispy.ui.menu_bar as mb
+
+        notify = mocker.patch.object(mb.rumps, "notification")
+        app = SimpleNamespace(
+            _set_permission_item_hidden=MagicMock(),
+            _permission_settings_url=mb._SETTINGS_URLS["accessibility"],
+        )
+
+        WhisperMenuBarApp._show_alert(app, "Missing permission", "msg", mb._SETTINGS_URLS["microphone"])
+
+        app._set_permission_item_hidden.assert_called_once_with(False)
+        assert app._permission_settings_url == mb._SETTINGS_URLS["microphone"]
+        notify.assert_called_once_with("Whispy", "Missing permission", "msg")
+
+    def test_show_alert_without_url_only_notifies(self, mocker):
+        import whispy.ui.menu_bar as mb
+
+        notify = mocker.patch.object(mb.rumps, "notification")
+        app = SimpleNamespace(
+            _set_permission_item_hidden=MagicMock(),
+            _permission_settings_url=mb._SETTINGS_URLS["accessibility"],
+        )
+
+        WhisperMenuBarApp._show_alert(app, "Model failed to load", "msg", None)
+
+        app._set_permission_item_hidden.assert_not_called()
+        assert app._permission_settings_url == mb._SETTINGS_URLS["accessibility"]
+        notify.assert_called_once()
+
+    def test_click_opens_most_recent_pane(self, mocker):
+        import whispy.ui.menu_bar as mb
+
+        popen = mocker.patch.object(mb.subprocess, "Popen")
+        app = SimpleNamespace(_permission_settings_url=mb._SETTINGS_URLS["input_monitoring"])
+
+        WhisperMenuBarApp._on_open_permission_settings(app, None)
+
+        popen.assert_called_once_with(["open", mb._SETTINGS_URLS["input_monitoring"]])
+
+
 class TestStatusDisplayMarshaling:
     """update_status_display must hop to the main thread before touching AppKit."""
 

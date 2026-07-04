@@ -23,29 +23,32 @@ _kIOHIDAccessTypeGranted = 0
 _kIOHIDAccessTypeDenied = 1
 
 
-def ensure_microphone_access() -> None:
+def ensure_microphone_access() -> bool | None:
     """Request microphone access via AVFoundation, surfacing the TCC prompt.
 
     Best-effort and non-blocking: logs and returns on any failure so a missing
     binding or headless host never prevents the daemon from starting. The
     completion handler runs once the user answers (after the run loop starts).
+
+    Returns True when granted, False on an explicit prior denial, None when
+    undetermined (system prompt pending or probe unavailable).
     """
     try:
         from AVFoundation import AVCaptureDevice, AVMediaTypeAudio
     except Exception as exc:  # pragma: no cover - depends on host pyobjc stack
         logger.warning("Cannot request microphone access (AVFoundation unavailable): %s", exc)
-        return
+        return None
 
     # 3 = authorized, 0 = not determined, 1/2 = restricted/denied.
     status = AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio)
     if status == 3:
         logger.info("Microphone access already granted.")
-        return
+        return True
     if status in (1, 2):
         logger.warning(
             "Microphone access denied — enable Whispy under System Settings -> Privacy & Security -> Microphone."
         )
-        return
+        return False
 
     # Not determined: trigger the system prompt. The handler fires asynchronously
     # once the user answers; we don't block startup waiting for it.
@@ -54,15 +57,19 @@ def ensure_microphone_access() -> None:
 
     AVCaptureDevice.requestAccessForMediaType_completionHandler_(AVMediaTypeAudio, _handler)
     logger.info("Requested microphone access (awaiting user response).")
+    return None
 
 
-def ensure_input_monitoring_access() -> None:
+def ensure_input_monitoring_access() -> bool | None:
     """Request Input Monitoring via IOKit, surfacing the TCC prompt.
 
     The Fn push-to-talk CGEventTap needs Input Monitoring; without it
     ``CGEventTapCreate`` returns NULL and a background app never gets prompted.
     ``IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)`` triggers the prompt the
     same way AVFoundation does for the mic. Best-effort and non-blocking.
+
+    Returns True when granted, False on an explicit prior denial, None when
+    undetermined (system prompt pending or probe unavailable).
     """
     try:
         iokit = ctypes.CDLL("/System/Library/Frameworks/IOKit.framework/IOKit")
@@ -72,28 +79,37 @@ def ensure_input_monitoring_access() -> None:
         iokit.IOHIDRequestAccess.argtypes = [ctypes.c_uint32]
     except Exception as exc:  # pragma: no cover - non-macOS / missing framework
         logger.warning("Cannot request Input Monitoring access (IOKit unavailable): %s", exc)
-        return
+        return None
 
     status = iokit.IOHIDCheckAccess(_kIOHIDRequestTypeListenEvent)
     logger.info("Input Monitoring check status=%s (0=granted,1=denied,2=unknown).", status)
     if status == _kIOHIDAccessTypeGranted:
         logger.info("Input Monitoring already granted.")
-        return
+        return True
 
     # Not granted: request access. On not-determined this shows the system
     # prompt; on a prior denial it returns False without prompting (the user
     # must enable Whispy manually under Privacy & Security -> Input Monitoring).
     granted = iokit.IOHIDRequestAccess(_kIOHIDRequestTypeListenEvent)
     logger.info("Requested Input Monitoring access (granted=%s).", bool(granted))
+    if granted:
+        return True
+    # Only an explicit prior denial is a definitive "missing"; not-determined
+    # means the system prompt is on screen and the user hasn't answered yet.
+    return False if status == _kIOHIDAccessTypeDenied else None
 
 
-def ensure_accessibility_access() -> None:
+def ensure_accessibility_access() -> bool | None:
     """Check Accessibility and, if missing, show the system prompt.
 
     Posting synthetic keystrokes (CGEvent) requires Accessibility. We log the
     current trust state (diagnostic) and, when untrusted, call
     ``AXIsProcessTrustedWithOptions`` with the prompt option so macOS surfaces
     the "allow Whispy to control your computer" dialog. Best-effort.
+
+    Returns True when trusted, False when untrusted (the grant requires a
+    restart to take effect, so untrusted is definitive for this run), None
+    when the probe is unavailable.
     """
     try:
         from ApplicationServices import (
@@ -103,11 +119,11 @@ def ensure_accessibility_access() -> None:
         )
     except Exception as exc:  # pragma: no cover - depends on host pyobjc stack
         logger.warning("Cannot check Accessibility (ApplicationServices unavailable): %s", exc)
-        return
+        return None
 
     if AXIsProcessTrusted():
         logger.info("Accessibility already granted.")
-        return
+        return True
 
     # Not trusted: prompt. Returns the (still-false) current state; the user
     # grants in System Settings, then must restart Whispy for it to take effect.
@@ -116,6 +132,7 @@ def ensure_accessibility_access() -> None:
         "Accessibility not granted — prompted. Enable Whispy under System Settings -> "
         "Privacy & Security -> Accessibility, then restart Whispy."
     )
+    return False
 
 
 # osascript / Apple-event error returned when System Events is not allowed to
@@ -123,7 +140,7 @@ def ensure_accessibility_access() -> None:
 _KEYSTROKE_NOT_PERMITTED_CODE = "1002"
 
 
-def ensure_automation_access() -> None:
+def ensure_automation_access() -> bool | None:
     """Verify Whispy can actually post keystrokes via System Events.
 
     Text injection runs ``osascript`` telling System Events to type. Because
@@ -139,6 +156,9 @@ def ensure_automation_access() -> None:
     same permissions, so a denial surfaces as 1002. The probe also provokes the
     consent prompt on first run. Best-effort; inject-time detection remains the
     authoritative signal.
+
+    Returns True when authorized, False on an explicit 1002 denial, None when
+    the probe could not run or failed for another reason.
     """
     import subprocess
 
@@ -151,10 +171,10 @@ def ensure_automation_access() -> None:
         )
     except Exception as exc:  # pragma: no cover - spawn failure
         logger.warning("Keystroke authorization probe failed to run: %s", exc)
-        return
+        return None
     if proc.returncode == 0:
         logger.info("Keystroke injection (System Events) authorized.")
-        return
+        return True
     detail = (proc.stderr or "").strip()
     if _KEYSTROKE_NOT_PERMITTED_CODE in detail:
         logger.warning(
@@ -165,10 +185,11 @@ def ensure_automation_access() -> None:
             _KEYSTROKE_NOT_PERMITTED_CODE,
             detail,
         )
-    else:
-        # Non-1002 failure: can't confirm the keystroke path. Don't claim
-        # authorized; defer to inject-time detection.
-        logger.warning(
-            "Keystroke authorization unverified: %s — relying on inject-time detection.",
-            detail,
-        )
+        return False
+    # Non-1002 failure: can't confirm the keystroke path. Don't claim
+    # authorized; defer to inject-time detection.
+    logger.warning(
+        "Keystroke authorization unverified: %s — relying on inject-time detection.",
+        detail,
+    )
+    return None

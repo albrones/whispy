@@ -169,6 +169,7 @@ class Engine:
         self._fn_released_callbacks: list[Callable] = []
         self._injection_denied_callbacks: list[Callable] = []
         self._model_load_failed_callbacks: list[Callable] = []
+        self._permission_missing_callbacks: list[Callable] = []
         self._config_path = config_path or (Path.home() / ".config" / "whispy" / "config.json")
         self._fn_pressed = False
 
@@ -307,6 +308,23 @@ class Engine:
                 cb(message)
             except Exception:
                 logger.exception("[engine] Error in injection-denied callback")
+
+    def on_permission_missing(self, callback: Callable) -> None:
+        """Register a callback fired when a startup permission probe reports an
+        explicit denial. The callback receives (kind: str, message: str), where
+        kind is one of "microphone", "input_monitoring", "accessibility",
+        "automation" — lets the UI point at the right System Settings pane.
+        """
+        self._permission_missing_callbacks.append(callback)
+
+    def _notify_permission_missing(self, kind: str, message: str) -> None:
+        """Fan out an explicitly-denied startup permission to callbacks."""
+        logger.warning("[engine] permission missing (%s): %s", kind, message)
+        for cb in list(self._permission_missing_callbacks):
+            try:
+                cb(kind, message)
+            except Exception:
+                logger.exception("[engine] Error in permission-missing callback")
 
     def on_model_load_failed(self, callback: Callable) -> None:
         """Register a callback fired when the transcription model fails to load.
@@ -762,10 +780,41 @@ class Engine:
                 ensure_microphone_access,
             )
 
-            ensure_microphone_access()
-            ensure_input_monitoring_access()
-            ensure_accessibility_access()
-            ensure_automation_access()
+            # Each probe returns True/False/None (granted / explicit denial /
+            # undetermined). Only explicit denials are surfaced to the UI: an
+            # undetermined state means the system prompt is handling it.
+            denials = (
+                (
+                    "microphone",
+                    ensure_microphone_access(),
+                    "Microphone access is denied — Whispy can't hear you. "
+                    "Enable Whispy under System Settings → Privacy & Security → Microphone.",
+                ),
+                (
+                    "input_monitoring",
+                    ensure_input_monitoring_access(),
+                    "Input Monitoring is denied — the push-to-talk key won't work. "
+                    "Enable Whispy under System Settings → Privacy & Security → "
+                    "Input Monitoring, then restart Whispy.",
+                ),
+                (
+                    "accessibility",
+                    ensure_accessibility_access(),
+                    "Accessibility is not granted — Whispy can't type into apps. "
+                    "Enable Whispy under System Settings → Privacy & Security → "
+                    "Accessibility, then restart Whispy.",
+                ),
+                (
+                    "automation",
+                    ensure_automation_access(),
+                    "Keystroke injection is not authorized. Grant Whispy under "
+                    "System Settings → Privacy & Security → Automation and "
+                    "Accessibility, then restart Whispy.",
+                ),
+            )
+            for kind, granted, message in denials:
+                if granted is False:
+                    self._notify_permission_missing(kind, message)
         self.start_fn_listener()
         self.start_transcription_worker()
         self.start_chunk_worker()

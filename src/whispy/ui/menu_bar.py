@@ -41,6 +41,15 @@ _RELAUNCH_WAITER = (
     "subprocess.Popen(sys.argv[1:])\n"
 )
 
+# System Settings deep links per permission kind (engine on_permission_missing).
+_SETTINGS_URL_BASE = "x-apple.systempreferences:com.apple.preference.security"
+_SETTINGS_URLS = {
+    "microphone": f"{_SETTINGS_URL_BASE}?Privacy_Microphone",
+    "input_monitoring": f"{_SETTINGS_URL_BASE}?Privacy_ListenEvent",
+    "accessibility": f"{_SETTINGS_URL_BASE}?Privacy_Accessibility",
+    "automation": f"{_SETTINGS_URL_BASE}?Privacy_Automation",
+}
+
 
 class WhisperMenuBarApp(rumps.App):
     """Menu bar application for Whispy control and status display."""
@@ -66,10 +75,14 @@ class WhisperMenuBarApp(rumps.App):
         self._anim_timer = rumps.Timer(self._tick_anim, WAVEROWS_INTERVAL)
         self._anim_timer.start()
 
-        # Set by the engine's injection-denied callback (fired off a worker
-        # thread); drained on the main run loop in _tick_anim so all UI calls
-        # (notification + menu mutation) happen on the main thread.
-        self._pending_perm_message: str | None = None
+        # Alerts queued by engine callbacks (fired off worker threads); drained
+        # on the main run loop in _tick_anim so all UI calls (notification +
+        # menu mutation) happen on the main thread. Each entry is
+        # (subtitle, message, settings_url) — settings_url is the System
+        # Settings pane the warning menu item should open, or None when the
+        # alert is not permission-related (no menu item to reveal).
+        self._pending_alerts: list[tuple[str, str, str | None]] = []
+        self._permission_settings_url = _SETTINGS_URLS["accessibility"]
 
         self._build_menu()
 
@@ -80,6 +93,8 @@ class WhisperMenuBarApp(rumps.App):
         # Register for status updates
         self.engine.on_status_change(self.update_status_display)
         self.engine.on_injection_permission_denied(self._on_injection_denied)
+        self.engine.on_permission_missing(self._on_permission_missing)
+        self.engine.on_model_load_failed(self._on_model_load_failed)
 
         # Audio-reactive waveform visualization shown during recording. The
         # level comes from the engine's single capture stream (engine.get_level)
@@ -105,11 +120,12 @@ class WhisperMenuBarApp(rumps.App):
         self.status_item.set_callback(None)
         menu_theme.apply_title(self.status_item, menu_theme.status_title("Ready"))
 
-        # Permission warning — hidden until a keystroke is denied. Clicking it
-        # opens the relevant System Settings pane.
+        # Permission warning — hidden until a permission problem is detected
+        # (startup probe or inject-time denial). Clicking it opens the System
+        # Settings pane of the most recent problem.
         self.permission_item = rumps.MenuItem(
-            "⚠ Can't type — fix permissions…",
-            callback=self._on_open_accessibility_settings,
+            "⚠ Missing permission — fix in System Settings…",
+            callback=self._on_open_permission_settings,
         )
         self._set_permission_item_hidden(True)
 
@@ -284,12 +300,10 @@ class WhisperMenuBarApp(rumps.App):
 
     def _tick_anim(self, _timer: Any) -> None:
         """Poll state every tick; scroll the waverows wave only while active."""
-        # Drain a queued permission warning on the main thread (the engine fires
-        # the callback from an injection worker thread).
-        if self._pending_perm_message is not None:
-            message = self._pending_perm_message
-            self._pending_perm_message = None
-            self._show_permission_warning(message)
+        # Drain queued alerts on the main thread (engine callbacks fire from
+        # worker threads).
+        while self._pending_alerts:
+            self._show_alert(*self._pending_alerts.pop(0))
         # Re-read the system appearance and rebuild accents only when it flips,
         # so green text/glyphs stay legible after a light/dark switch.
         dark_now = menu_theme.is_dark_appearance()
@@ -304,11 +318,28 @@ class WhisperMenuBarApp(rumps.App):
             if self.title != IDLE_FRAME:
                 self.title = select_frame(0, is_active=False)
 
-    # -- Permission warning --
+    # -- Alerts (permission warnings, model-load failure) --
 
     def _on_injection_denied(self, message: str) -> None:
         """Engine callback (worker thread): queue the warning for the main thread."""
-        self._pending_perm_message = message
+        self._pending_alerts.append(("Can't type into apps", message, _SETTINGS_URLS["accessibility"]))
+
+    def _on_permission_missing(self, kind: str, message: str) -> None:
+        """Engine callback (worker thread): a startup permission probe reported
+        an explicit denial."""
+        url = _SETTINGS_URLS.get(kind, _SETTINGS_URLS["accessibility"])
+        self._pending_alerts.append(("Missing permission", message, url))
+
+    def _on_model_load_failed(self, message: str) -> None:
+        """Engine callback (worker thread): the transcription model failed to
+        load — without this, every dictation silently returns nothing."""
+        self._pending_alerts.append(
+            (
+                "Model failed to load",
+                f"{message} — check your internet connection, then use Restart from the Whispy menu.",
+                None,
+            )
+        )
 
     def _set_permission_item_hidden(self, hidden: bool) -> None:
         """Toggle the warning menu item via its underlying NSMenuItem."""
@@ -316,23 +347,21 @@ class WhisperMenuBarApp(rumps.App):
         if ns_item is not None:
             ns_item.setHidden_(hidden)
 
-    def _show_permission_warning(self, message: str) -> None:
-        """Reveal the warning menu item and post a notification (main thread)."""
-        self._set_permission_item_hidden(False)
+    def _show_alert(self, subtitle: str, message: str, settings_url: str | None) -> None:
+        """Post a notification; for permission alerts also reveal the warning
+        menu item and point its click at the right settings pane (main thread)."""
+        if settings_url is not None:
+            self._permission_settings_url = settings_url
+            self._set_permission_item_hidden(False)
         try:
-            rumps.notification("Whispy", "Can't type into apps", message)
+            rumps.notification("Whispy", subtitle, message)
         except Exception:
             # Notifications require a bundled app / Info.plist; ignore if absent.
             pass
 
-    def _on_open_accessibility_settings(self, _sender: Any) -> None:
-        """Open the Accessibility pane of System Settings."""
-        subprocess.Popen(
-            [
-                "open",
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-            ]
-        )
+    def _on_open_permission_settings(self, _sender: Any) -> None:
+        """Open the System Settings pane of the most recent permission alert."""
+        subprocess.Popen(["open", self._permission_settings_url])
 
     # -- Status display --
 
