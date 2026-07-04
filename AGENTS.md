@@ -18,10 +18,20 @@ This document provides high-signal context for agents working in the `whispy` re
 
 ---
 
+## 🤖 Delegation & Model Choice (Always Active)
+
+Systematically delegate well-scoped subtasks to subagents running the cheapest model adequate for the action, instead of doing everything in the main conversation — this avoids wasting tokens on a model that is over- or under-suited to the task:
+
+- **Mechanical execution** (running installers, long commands, file sweeps, digesting verbose logs): haiku or sonnet subagent.
+- **Well-specified implementation** from a precise brief (file paths, expected behavior, tests to run): sonnet subagent, parallelized on disjoint files when possible.
+- **Design, review, reconciliation, and final triage**: stay in the main conversation (main model).
+
+The main thread orchestrates and reviews; subagents execute and report.
+
 ## 🛠️ Core Tech Stack & Environment
 - **Platform:** macOS (Apple Silicon/Intel) only.
 - **Language:** Python 3.
-- **Key Dependencies:** `faster-whisper`, `rumps` (menu bar), `sox` (audio recording), `pyobjc-framework-Quartz` (Fn key detection via CGEventTap).
+- **Key Dependencies:** `faster-whisper`, `rumps` (menu bar), `sounddevice`/PortAudio (audio capture), `pyobjc-framework-Quartz` (Fn key detection via CGEventTap).
 - **Environment:** Uses a Python virtual environment (`.venv`).
 
 ## 🚀 Operational Commands
