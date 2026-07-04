@@ -1,0 +1,8 @@
+# Upload only the static site (and this config) to Vercel — never the app
+# source, venv, or local env files (.env.local holds a live OIDC token).
+# gitignore semantics: the directory itself must be un-ignored before its
+# contents can be re-included.
+*
+!website
+!website/**
+!vercel.json
