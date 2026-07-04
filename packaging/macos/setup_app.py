@@ -14,7 +14,7 @@ Or via packaging/macos/build_app.sh (which also ad-hoc code-signs the result).
 from setuptools import setup
 
 # Version mirrors pyproject.toml [project].version.
-VERSION = "0.1.0"
+VERSION = "1.0.0"
 
 APP = ["whispy_daemon.py"]
 
