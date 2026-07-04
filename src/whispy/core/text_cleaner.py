@@ -47,10 +47,7 @@ _HALLUCINATION_PHRASES = [
 
 # Ordered longest-first so a longer phrase wins over a substring of itself.
 _HALLUCINATION_PATTERN = re.compile(
-    "|".join(
-        re.escape(p)
-        for p in sorted(_HALLUCINATION_PHRASES, key=len, reverse=True)
-    ),
+    "|".join(re.escape(p) for p in sorted(_HALLUCINATION_PHRASES, key=len, reverse=True)),
     re.IGNORECASE,
 )
 

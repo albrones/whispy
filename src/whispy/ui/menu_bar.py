@@ -268,7 +268,9 @@ class WhisperMenuBarApp(rumps.App):
             self.copy_menu, menu_theme.toggle_title(self.copy_menu._label, cfg.get("copy_to_clipboard", False))
         )
         for item in self._trigger_items:
-            menu_theme.apply_title(item, menu_theme.check_title(item._label, self._trigger_is_active(item._trigger_value)))
+            menu_theme.apply_title(
+                item, menu_theme.check_title(item._label, self._trigger_is_active(item._trigger_value))
+            )
         # Status line carries the green dot; rebuilding it re-reads the appearance.
         self.update_status_display()
 
@@ -443,7 +445,9 @@ class WhisperMenuBarApp(rumps.App):
         # push-to-talk key works now, not only after a Restart.
         self.engine.update_config({"trigger": new_value})
         for item in self._trigger_items:
-            menu_theme.apply_title(item, menu_theme.check_title(item._label, self._trigger_is_active(item._trigger_value)))
+            menu_theme.apply_title(
+                item, menu_theme.check_title(item._label, self._trigger_is_active(item._trigger_value))
+            )
         self._update_trigger_title()
 
     def _on_toggle_copy(self, sender: rumps.MenuItem) -> None:
@@ -489,9 +493,7 @@ class WhisperMenuBarApp(rumps.App):
 
                     alert = NSAlert.alloc().init()
                     alert.setMessageText_("Restart file not found")
-                    alert.setInformativeText_(
-                        f"Expected restart script at:\n{script_path}\n\nPlease reinstall Whispy."
-                    )
+                    alert.setInformativeText_(f"Expected restart script at:\n{script_path}\n\nPlease reinstall Whispy.")
                     alert.addButtonWithTitle_("OK")
                     alert.runModal()
                 except ImportError:

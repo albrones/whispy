@@ -19,7 +19,7 @@ SCALE = 2
 SIZE = 22 * SCALE
 
 # Brand gradient: mint-green (top) -> teal (bottom). Brand green is #24bf9e.
-GRAD_TOP = (63, 224, 189)   # #3fe0bd
+GRAD_TOP = (63, 224, 189)  # #3fe0bd
 GRAD_BOTTOM = (23, 168, 176)  # #17a8b0
 
 NUM_BARS = 5
@@ -94,10 +94,12 @@ def generate_icons():
     os.makedirs(ICONS_DIR, exist_ok=True)
 
     # Single brand icon: calm waveform, edges faded (matches logo opacity falloff).
-    icon = _render(_waveform_mask(
-        heights=[0.30, 0.55, 1.0, 0.65, 0.40],
-        alphas=[0.55, 1.0, 1.0, 1.0, 0.70],
-    ))
+    icon = _render(
+        _waveform_mask(
+            heights=[0.30, 0.55, 1.0, 0.65, 0.40],
+            alphas=[0.55, 1.0, 1.0, 1.0, 0.70],
+        )
+    )
     path = os.path.join(ICONS_DIR, "whispy.png")
     icon.save(path)
     print(f"  {path}")

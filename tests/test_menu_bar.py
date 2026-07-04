@@ -268,7 +268,6 @@ class TestAlertQueue:
         return SimpleNamespace(_pending_alerts=[])
 
     def test_model_load_failed_queues_without_settings_url(self):
-        import whispy.ui.menu_bar as mb
 
         app = self._app()
         WhisperMenuBarApp._on_model_load_failed(app, "download failed")
@@ -402,4 +401,3 @@ class TestStatusDisplayMarshaling:
 
         app._update_status_on_main.assert_called_once_with()
         app_helper.callAfter.assert_not_called()
-

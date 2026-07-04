@@ -56,6 +56,7 @@ def _install_spy_sd(mocker):
     mocker.patch.object(audio_module, "sd", fake_sd)
     return _SpyStream
 
+
 # ---------------------------------------------------------------------------
 # start()
 # ---------------------------------------------------------------------------
@@ -468,9 +469,7 @@ class TestStreamingCapture:
 
     def test_emits_chunk_on_silence_boundary(self, sm, mocker):
         chunks: list[str] = []
-        audio, cb = self._start_streaming(
-            sm, mocker, chunks.append, pause_ms=200, min_chunk_s=0.1, max_chunk_s=10.0
-        )
+        audio, cb = self._start_streaming(sm, mocker, chunks.append, pause_ms=200, min_chunk_s=0.1, max_chunk_s=10.0)
         speech = self._block(8000)  # loud -> level ~1.0
         silence = self._block(0)
         for _ in range(5):  # 0.5s speech
@@ -490,9 +489,7 @@ class TestStreamingCapture:
 
     def test_tail_flushed_on_stop(self, sm, mocker):
         chunks: list[str] = []
-        audio, cb = self._start_streaming(
-            sm, mocker, chunks.append, pause_ms=5000, min_chunk_s=0.1, max_chunk_s=60.0
-        )
+        audio, cb = self._start_streaming(sm, mocker, chunks.append, pause_ms=5000, min_chunk_s=0.1, max_chunk_s=60.0)
         # Speech with no closing pause -> nothing emitted until stop flushes tail.
         for _ in range(5):
             cb(self._block(8000), 1600, None, None)

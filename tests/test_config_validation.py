@@ -36,6 +36,7 @@ class TestTriggerPresets:
         # Fn stays None so resolve_trigger maps it to the platform default.
         assert TRIGGER_PRESETS[0] == ("Fn", None)
 
+
 # ---------------------------------------------------------------------------
 # min_recording_duration validation
 # ---------------------------------------------------------------------------

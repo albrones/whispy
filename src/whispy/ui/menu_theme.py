@@ -43,9 +43,7 @@ def is_dark_appearance() -> bool:
     try:
         app = ak.NSApplication.sharedApplication()
         appearance = app.effectiveAppearance()
-        match = appearance.bestMatchFromAppearancesWithNames_(
-            [ak.NSAppearanceNameAqua, ak.NSAppearanceNameDarkAqua]
-        )
+        match = appearance.bestMatchFromAppearancesWithNames_([ak.NSAppearanceNameAqua, ak.NSAppearanceNameDarkAqua])
         return match == ak.NSAppearanceNameDarkAqua
     except Exception:
         return True

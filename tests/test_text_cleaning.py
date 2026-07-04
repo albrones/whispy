@@ -50,6 +50,7 @@ class TestHallucinationStripping:
     def test_empty_returns_empty(self):
         assert clean_text("") == ""
 
+
 # ---------------------------------------------------------------------------
 # French credit stripping
 # ---------------------------------------------------------------------------

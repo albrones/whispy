@@ -113,9 +113,7 @@ class TestProbeReturnValues:
         assert ensure_input_monitoring_access() is True
 
     def test_input_monitoring_unavailable_is_none(self, mocker):
-        mocker.patch(
-            "whispy.platform.macos.permissions.ctypes.CDLL", side_effect=OSError("no IOKit")
-        )
+        mocker.patch("whispy.platform.macos.permissions.ctypes.CDLL", side_effect=OSError("no IOKit"))
         assert ensure_input_monitoring_access() is None
 
     def _application_services(self, monkeypatch, trusted):

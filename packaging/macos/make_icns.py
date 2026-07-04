@@ -19,8 +19,8 @@ HERE = Path(__file__).resolve().parent
 OUT_ICNS = HERE / "whispy.icns"
 
 # Brand palette (from website/assets/logo.svg).
-BG = (22, 22, 28, 255)       # #16161c
-MINT = (36, 191, 158)        # #24bf9e
+BG = (22, 22, 28, 255)  # #16161c
+MINT = (36, 191, 158)  # #24bf9e
 
 # logo.svg uses a 64-unit viewBox; we render at 1024 so 1 unit = SCALE px.
 VIEWBOX = 64

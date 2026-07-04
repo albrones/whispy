@@ -424,9 +424,7 @@ class TestSingleInstanceLock:
         holder.listen(1)
         server = None
         try:
-            server = start_http_server(
-                self._engine(), auth_token=TEST_TOKEN, start_port=port, max_attempts=5
-            )
+            server = start_http_server(self._engine(), auth_token=TEST_TOKEN, start_port=port, max_attempts=5)
             assert server.server_address[1] != port
         finally:
             holder.close()

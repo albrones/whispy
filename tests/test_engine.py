@@ -259,9 +259,7 @@ class TestEngineConfigUpdate:
         Guards the persistence path end-to-end: update_config -> save_config ->
         load_config returns the chosen values, not the defaults.
         """
-        engine.update_config(
-            {"model_size": "base", "language": "fr", "copy_to_clipboard": True}
-        )
+        engine.update_config({"model_size": "base", "language": "fr", "copy_to_clipboard": True})
 
         # Simulate a fresh process start: read the same file from scratch.
         reloaded = load_config(config_path)
@@ -481,19 +479,13 @@ class TestPermissionMissingSurfaced:
         mocker.patch.object(engine, "start_transcription_worker")
         mocker.patch.object(engine, "start_chunk_worker")
         mocker.patch.object(engine_module, "load_model_async")
-        mocker.patch(
-            "whispy.platform.macos.permissions.ensure_microphone_access", return_value=mic
-        )
+        mocker.patch("whispy.platform.macos.permissions.ensure_microphone_access", return_value=mic)
         mocker.patch(
             "whispy.platform.macos.permissions.ensure_input_monitoring_access",
             return_value=inputmon,
         )
-        mocker.patch(
-            "whispy.platform.macos.permissions.ensure_accessibility_access", return_value=ax
-        )
-        mocker.patch(
-            "whispy.platform.macos.permissions.ensure_automation_access", return_value=auto
-        )
+        mocker.patch("whispy.platform.macos.permissions.ensure_accessibility_access", return_value=ax)
+        mocker.patch("whispy.platform.macos.permissions.ensure_automation_access", return_value=auto)
 
         fired: list[tuple[str, str]] = []
         engine.on_permission_missing(lambda kind, msg: fired.append((kind, msg)))
@@ -501,17 +493,13 @@ class TestPermissionMissingSurfaced:
         return fired
 
     def test_explicit_denials_fire_with_kind_and_guidance(self, engine, mocker):
-        fired = self._start_with_probe_results(
-            engine, mocker, mic=False, inputmon=False, ax=True, auto=True
-        )
+        fired = self._start_with_probe_results(engine, mocker, mic=False, inputmon=False, ax=True, auto=True)
         assert [kind for kind, _ in fired] == ["microphone", "input_monitoring"]
         assert "System Settings" in fired[0][1]
 
     def test_granted_and_undetermined_stay_silent(self, engine, mocker):
         # None = the system prompt is on screen; warning would be noise.
-        fired = self._start_with_probe_results(
-            engine, mocker, mic=True, inputmon=None, ax=None, auto=True
-        )
+        fired = self._start_with_probe_results(engine, mocker, mic=True, inputmon=None, ax=None, auto=True)
         assert fired == []
 
 
@@ -801,4 +789,3 @@ class TestStreamingRuntimeToggle:
         assert eng._streaming is True
         start_spy.assert_not_called()
         stop_spy.assert_not_called()
-
