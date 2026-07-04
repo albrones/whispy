@@ -1,10 +1,5 @@
-# core-engine Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change architectural-retrospective-and-stabilization. Update Purpose after archive.
-
-Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
-## Requirements
 ### Requirement: Configuration Loading
 The engine SHALL load and maintain the application configuration, providing access to model settings and language preferences. The default language SHALL be English (`"en"`) and clipboard copy SHALL be disabled by default (`False`). The engine SHALL also apply text cleaning to strip Whisper watermark credits from transcription output before text injection. The engine SHALL validate configuration keys against `DEFAULT_CONFIG` before persisting to disk. When a configuration update changes the `trigger` key, the engine SHALL restart the key listener so the new trigger takes effect without a manual Restart. Existing installs with a persisted `language` value SHALL keep that value — the default only applies when the key (or the config file) is absent.
 
@@ -50,85 +45,6 @@ _Tier: unit-pure — `test_config_validation.py`._
 
 _Tier: unit-mocked — listener stop/start asserted with the hotkey adapter mocked._
 
-### Requirement: Restart uses correct entry point
-The menu bar "Restart" item SHALL launch the application using the correct entry point file `whispy_daemon.py` located at the project root. The resolution of that path and the check for its existence SHALL be performed by a pure, unit-tested helper independent of the menu bar UI; the menu callback SHALL delegate path resolution to that helper and only then perform the relaunch and quit.
-
-#### Scenario: Restart path resolves to daemon
-- **WHEN** the path-resolution helper is invoked
-- **THEN** it SHALL return the path to `whispy_daemon.py` at the project root
-
-_Tier: unit-pure — `test_paths.py`, `test_config_validation.py::TestRestartPath`._
-
-#### Scenario: Restart path works from any working directory
-- **WHEN** the path-resolution helper is invoked from any current working directory
-- **THEN** it SHALL return the same project-root `whispy_daemon.py` path (resolution is independent of cwd)
-
-_Tier: unit-pure — `test_paths.py::test_resolution_is_independent_of_cwd`._
-
-#### Scenario: Missing daemon script is detected before relaunch
-- **WHEN** the existence check reports that the resolved script does not exist
-- **THEN** the restart action SHALL NOT spawn a process and SHALL surface a "Restart file not found" condition
-
-_Tier: unit-pure (existence check) — `test_paths.py::TestDaemonScriptExists`; the alert/relaunch UI stays manual-ui._
-
-#### Scenario: Restart exits current instance
-- **WHEN** the user clicks the "Restart" menu item and the script exists
-- **THEN** the application launches the new instance and the current menu bar instance quits
-
-_Tier: manual-ui — relaunch + quit is not unit-testable._
-
-### Requirement: Transcription worker always returns the FSM to IDLE
-The transcription worker SHALL, upon receiving a stop signal, always return the
-state machine to `IDLE` after handling the recording — whether transcription
-produced text, produced no usable text (empty or cleaned-to-empty output), or
-raised an error. When streaming is enabled, the stop signal handling SHALL flush
-and transcribe the final tail chunk; when disabled, it SHALL transcribe the whole
-recording as before. In either mode, a failure in transcription SHALL NOT
-terminate the worker thread or leave the system wedged in the `TRANSCRIBING`
-state.
-
-#### Scenario: Empty transcription completes the FSM
-- **WHEN** the worker is signaled to stop and transcription yields no usable text (empty or cleaned-to-empty)
-- **THEN** the worker SHALL call `transcription_complete()` so the FSM returns to `IDLE`
-
-_Tier: unit-mocked — `test_engine.py`._
-
-#### Scenario: Transcription error does not wedge the FSM
-- **WHEN** transcription raises an exception while the worker is handling a stop signal
-- **THEN** the worker SHALL log the error, return the FSM to `IDLE`, and remain alive to handle the next recording
-
-#### Scenario: Streaming tail flush completes the FSM
-- **WHEN** streaming is enabled and the worker handles the stop signal for the final tail chunk
-- **THEN** the worker SHALL transcribe/inject the tail chunk (if any usable text) and return the FSM to `IDLE`
-
-### Requirement: Custom vocabulary biases transcription
-The engine SHALL support an optional `custom_vocabulary` configuration value (a list of words or phrases). When the list is non-empty, the engine SHALL pass it to the transcription call as an `initial_prompt` so that recognition is biased toward the user's habitual terms. When the list is empty or absent, transcription SHALL behave exactly as before (no prompt passed).
-
-#### Scenario: Vocabulary present biases the decoder
-- **WHEN** `custom_vocabulary` contains one or more terms and a recording is transcribed
-- **THEN** the engine SHALL pass an `initial_prompt` built from those terms to the Whisper transcription call
-
-_Tier: unit-mocked — `test_engine.py` (initial_prompt asserted; WhisperModel mocked). Whether the prompt actually improves recognition is a `macos-real` concern → step B._
-
-#### Scenario: Empty vocabulary changes nothing
-- **WHEN** `custom_vocabulary` is empty or absent
-- **THEN** the engine SHALL NOT pass an `initial_prompt` (transcription behaves as before)
-
-_Tier: unit-mocked — `test_engine.py`._
-
-#### Scenario: Invalid vocabulary falls back safely
-- **WHEN** `custom_vocabulary` is loaded with a non-list value or with non-string entries
-- **THEN** config validation SHALL coerce it to a list containing only the valid string entries (an entirely invalid value becomes an empty list) and SHALL NOT raise
-
-_Tier: unit-pure — `test_config_validation.py`._
-
-### Requirement: Stray trigger release does not start transcription
-The engine SHALL set the transcription stop event only when stopping actually transitioned the system from `RECORDING` to `TRANSCRIBING`, so a trigger release with no active recording is a no-op.
-
-#### Scenario: Release with no active recording
-- **WHEN** a trigger release is handled while the system is not recording
-- **THEN** the engine SHALL NOT set the stop event and SHALL NOT start transcription of a stale or missing file
-
 ### Requirement: Model-load failure is surfaced
 When the transcription model fails to load, the engine SHALL report the failure through the status/notifier callback rather than leaving the model silently unloaded, and the failure SHALL reach an actual UI consumer rather than only being logged.
 
@@ -142,26 +58,7 @@ When the transcription model fails to load, the engine SHALL report the failure 
 
 _Tier: unit-pure — `test_menu_bar.py::TestAlertWiring::test_init_registers_alert_callbacks` (asserts the registration call is present in `__init__`)._
 
-### Requirement: Chunk pipeline runs during RECORDING without a composite FSM state
-When streaming is enabled, the engine SHALL run chunk transcription and injection
-through an ordered pipeline that is active **during** the `RECORDING` state,
-without introducing a new state machine state. The state machine SHALL keep
-`IDLE → RECORDING → TRANSCRIBING → IDLE` and SHALL keep `RECORDING` as the sole
-owner of the recording lifecycle. `TRANSCRIBING` (and therefore `is_transcribing`)
-SHALL denote only the final tail flush after trigger release, so existing
-status/UI consumers that read `is_recording`/`is_transcribing` are unaffected.
-
-#### Scenario: Chunks transcribe while still recording
-- **WHEN** streaming is enabled and chunks are emitted during recording
-- **THEN** the engine SHALL transcribe and inject them while the state machine remains in `RECORDING`, without entering `TRANSCRIBING`
-
-#### Scenario: is_transcribing reflects only the tail flush
-- **WHEN** the engine is injecting mid-recording chunks
-- **THEN** `is_transcribing` SHALL remain false until the trigger-release tail flush
-
-#### Scenario: No new FSM state is introduced
-- **WHEN** the streaming pipeline is active
-- **THEN** the state machine's set of valid states SHALL remain `IDLE`, `RECORDING`, and `TRANSCRIBING`
+## ADDED Requirements
 
 ### Requirement: Explicitly denied startup permissions are surfaced
 `Engine.start()` SHALL probe Microphone, Input Monitoring, Accessibility, and Automation access at startup. Each probe reports one of three states — granted, explicitly denied, or undetermined (the system permission prompt is pending or the probe is unavailable). The engine SHALL fire `on_permission_missing(kind, message)` only for explicit denials; a granted or undetermined result SHALL stay silent, since warning on an undetermined state would be redundant with the OS's own prompt.
@@ -220,4 +117,3 @@ _Tier: unit-pure — `test_menu_bar.py::TestFnReleasedModelLoadingAlert::test_no
 #### Scenario: Log file reaches the size limit
 - **WHEN** `~/.whispy.log` reaches the configured 1 MB size limit
 - **THEN** it SHALL be rotated to a backup and a fresh log file SHALL be started, up to 3 retained backups
-

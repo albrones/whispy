@@ -7,7 +7,6 @@ Linux/X11); the macOS CGEventTap and Linux pynput shells delegate the press/rele
 decision to pure decode functions.
 
 Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
-
 ## Requirements
 ### Requirement: Hardware Event Detection
 The listener SHALL monitor hardware-level keyboard events for a **configurable trigger key** and notify the core engine of state changes. The trigger SHALL default to the Fn key on macOS (preserving current behavior) and to a documented push-to-talk key on Linux. The trigger SHALL be resolvable from configuration.
@@ -102,4 +101,15 @@ The macOS event tap SHALL re-arm itself when the OS disables it, and SHALL conta
 #### Scenario: A trigger callback raises
 - **WHEN** a trigger press/release callback raises an exception
 - **THEN** the tap SHALL log and continue, and SHALL NOT let the exception disable the tap or kill the listener thread
+
+### Requirement: Event-tap failure guidance matches the current architecture
+When `CGEventTapCreate` fails or the run loop does not start in time, the listener's stderr guidance SHALL name Whispy and the in-app Restart action (or `open -a Whispy`), and SHALL NOT reference `python3` or the pre-rebrand `com.whispy` LaunchAgent, since the shipped macOS install is a signed `.app` bundle with no LaunchAgent.
+
+#### Scenario: Tap creation fails
+- **WHEN** `CGEventTapCreate` returns `None`
+- **THEN** the printed guidance SHALL tell the user to grant Input Monitoring to Whispy and restart via the menu's Restart item or `open -a Whispy`, not `python3` or `launchctl kickstart`
+
+#### Scenario: Run loop start times out
+- **WHEN** the run loop does not confirm startup within the timeout
+- **THEN** the printed guidance SHALL name Whispy, not `python3`, as the process that may be missing Input Monitoring
 
