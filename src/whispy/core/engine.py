@@ -170,6 +170,7 @@ class Engine:
         self._injection_denied_callbacks: list[Callable] = []
         self._model_load_failed_callbacks: list[Callable] = []
         self._permission_missing_callbacks: list[Callable] = []
+        self._capture_failed_callbacks: list[Callable] = []
         self._config_path = config_path or (Path.home() / ".config" / "whispy" / "config.json")
         self._fn_pressed = False
 
@@ -344,6 +345,24 @@ class Engine:
             except Exception:
                 logger.exception("[engine] Error in model-load-failed callback")
 
+    def on_capture_failed(self, callback: Callable) -> None:
+        """Register a callback fired when the capture stream cannot be opened.
+
+        The callback receives a message (str). Without this, a recording
+        started while no input device is available (e.g. a Bluetooth headset
+        just disconnected) silently captures nothing.
+        """
+        self._capture_failed_callbacks.append(callback)
+
+    def _notify_capture_failed(self, message: str) -> None:
+        """Fan out a capture-stream open failure to registered callbacks."""
+        logger.warning("[engine] capture failed: %s", message)
+        for cb in list(self._capture_failed_callbacks):
+            try:
+                cb(message)
+            except Exception:
+                logger.exception("[engine] Error in capture-failed callback")
+
     def on_status_change(self, callback: Callable) -> None:
         """Register a callback to be called when state changes."""
         self._status_callbacks.append(callback)
@@ -371,8 +390,19 @@ class Engine:
     # -- Recording lifecycle --
 
     def start_recording(self) -> bool:
-        """Start audio recording via FSM -> AudioEngine."""
-        return self._audio_engine.start()
+        """Start audio recording via FSM -> AudioEngine.
+
+        When the audio layer could not open a capture stream (stale/absent
+        input device), the recording proceeds empty by design — but the
+        failure is fanned out so the UI can tell the user nothing is being
+        captured.
+        """
+        started = self._audio_engine.start()
+        if started:
+            failure = getattr(self._audio_engine, "capture_failed", None)
+            if failure:
+                self._notify_capture_failed(failure)
+        return started
 
     def stop_recording(self) -> bool:
         """Stop recording and transition to TRANSCRIBING.

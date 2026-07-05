@@ -95,6 +95,7 @@ class WhisperMenuBarApp(rumps.App):
         self.engine.on_injection_permission_denied(self._on_injection_denied)
         self.engine.on_permission_missing(self._on_permission_missing)
         self.engine.on_model_load_failed(self._on_model_load_failed)
+        self.engine.on_capture_failed(self._on_capture_failed)
 
         # Audio-reactive waveform visualization shown during recording. The
         # level comes from the engine's single capture stream (engine.get_level)
@@ -351,6 +352,17 @@ class WhisperMenuBarApp(rumps.App):
             (
                 "Model failed to load",
                 f"{message} — check your internet connection, then use Restart from the Whispy menu.",
+                None,
+            )
+        )
+
+    def _on_capture_failed(self, message: str) -> None:
+        """Engine callback (worker thread): the capture stream could not be
+        opened — the recording runs but no audio is being captured."""
+        self._pending_alerts.append(
+            (
+                "No microphone available",
+                f"{message} — check your input device, then try again.",
                 None,
             )
         )

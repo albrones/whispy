@@ -101,6 +101,95 @@ class TestAudioStart:
 
 
 # ---------------------------------------------------------------------------
+# Device refresh (follow the system default input across device changes)
+# ---------------------------------------------------------------------------
+
+
+class TestDeviceRefresh:
+    """PortAudio device list is refreshed before each stream open, with one
+    retry, so capture follows the current system default input device."""
+
+    def test_start_refreshes_devices_before_opening_stream(self, sm, mocker):
+        # Pins the private _terminate/_initialize usage: a sounddevice upgrade
+        # that removes them must fail here, not silently in production.
+        calls: list[str] = []
+        _SpyStream.instances = []
+        fake_sd = MagicMock()
+        fake_sd._terminate.side_effect = lambda: calls.append("terminate")
+        fake_sd._initialize.side_effect = lambda: calls.append("initialize")
+
+        def _factory(**kw):
+            calls.append("open")
+            return _SpyStream(**kw)
+
+        fake_sd.RawInputStream = _factory
+        mocker.patch.object(audio_module, "sd", fake_sd)
+        audio = AudioEngine(sm)
+        assert audio.start() is True
+        assert calls == ["terminate", "initialize", "open"]
+        assert audio.capture_failed is None
+
+    def test_refresh_failure_does_not_block_stream_open(self, sm, mocker):
+        _SpyStream.instances = []
+        fake_sd = MagicMock()
+        fake_sd._terminate.side_effect = RuntimeError("portaudio busy")
+        fake_sd.RawInputStream = _SpyStream
+        mocker.patch.object(audio_module, "sd", fake_sd)
+        audio = AudioEngine(sm)
+        assert audio.start() is True
+        assert len(_SpyStream.instances) == 1
+        assert _SpyStream.instances[0].started is True
+        assert audio.capture_failed is None
+
+    def test_open_retries_once_after_second_refresh(self, sm, mocker):
+        _SpyStream.instances = []
+        attempts: list[int] = []
+
+        def _factory(**kw):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise RuntimeError("Internal PortAudio error [PaErrorCode -9986]")
+            return _SpyStream(**kw)
+
+        fake_sd = MagicMock()
+        fake_sd.RawInputStream = _factory
+        mocker.patch.object(audio_module, "sd", fake_sd)
+        audio = AudioEngine(sm)
+        assert audio.start() is True
+        assert len(attempts) == 2
+        assert _SpyStream.instances[0].started is True
+        assert audio.capture_failed is None
+        # Two refreshes: the routine one plus the pre-retry one.
+        assert fake_sd._terminate.call_count == 2
+        assert fake_sd._initialize.call_count == 2
+
+    def test_open_gives_up_after_single_retry(self, sm, mocker):
+        fake_sd = MagicMock()
+        fake_sd.RawInputStream = MagicMock(side_effect=RuntimeError("no device"))
+        mocker.patch.object(audio_module, "sd", fake_sd)
+        audio = AudioEngine(sm)
+        assert audio.start() is True
+        assert fake_sd.RawInputStream.call_count == 2
+        assert audio.capture_failed is not None
+        assert "no device" in audio.capture_failed
+        assert sm.is_recording is True
+
+    def test_capture_failed_resets_on_next_start(self, sm, mocker):
+        fake_sd = MagicMock()
+        fake_sd.RawInputStream = MagicMock(side_effect=RuntimeError("no device"))
+        mocker.patch.object(audio_module, "sd", fake_sd)
+        audio = AudioEngine(sm)
+        audio.start()
+        assert audio.capture_failed is not None
+        audio.stop()
+        sm.transcription_complete()
+        _SpyStream.instances = []
+        fake_sd.RawInputStream = _SpyStream
+        assert audio.start() is True
+        assert audio.capture_failed is None
+
+
+# ---------------------------------------------------------------------------
 # stop()
 # ---------------------------------------------------------------------------
 

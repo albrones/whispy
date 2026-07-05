@@ -462,6 +462,58 @@ class TestModelLoadFailureSurfaced:
 
 
 # ---------------------------------------------------------------------------
+# Capture-stream open failure is surfaced (refresh-audio-devices-before-capture)
+# ---------------------------------------------------------------------------
+
+
+class TestCaptureFailureSurfaced:
+    """start_recording() fires on_capture_failed when the audio layer could not
+    open a capture stream, and stays silent when capture is healthy."""
+
+    def test_capture_failure_invokes_callback(self, engine, mocker):
+        mocker.patch.object(engine._audio_engine, "start", return_value=True)
+        mocker.patch.object(
+            type(engine._audio_engine),
+            "capture_failed",
+            new_callable=mocker.PropertyMock,
+            return_value="Internal PortAudio error [PaErrorCode -9986]",
+        )
+        messages: list[str] = []
+        engine.on_capture_failed(messages.append)
+        assert engine.start_recording() is True
+        assert len(messages) == 1
+        assert "-9986" in messages[0]
+
+    def test_no_callback_when_capture_healthy(self, engine, mocker):
+        mocker.patch.object(engine._audio_engine, "start", return_value=True)
+        mocker.patch.object(
+            type(engine._audio_engine),
+            "capture_failed",
+            new_callable=mocker.PropertyMock,
+            return_value=None,
+        )
+        messages: list[str] = []
+        engine.on_capture_failed(messages.append)
+        assert engine.start_recording() is True
+        assert messages == []
+
+    def test_callback_exception_does_not_break_start(self, engine, mocker):
+        mocker.patch.object(engine._audio_engine, "start", return_value=True)
+        mocker.patch.object(
+            type(engine._audio_engine),
+            "capture_failed",
+            new_callable=mocker.PropertyMock,
+            return_value="no device",
+        )
+
+        def bad_cb(_msg):
+            raise ValueError("oops")
+
+        engine.on_capture_failed(bad_cb)
+        assert engine.start_recording() is True
+
+
+# ---------------------------------------------------------------------------
 # Explicitly-denied startup permissions are surfaced (v1 blocker #2)
 # ---------------------------------------------------------------------------
 

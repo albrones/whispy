@@ -137,6 +137,10 @@ class AudioEngine:
         self._recording_path = RECORDING_PATH
         self._frames_written = 0
         self._ready = threading.Event()
+        # Error message when the last start() could not open a capture stream
+        # (after the refresh-and-retry sequence); None when capture is healthy.
+        # The engine reads this to notify the user instead of failing silently.
+        self._capture_failed: str | None = None
         # Live input level (0.0-1.0) computed from the capture callback so the
         # waveform UI can visualize it WITHOUT opening a second microphone
         # stream — two concurrent input streams on the same CoreAudio device
@@ -263,6 +267,7 @@ class AudioEngine:
 
         self._frames_written = 0
         self._ready = threading.Event()
+        self._capture_failed = None
         with self._wave_lock:
             self._wave = None
         # Fresh unique path for this recording (isolates it from any in-flight
@@ -318,24 +323,67 @@ class AudioEngine:
             finally:
                 self._ready.set()
 
+        # Re-enumerate devices so the stream targets the CURRENT system default
+        # input — the list PortAudio cached at daemon startup goes stale when a
+        # Bluetooth headset connects/disconnects or the machine wakes from sleep.
+        self._refresh_devices()
         try:
-            self._stream = sd.RawInputStream(
-                samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype="int16",
-                callback=_callback,
-            )
-            self._stream.start()
-        except Exception as exc:
-            # No device / device busy: stop the readiness wait and warn rather
-            # than block. The recording will be empty; transcription discards it.
-            logger.warning("[audio] Could not open capture stream: %s", exc)
-            self._stream = None
-            self._ready.set()
-            return True
+            self._stream = self._open_stream(_callback)
+        except Exception:
+            # The device set may have changed between refresh and open (e.g.
+            # Bluetooth negotiation completing mid-start): refresh once more and
+            # retry a single time.
+            try:
+                self._refresh_devices()
+                self._stream = self._open_stream(_callback)
+            except Exception as exc:
+                # No device / device busy: stop the readiness wait and warn rather
+                # than block. The recording will be empty; transcription discards
+                # it. The engine reads capture_failed to notify the user.
+                logger.warning("[audio] Could not open capture stream: %s", exc)
+                self._capture_failed = str(exc)
+                self._stream = None
+                self._ready.set()
+                return True
 
         self._wait_for_recording_ready()
         return True
+
+    def _refresh_devices(self) -> None:
+        """Force PortAudio to re-scan audio devices (terminate + re-initialize).
+
+        PortAudio freezes its device list at initialization; in a long-running
+        daemon the cached default input goes stale after a device change and
+        opening the stream fails with PaErrorCode -9986. sounddevice exposes no
+        public re-scan, so the underscore pair is the established refresh path
+        (pinned by a unit test). Must never run while a stream is open — start()
+        is guarded by the state machine and this app opens no other PortAudio
+        stream (the level meter reads from the capture stream). A refresh
+        failure degrades to the stale list rather than aborting the recording.
+        """
+        if sd is None:
+            return
+        try:
+            sd._terminate()
+            sd._initialize()
+        except Exception as exc:
+            logger.warning("[audio] device list refresh failed: %s", exc)
+
+    def _open_stream(self, callback: Callable):
+        """Open and start a capture stream on the current default input device."""
+        stream = sd.RawInputStream(
+            samplerate=SAMPLE_RATE,
+            channels=CHANNELS,
+            dtype="int16",
+            callback=callback,
+        )
+        stream.start()
+        return stream
+
+    @property
+    def capture_failed(self) -> str | None:
+        """Error message when the last start() could not open a stream, else None."""
+        return self._capture_failed
 
     def _new_recording_path(self) -> str:
         """Return a unique temp WAV path for one recording."""
