@@ -27,7 +27,7 @@ These were verified by reading the code and are covered by tests in
 remaining gap is not *bad* output but *imperfect* output on the user's own
 vocabulary — which is what the memory system targets. (One related robustness
 fix — the worker no longer wedges on empty transcriptions — landed in the
-`code-health-audit-and-fixes` change; see `docs/code-audit.md`.)
+`code-health-audit-and-fixes` change.)
 
 ## Part 2 — Memory system: make it better by habit
 

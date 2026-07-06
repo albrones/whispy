@@ -327,7 +327,6 @@ System Events is Apple-signed, so it can post synthetic keystrokes even though W
 - **`unicode_anim.py`** — vendored braille `WAVEROWS` frames (16), `WAVEROWS_INTERVAL = 0.09`, `IDLE_FRAME`, `select_frame(frame_index, is_active)`. Pure data, no dependency.
 - **`menu_theme.py`** — brand-green accented menu titles (`status_title`, `section_title`, `check_title`, `toggle_title`, `apply_title`, `is_dark_appearance`), re-picking colors for light/dark.
 - **`waveform_window.py`** — `WaveformWindow`, the audio-reactive recording visualization driven by `engine.get_level()`.
-- **`level_math.py`** — pure helpers for mapping mic level → bar heights (unit-tested).
 
 ---
 
@@ -371,7 +370,7 @@ A hidden `_version` key tracks migrations (`CONFIG_VERSION = 1`). There is **no*
 
 **Test files** (`tests/`):
 
-`test_state_machine.py`, `test_engine.py`, `test_audio.py`, `test_injection.py`, `test_integration.py`, `test_e2e.py`, `test_e2e_smoke.py`, `test_e2e_smoke_linux.py`, `test_event_tap_e2e.py`, `test_event_decode.py`, `test_language_detection.py`, `test_transcription_quality.py`, `test_segmentation.py`, `test_text_cleaning.py`, `test_config_validation.py`, `test_simplify_config_ui.py`, `test_menu_bar.py`, `test_menu_theme.py`, `test_waveform.py`, `test_anim_frames.py`, `test_level_math.py`, `test_auth.py`, `test_paths.py`, `test_permissions.py`, `test_platform_detect.py`, `test_linux_adapters.py`, `test_doctor.py`, `test_error_handling.py`, `test_install_scripts.py`, `test_validation_core.py`, `test_website.py`, plus `tests/test_api/test_server.py`.
+`test_state_machine.py`, `test_engine.py`, `test_audio.py`, `test_injection.py`, `test_integration.py`, `test_e2e.py`, `test_e2e_smoke.py`, `test_e2e_smoke_linux.py`, `test_event_tap_e2e.py`, `test_event_decode.py`, `test_language_detection.py`, `test_transcription_quality.py`, `test_segmentation.py`, `test_text_cleaning.py`, `test_config_validation.py`, `test_simplify_config_ui.py`, `test_menu_bar.py`, `test_menu_theme.py`, `test_waveform.py`, `test_anim_frames.py`, `test_auth.py`, `test_paths.py`, `test_permissions.py`, `test_platform_detect.py`, `test_linux_adapters.py`, `test_doctor.py`, `test_error_handling.py`, `test_install_scripts.py`, `test_validation_core.py`, `test_website.py`, plus `tests/test_api/test_server.py`.
 
 ---
 
@@ -468,8 +467,7 @@ whispy/
 │   │   ├── menu_bar.py          # rumps menu bar app (macOS)
 │   │   ├── menu_theme.py        # accent/theme titles
 │   │   ├── unicode_anim.py      # braille waveform frames
-│   │   ├── waveform_window.py   # audio-reactive recording window
-│   │   └── level_math.py        # level→bar math
+│   │   └── waveform_window.py   # audio-reactive recording window
 │   ├── api/
 │   │   └── server.py            # HTTP server (port 9090, auth, single-instance lock)
 │   └── doctor.py                # environment diagnostic (--doctor)

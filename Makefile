@@ -35,7 +35,7 @@ check: ## CI-equivalent checks (lint + format check + tests)
 run: ## Run the daemon in the foreground (for development)
 	$(PY) whispy_daemon.py
 
-doctor: ## Diagnose the environment (sox, model, permissions, daemon)
+doctor: ## Diagnose the environment (audio, model, permissions, daemon)
 	$(PY) whispy_daemon.py --doctor
 
 validate: ## Full release validation: preflight + live-drive (real daemon over HTTP) + operator checklist
@@ -47,7 +47,7 @@ validate-unattended: ## Validation without the human operator layer (preflight +
 app: ## Build & ad-hoc-sign the native macOS bundle (dist/Whispy.app)
 	./packaging/macos/build_app.sh
 
-uninstall: ## Remove the LaunchAgent and venv
+uninstall: ## Remove the venv and any legacy LaunchAgents
 	./install.sh --uninstall
 
 clean: ## Remove caches and build artifacts

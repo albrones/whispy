@@ -35,11 +35,11 @@ The main thread orchestrates and reviews; subagents execute and report.
 - **Environment:** Uses a Python virtual environment (`.venv`).
 
 ## 🚀 Operational Commands
-- **Install/Setup:** `./install.sh` (manages venv, dependencies, and LaunchAgent).
-- **Manual Restart:** 
+- **Install/Setup:** `./install.sh` provisions the venv/dependencies; `make app` builds & signs `dist/Whispy.app`. Autostart is the in-app "Start at login" toggle (SMAppService) on macOS, a `systemd --user` service on Linux — **no LaunchAgent is created**.
+- **Manual Restart (macOS):**
   ```bash
-  launchctl unload ~/Library/LaunchAgents/com.whispy.plist
-  launchctl load ~/Library/LaunchAgents/com.whispy.plist
+  # Quit from the menu bar, then relaunch the app bundle
+  open /Applications/Whispy.app
   ```
 - **Live Logs:** `tail -f ~/.whispy.log ~/.whispy-error.log`
 - **API Interaction:** 
@@ -48,9 +48,9 @@ The main thread orchestrates and reviews; subagents execute and report.
   - `curl -X POST http://localhost:9090/stop` (Manual stop)
 
 ## 🏗️ Architecture & Workflow
-- **The Daemon:** The application runs as a background `LaunchAgent`. It consists of:
+- **The Daemon:** The application runs as a menu-bar app (macOS: signed `Whispy.app`, optionally a login item via SMAppService; Linux: `systemd --user` service). It consists of:
   - **Fn Key Listener:** Uses `CGEventTap` to detect the Fn key. Requires **Input Monitoring** permissions.
-  - **Recording:** Uses `sox` to record audio to a temporary file (`/tmp/whispy.wav`).
+  - **Recording:** Uses `sounddevice`/PortAudio to capture audio in-process.
   - **Transcription:** Uses `faster-whisper` for local inference.
   - **Text Injection:** Uses `osascript` to simulate keystrokes or paste via clipboard. Requires **Accessibility** permissions.
   - **UI:** A `rumps`-based menu bar application.
@@ -80,12 +80,12 @@ All documentation, code comments, and user-facing messages in the codebase must 
 - **Python Interpreter:** The daemon uses the `.venv/bin/python3` interpreter. Ensure permissions are granted to this specific executable if required.
 
 ### 🏗️ Architecture
-|- **Modular architecture:** Main logic is in `src/whispy/core/engine.py`. Entry point is `whispy_daemon.py`. Package structure: `src/whispy/core/` (engine, state machine, audio), `src/whispy/hardware/` (event tap, text injection), `src/whispy/ui/` (menu bar, indicators), `src/whispy/api/` (HTTP server).
+|- **Modular architecture:** Main logic is in `src/whispy/core/engine.py`. Entry point is `whispy_daemon.py`. Package structure: `src/whispy/core/` (engine, state machine, audio), `src/whispy/hardware/` (event tap, text injection), `src/whispy/ui/` (menu bar, waveform window), `src/whispy/api/` (HTTP server).
 - **Concurrency:** Uses `threading` for the HTTP server, model loading, and transcription workers.
 - **State Management:** A global `state` object (`DictationState`) manages recording, transcription, and model status across threads.
 
 ### 🚀 Operational Commands
-- **Manual Restart:** Use `launchctl` commands to reload the daemon after code changes or permission updates.
+- **Manual Restart:** Quit from the menu bar and relaunch (`open /Applications/Whispy.app`) after code changes or permission updates.
 - **Model Swapping:** Changing `model_size` in config triggers an asynchronous model reload.
 - **Logging:** Always check `~/.whispy.log` and `~/.whispy-error.log` for debugging.
 
