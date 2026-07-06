@@ -546,7 +546,6 @@ code { font-family: var(--mono); color: var(--green); }
 .section-install .section-lede { text-align: center; }
 .section-install a { color: var(--green); }
 .codeblock {
-  max-width: 560px;
   margin: 0 auto 28px;
   text-align: left;
   background: #0a0a0e;
@@ -559,7 +558,6 @@ code { font-family: var(--mono); color: var(--green); }
 
 .install-block {
   position: relative;
-  max-width: 560px;
   margin: 0 auto 16px;
 }
 .install-block .codeblock { margin-bottom: 0; }
