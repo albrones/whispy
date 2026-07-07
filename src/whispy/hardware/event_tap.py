@@ -22,12 +22,14 @@ try:
         CGEventGetIntegerValueField,
         CGEventGetType,
         CGEventMaskBit,
+        CGEventSourceFlagsState,
         CGEventTapCreate,
         CGEventTapEnable,
         kCFRunLoopDefaultMode,
         kCGEventFlagsChanged,
         kCGEventKeyDown,
         kCGEventKeyUp,
+        kCGEventSourceStateHIDSystemState,
         kCGEventTapDisabledByTimeout,
         kCGEventTapDisabledByUserInput,
         kCGEventTapOptionListenOnly,
@@ -51,6 +53,7 @@ from .event_decode import (  # noqa: E402, F401
     _normalize_flags,
     decode_trigger_event,
     keycode_to_name,
+    trigger_held_after_rearm,
 )
 
 
@@ -72,6 +75,9 @@ class EventTapListener:
         # Last-seen modifier flags, so a flags_changed for a modifier trigger can
         # be decoded as press vs release from the bit transition.
         self._prev_flags = 0
+        # Whether we last emitted a press with no matching release yet. Lets the
+        # re-arm path recover a modifier release that fired while the tap was down.
+        self._pressed = False
         self.active = False
 
     def start(self) -> None:
@@ -156,6 +162,7 @@ class EventTapListener:
         if event_type in (kCGEventTapDisabledByTimeout, kCGEventTapDisabledByUserInput):
             if self._tap is not None:
                 CGEventTapEnable(self._tap, True)
+                self._resync_after_rearm()
                 print("[event-tap] tap was disabled by the OS — re-armed", file=sys.stderr)
             return event
 
@@ -178,9 +185,11 @@ class EventTapListener:
 
         try:
             if action == "press":
+                self._pressed = True
                 if self._on_trigger_press:
                     self._on_trigger_press()
             elif action == "release":
+                self._pressed = False
                 if self._on_trigger_release:
                     self._on_trigger_release()
         except Exception:
@@ -192,6 +201,38 @@ class EventTapListener:
             traceback.print_exc()
 
         return event
+
+    def _resync_after_rearm(self) -> None:
+        """Re-sync modifier flag state after the OS disabled and we re-armed the tap.
+
+        A modifier trigger's press/release is decoded from ``flags_changed``
+        transitions, so a release that fires while the tap is down is lost and
+        ``_prev_flags`` is left stale (the next transition would decode inverted).
+        Read the live modifier state, reset ``_prev_flags`` to it, and — if the
+        trigger was held but is no longer down — emit the missed release so the
+        engine cannot stay stuck in RECORDING. Degrades to re-arm-only if the
+        live-flags read is unavailable.
+        """
+        try:
+            live = CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState)
+        except Exception:
+            return
+        self._prev_flags = _normalize_flags(live)
+        if not self._pressed:
+            return
+        held = trigger_held_after_rearm(self._trigger_keycode, live)
+        if held is False:
+            # The trigger was released while the tap was disabled.
+            self._pressed = False
+            print("[event-tap] recovered a trigger release missed during tap outage", file=sys.stderr)
+            if self._on_trigger_release:
+                try:
+                    self._on_trigger_release()
+                except Exception:
+                    import traceback
+
+                    print("[event-tap] trigger release callback raised:", file=sys.stderr)
+                    traceback.print_exc()
 
 
 # Backward-compatible alias: the human-readable name lookup now lives in

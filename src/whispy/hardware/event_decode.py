@@ -185,6 +185,32 @@ def decode_trigger_event(
     return None
 
 
+# Modifier trigger keycode -> the CGEventFlags mask bit that is set while the key
+# is physically held. Used only to tell whether a modifier trigger is still held
+# after the OS disabled and we re-armed the tap (so a release that fired during
+# the outage can be recovered). Regular (non-modifier) keys are absent — their
+# release is a key_up event that flags state cannot reconstruct.
+_TRIGGER_HELD_MASK: dict[int, int] = {
+    DEFAULT_TRIGGER_KEYCODE: NX_SECONDARYFNMASK,  # Fn
+    54: 0x100000,  # Right Command (kCGEventFlagMaskCommand)
+    61: 0x80000,  # Right Option (kCGEventFlagMaskAlternate)
+}
+
+
+def trigger_held_after_rearm(trigger_keycode: int, live_flags: object) -> bool | None:
+    """Is the modifier trigger still physically held, given the live modifier flags?
+
+    Pure helper for recovering a release missed while the event tap was disabled.
+    Returns True/False for a known modifier trigger, or None when the trigger is
+    not a modifier we can test from flags (caller cannot recover its release this
+    way and must rely on the FSM watchdog backstop).
+    """
+    mask = _TRIGGER_HELD_MASK.get(trigger_keycode)
+    if mask is None:
+        return None
+    return bool(_normalize_flags(live_flags) & mask)
+
+
 def decode_key_match(kind: str, key_name: str | None, trigger_key: str) -> str | None:
     """Platform-neutral key-match decode (used by the Linux/pynput listener).
 
