@@ -1,4 +1,4 @@
-.PHONY: help install test lint format check run app uninstall clean validate validate-unattended
+.PHONY: help install update test lint format check run app uninstall clean validate validate-unattended
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -43,6 +43,14 @@ validate: ## Full release validation: preflight + live-drive (real daemon over H
 
 validate-unattended: ## Validation without the human operator layer (preflight + live-drive only)
 	$(PY) -m tests.validation.run --no-operator $(ARGS)
+
+update: ## Pull latest, rebuild the app, and relaunch
+	git pull --ff-only
+	@osascript -e 'tell application "Whispy" to quit' 2>/dev/null || true
+	@sleep 1
+	$(MAKE) app
+	open dist/Whispy.app
+	@echo "✓ Whispy updated and relaunched"
 
 app: ## Build & ad-hoc-sign the native macOS bundle (dist/Whispy.app)
 	./packaging/macos/build_app.sh
