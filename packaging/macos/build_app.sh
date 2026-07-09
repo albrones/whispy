@@ -21,10 +21,14 @@ VENV_PY="$REPO_ROOT/.venv/bin/python"
 
 echo -e "${YELLOW}=== Whispy.app build ===${NC}"
 
-# 1. Ensure py2app is available in the venv.
+# 1. Ensure build-time deps (py2app + Pillow for icon gen) are available.
 if ! "$VENV_PY" -c "import py2app" 2>/dev/null; then
     echo -e "${YELLOW}Installing py2app...${NC}"
     "$REPO_ROOT/.venv/bin/pip" install -q py2app
+fi
+if ! "$VENV_PY" -c "import PIL" 2>/dev/null; then
+    echo -e "${YELLOW}Installing Pillow (icon generation)...${NC}"
+    "$REPO_ROOT/.venv/bin/pip" install -q Pillow
 fi
 
 # 2. (Re)generate the app icon.
@@ -61,6 +65,9 @@ for dirpath, dirnames, filenames in os.walk(root):
         if os.path.islink(p) and not os.path.exists(p):
             os.unlink(p)
 PY
+
+# 3c. Stamp the build commit so bootstrap can skip rebuilds when unchanged.
+git -C "$REPO_ROOT" rev-parse HEAD > "$APP/Contents/Resources/.whispy-build-hash"
 
 # 4. Code-sign with the hardened runtime + entitlements.
 #    Prefer the self-signed "Whispy Local Signing" identity: a stable signing

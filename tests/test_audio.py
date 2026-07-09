@@ -495,8 +495,8 @@ class TestTranscribe:
         assert result is None
         mock_whisper_model.transcribe.assert_not_called()
 
-    def test_long_enough_recording_passes_vad_filter(self, sm, mock_whisper_model, tmp_path):
-        """A clip above the threshold is transcribed with vad_filter enabled."""
+    def test_long_enough_recording_passes_vad_filter_off(self, sm, mock_whisper_model, tmp_path):
+        """A clip above the threshold is transcribed with vad_filter disabled (webrtcvad handles segmentation)."""
         audio = AudioEngine(sm)
         audio_path = str(tmp_path / "test.wav")
         with open(audio_path, "wb") as f:
@@ -510,7 +510,7 @@ class TestTranscribe:
         result = audio.transcribe(audio_path, mock_whisper_model, min_recording_duration=0.3)
         assert result == "bonjour"
         call_kwargs = mock_whisper_model.transcribe.call_args[1]
-        assert call_kwargs["vad_filter"] is True
+        assert call_kwargs["vad_filter"] is False
         assert call_kwargs["condition_on_previous_text"] is False
         assert call_kwargs["temperature"] == 0
 

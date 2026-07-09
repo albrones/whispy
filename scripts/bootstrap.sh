@@ -113,11 +113,21 @@ Darwin)
         exit 0
     fi
 
-    echo -e "${YELLOW}Building Whispy.app...${NC}"
-    make -C "$WHISPY_HOME" app
-    rm -rf /Applications/Whispy.app
-    cp -R "$WHISPY_HOME/dist/Whispy.app" /Applications/
-    echo -e "${GREEN}[OK] Installed /Applications/Whispy.app${NC}"
+    # Skip rebuild when the installed app already matches the current source.
+    CURRENT_HASH=$(git -C "$WHISPY_HOME" rev-parse HEAD)
+    INSTALLED_HASH=""
+    HASH_FILE="/Applications/Whispy.app/Contents/Resources/.whispy-build-hash"
+    [ -f "$HASH_FILE" ] && INSTALLED_HASH=$(cat "$HASH_FILE")
+
+    if [ "$CURRENT_HASH" = "$INSTALLED_HASH" ]; then
+        echo -e "${GREEN}[OK] /Applications/Whispy.app is up to date ($CURRENT_HASH)${NC}"
+    else
+        echo -e "${YELLOW}Building Whispy.app...${NC}"
+        make -C "$WHISPY_HOME" app
+        rm -rf /Applications/Whispy.app
+        cp -R "$WHISPY_HOME/dist/Whispy.app" /Applications/
+        echo -e "${GREEN}[OK] Installed /Applications/Whispy.app${NC}"
+    fi
     open /Applications/Whispy.app
     echo ""
     echo "Grant the Whispy microphone prompt on first launch; enable autostart"
