@@ -1,11 +1,11 @@
 # Roadmap
 
-## v0.1.0 — first open-source release
+## v1.0.0 — first open-source release (shipped)
 
 - [x] Green test suite (ruff lint/format, pytest on Python 3.10–3.12)
 - [x] `whispy doctor` onboarding diagnostic
 - [x] OSS hygiene (license, contributing, code of conduct, templates)
-- [ ] Tagged release + notes
+- [x] Tagged release + notes
 
 ## Cross-platform (shipped) — macOS + Linux/X11
 
@@ -32,7 +32,7 @@ xdotool injection) live in the platform-real test tiers.
 - **Linux overlay window** — Linux v1 surfaces state through the tray only; a
   floating waveform/indicator (GTK/Cairo or Qt) is a later addition.
 - **Native Linux packaging** — `.deb`/AppImage/Flatpak and a systemd **user**
-  unit for autostart parity with the macOS LaunchAgent.
+  unit for autostart parity with the macOS login item (SMAppService).
 - **Windows** — not currently planned. Would require equivalents for every
   subsystem (Win32 hooks, `SendInput`, a tray library, and Task Scheduler).
 

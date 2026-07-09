@@ -1,4 +1,3 @@
-whispy/PROJECT_MAP.md
 # Project Map — whispy
 
 This file provides a technical overview of the `whispy` codebase.  
@@ -16,7 +15,7 @@ It is designed to help AI agents and developers quickly understand the project s
   - `src/whispy/` — Python package:
     - `core/` — Engine, state machine, audio engine, config
     - `hardware/` — Event tap (Fn key), text injection
-    - `ui/` — Menu bar app, indicator windows, audio level monitor
+    - `ui/` — Menu bar app, animated waveform overlay window (macOS)
       - `menu_theme.py` — Brand-accent menu styling (green dot/header/checks via
         attributed titles). **macOS-only**: the Linux tray (pystray) renders
         plain text labels and has no styling equivalent.
@@ -98,6 +97,6 @@ This file should be updated whenever:
 ## Last Updated
 
 <!-- Please update this section with the date of the last major change -->
-2024-06-07
+2026-07-06
 
 ---

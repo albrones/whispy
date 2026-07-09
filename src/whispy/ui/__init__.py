@@ -3,7 +3,7 @@
 This is the macOS UI surface (rumps menu bar + AppKit overlay). The overlay
 modules depend on AppKit/objc, absent on Linux — so the eager re-exports are
 import-tolerant: on a platform without the GUI stack the package still imports
-(and pure submodules like ``level_math``/``unicode_anim`` stay importable
+(and pure submodules like ``unicode_anim`` stay importable
 directly); the AppKit-coupled names simply aren't re-exported there.
 """
 
