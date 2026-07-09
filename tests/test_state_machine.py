@@ -444,3 +444,42 @@ class TestToDict:
         t1.join()
         t2.join()
         assert len(errors) == 0
+
+
+class TestForceIdle:
+    """force_idle() — guard-bypassing recovery for a wedged FSM."""
+
+    def test_force_idle_from_recording(self):
+        sm = StateMachine()
+        seen: list[State] = []
+        sm.on_state_change(State.IDLE, lambda s: seen.append(s))
+        sm.start_recording()
+        assert sm.is_recording
+        assert sm.force_idle() is True
+        assert sm.is_idle
+        assert seen == [State.IDLE]
+
+    def test_force_idle_from_transcribing(self):
+        sm = StateMachine()
+        seen: list[State] = []
+        sm.on_state_change(State.IDLE, lambda s: seen.append(s))
+        sm.start_recording()
+        sm.stop_recording()
+        assert sm.is_transcribing
+        assert sm.force_idle() is True
+        assert sm.is_idle
+        assert seen == [State.IDLE]
+
+    def test_force_idle_noop_when_already_idle(self):
+        sm = StateMachine()
+        seen: list[State] = []
+        sm.on_state_change(State.IDLE, lambda s: seen.append(s))
+        assert sm.force_idle() is False
+        assert sm.is_idle
+        assert seen == []
+
+    def test_force_idle_records_forced_history(self):
+        sm = StateMachine()
+        sm.start_recording()
+        sm.force_idle()
+        assert any("forced" in h.lower() for h in sm.transition_history)

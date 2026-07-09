@@ -13,6 +13,7 @@ from whispy.hardware.event_decode import (
     decode_key_match,
     decode_trigger_event,
     keycode_to_name,
+    trigger_held_after_rearm,
 )
 from whispy.platform.detect import LINUX_DEFAULT_TRIGGER, detect
 
@@ -117,3 +118,30 @@ class TestPlatformDefaultTrigger:
 
     def test_linux_default_is_documented_key(self):
         assert detect("linux").default_trigger == LINUX_DEFAULT_TRIGGER
+
+
+class TestTriggerHeldAfterRearm:
+    """trigger_held_after_rearm — recover a modifier release missed during a tap outage."""
+
+    def test_fn_held(self):
+        assert trigger_held_after_rearm(FN, NX_SECONDARYFNMASK) is True
+
+    def test_fn_released(self):
+        assert trigger_held_after_rearm(FN, 0) is False
+
+    def test_right_option_held(self):
+        assert trigger_held_after_rearm(61, 0x80000) is True
+
+    def test_right_option_released(self):
+        # No alt bit set → the key was released while the tap was down.
+        assert trigger_held_after_rearm(61, 0) is False
+
+    def test_right_command_held(self):
+        assert trigger_held_after_rearm(54, 0x100000) is True
+
+    def test_regular_key_returns_none(self):
+        # F13 (105) is a regular key: its release cannot be told from flags.
+        assert trigger_held_after_rearm(105, 0) is None
+
+    def test_tuple_flags_are_normalized(self):
+        assert trigger_held_after_rearm(61, (0x80000,)) is True

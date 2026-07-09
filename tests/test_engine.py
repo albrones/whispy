@@ -841,3 +841,59 @@ class TestStreamingRuntimeToggle:
         assert eng._streaming is True
         start_spy.assert_not_called()
         stop_spy.assert_not_called()
+
+
+class TestChunkDrainTimeout:
+    """_drain_chunk_queue bounds the on-release wait so a stalled chunk can't wedge TRANSCRIBING."""
+
+    def test_drain_returns_true_when_empty(self, engine):
+        assert engine._drain_chunk_queue(0.5) is True
+
+    def test_drain_times_out_on_unfinished_chunk(self, engine):
+        import time
+
+        engine._chunk_queue.put("stuck")  # never task_done() — simulates a stalled chunk
+        t0 = time.monotonic()
+        assert engine._drain_chunk_queue(0.2) is False
+        assert time.monotonic() - t0 < 2.0  # returned promptly, did not block forever
+
+    def test_drain_returns_true_after_task_done(self, engine):
+        engine._chunk_queue.put("x")
+        engine._chunk_queue.task_done()
+        assert engine._drain_chunk_queue(0.5) is True
+
+
+class TestWatchdogRecovery:
+    """The FSM watchdog force-recovers a wedged RECORDING/TRANSCRIBING to IDLE."""
+
+    def test_recording_watchdog_recovers_to_idle(self, engine):
+        import time
+
+        import whispy.core.engine as eng_mod
+
+        engine._state_machine.start_recording()
+        assert engine._state_machine.is_recording
+        # Pretend recording started long before the RECORDING backstop.
+        engine._recording_since = time.monotonic() - (eng_mod.RECORDING_MAX_S + 1)
+        engine._watchdog_tick()
+        assert engine._state_machine.is_idle
+
+    def test_transcribing_watchdog_recovers_to_idle(self, engine):
+        import time
+
+        import whispy.core.engine as eng_mod
+
+        engine._state_machine.start_recording()
+        engine._state_machine.stop_recording()
+        assert engine._state_machine.is_transcribing
+        engine._transcribing_since = time.monotonic() - (eng_mod.TRANSCRIBING_MAX_S + 1)
+        engine._watchdog_tick()
+        assert engine._state_machine.is_idle
+
+    def test_normal_dwell_is_not_recovered(self, engine):
+        import time
+
+        engine._state_machine.start_recording()
+        engine._recording_since = time.monotonic()  # just entered — well within timeout
+        engine._watchdog_tick()
+        assert engine._state_machine.is_recording

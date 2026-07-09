@@ -28,24 +28,21 @@ from AppKit import (
     NSTimer,
     NSView,
     NSWindow,
-    NSWindowCollectionBehaviorCanJoinAllSpaces,
     NSWindowCollectionBehaviorFullScreenAuxiliary,
     NSWindowCollectionBehaviorIgnoresCycle,
-    NSWindowCollectionBehaviorStationary,
+    NSWindowCollectionBehaviorMoveToActiveSpace,
     NSWindowStyleMaskNonactivatingPanel,
 )
 from PyObjCTools import AppHelper
 
 logger = logging.getLogger(__name__)
 
-# Collection behavior that lets a non-activating accessory panel float over any
-# Space, including another app's full-screen Space, without joining the window
-# cycle. Re-applied on every show (not just at init) so the pill reliably lands
-# on the *active* Space each time, not the one that was active at first show.
+# ponytail: MoveToActiveSpace instead of CanJoinAllSpaces — forces macOS to
+# relocate the pill to the current Space on every orderFront, avoiding stale
+# Space association after fullscreen-to-fullscreen transitions.
 _FULLSCREEN_OVERLAY_BEHAVIOR = (
-    NSWindowCollectionBehaviorCanJoinAllSpaces
+    NSWindowCollectionBehaviorMoveToActiveSpace
     | NSWindowCollectionBehaviorFullScreenAuxiliary
-    | NSWindowCollectionBehaviorStationary
     | NSWindowCollectionBehaviorIgnoresCycle
 )
 

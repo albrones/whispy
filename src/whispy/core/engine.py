@@ -46,6 +46,16 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+# --- Hang-recovery timeouts (internal; generous so a legit session never clips) ---
+# On release the worker waits for the chunk queue to drain; a stalled chunk must
+# not wedge the FSM in TRANSCRIBING forever, so the wait is bounded.
+CHUNK_DRAIN_TIMEOUT_S = 30.0
+# Coarse FSM watchdog backstops: no push-to-talk hold lasts minutes, and the
+# bounded drain resolves TRANSCRIBING well before this.
+RECORDING_MAX_S = 300.0
+TRANSCRIBING_MAX_S = 120.0
+WATCHDOG_INTERVAL_S = 1.0
+
 
 # ---------------------------------------------------------------------------
 # Config persistence
@@ -212,6 +222,17 @@ class Engine:
         # Chunk texts accumulate here during recording and are typed once on
         # release (avoids mid-recording focus disruption in full-screen apps).
         self._chunk_texts: list[str] = []
+
+        # --- Hang-recovery watchdog ---
+        # Monotonic timestamps of when the FSM entered a non-idle state (None when
+        # idle), read by a dedicated watchdog thread that force-recovers a wedged
+        # FSM. A separate thread is required: the transcription worker is exactly
+        # what can wedge, so it cannot police itself.
+        self._recording_since: float | None = None
+        self._transcribing_since: float | None = None
+        self._watchdog_thread: threading.Thread | None = None
+        self._watchdog_running = False
+
         self._apply_streaming_config()
 
         # Register FSM callbacks to keep DictationState in sync
@@ -223,6 +244,8 @@ class Engine:
         """Sync DictationState when FSM enters RECORDING."""
         self.state.is_recording = True
         self.state.is_transcribing = False
+        self._recording_since = time.monotonic()
+        self._transcribing_since = None
         # Fresh per-recording streaming accounting.
         self._chunk_any_text = False
         self._chunk_texts = []
@@ -232,12 +255,16 @@ class Engine:
         """Sync DictationState when FSM enters TRANSCRIBING."""
         self.state.is_recording = False
         self.state.is_transcribing = True
+        self._recording_since = None
+        self._transcribing_since = time.monotonic()
         self._notify_recording_stop()
 
     def _on_fsm_idle(self, _state: State) -> None:
         """Sync DictationState when FSM enters IDLE."""
         self.state.is_recording = False
         self.state.is_transcribing = False
+        self._recording_since = None
+        self._transcribing_since = None
 
     # -- Recording lifecycle callbacks --
 
@@ -541,6 +568,31 @@ class Engine:
             finally:
                 self._chunk_queue.task_done()
 
+    def _drain_chunk_queue(self, timeout: float) -> bool:
+        """Wait for the chunk queue to drain, bounded by ``timeout`` seconds.
+
+        ``queue.Queue.join()`` has no timeout, so wait on the queue's own
+        ``all_tasks_done`` condition with a monotonic deadline. Returns True if
+        every enqueued chunk was processed, False if the timeout fired first (a
+        stalled chunk) — the caller then proceeds rather than wedging in
+        TRANSCRIBING.
+        """
+        q = self._chunk_queue
+        with q.all_tasks_done:
+            deadline = time.monotonic() + timeout
+            while q.unfinished_tasks:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    logger.warning(
+                        "[engine] chunk drain timed out after %.0fs with %d chunk(s) unfinished; "
+                        "injecting assembled text so far",
+                        timeout,
+                        q.unfinished_tasks,
+                    )
+                    return False
+                q.all_tasks_done.wait(remaining)
+        return True
+
     def start_chunk_worker(self) -> None:
         """Start the streaming chunk worker (no-op when streaming is disabled)."""
         if not self._streaming or self._chunk_worker_running:
@@ -717,8 +769,9 @@ class Engine:
                             # FSM-1 tail: chunks (incl. the tail flushed by
                             # stop()) are transcribed by the chunk worker. Wait
                             # for the queue to drain so the FSM leaves
-                            # TRANSCRIBING only once all chunks are handled.
-                            self._chunk_queue.join()
+                            # TRANSCRIBING only once all chunks are handled —
+                            # bounded so a stalled chunk cannot wedge the FSM.
+                            self._drain_chunk_queue(CHUNK_DRAIN_TIMEOUT_S)
                             # Type the assembled text once, now that recording
                             # stopped (no mid-recording injection / focus steal).
                             assembled = " ".join(self._chunk_texts).strip()
@@ -751,6 +804,61 @@ class Engine:
         self._transcription_running = False
         if self._transcription_thread and self._transcription_thread.is_alive():
             self._transcription_thread.join(timeout=5.0)
+
+    # -- Hang-recovery watchdog --
+
+    def start_watchdog(self) -> None:
+        """Start the FSM watchdog thread (backstop against a wedged FSM)."""
+        if self._watchdog_running:
+            return
+        self._watchdog_running = True
+        self._watchdog_thread = threading.Thread(target=self._watchdog_loop, name="fsm-watchdog", daemon=True)
+        self._watchdog_thread.start()
+
+    def stop_watchdog(self) -> None:
+        """Stop the FSM watchdog thread."""
+        self._watchdog_running = False
+        if self._watchdog_thread and self._watchdog_thread.is_alive():
+            self._watchdog_thread.join(timeout=2.0)
+
+    def _watchdog_loop(self) -> None:
+        while self._watchdog_running:
+            time.sleep(WATCHDOG_INTERVAL_S)
+            try:
+                self._watchdog_tick()
+            except Exception:
+                logger.exception("[engine] watchdog tick failed")
+
+    def _watchdog_tick(self) -> None:
+        """One watchdog check: force-recover if the FSM has dwelt too long."""
+        now = time.monotonic()
+        state = self._state_machine.current_state
+        if state == State.RECORDING:
+            since = self._recording_since
+            if since is not None and now - since > RECORDING_MAX_S:
+                logger.warning("[engine] watchdog: stuck in RECORDING %.0fs — recovering", now - since)
+                # Last-resort backstop (the event-tap release recovery is the
+                # primary fix): close the still-open capture stream, then force
+                # IDLE. stop() transitions RECORDING -> TRANSCRIBING; _force_recover
+                # then forces TRANSCRIBING -> IDLE.
+                try:
+                    self._audio_engine.stop()
+                except Exception:
+                    logger.exception("[engine] watchdog: audio stop failed")
+                self._force_recover()
+        elif state == State.TRANSCRIBING:
+            since = self._transcribing_since
+            if since is not None and now - since > TRANSCRIBING_MAX_S:
+                logger.warning("[engine] watchdog: stuck in TRANSCRIBING %.0fs — recovering", now - since)
+                self._force_recover()
+
+    def _force_recover(self) -> None:
+        """Force the FSM back to IDLE and reset the transient recording state."""
+        self.state.stop_event.clear()
+        self._chunk_texts = []
+        self._chunk_any_text = False
+        self._state_machine.force_idle()
+        self._notify_status_change()
 
     # -- Config --
 
@@ -855,10 +963,12 @@ class Engine:
         self.start_fn_listener()
         self.start_transcription_worker()
         self.start_chunk_worker()
+        self.start_watchdog()
         load_model_async(self)
 
     def stop(self) -> None:
         """Stop all engine components."""
+        self.stop_watchdog()
         self.stop_transcription_worker()
         self.stop_chunk_worker()
         self.stop_fn_listener()

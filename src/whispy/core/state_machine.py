@@ -169,6 +169,30 @@ class StateMachine:
         except InvalidTransitionError:
             return False
 
+    def force_idle(self) -> bool:
+        """Force the state to IDLE from any state, bypassing transition guards.
+
+        Recovery-only path for a wedged FSM (the engine watchdog calls this when
+        the machine has been stuck in RECORDING or TRANSCRIBING past its timeout).
+        Unlike ``transition_to``, it never raises and ignores the allowed-transition
+        table. Returns True if it changed the state, False if already IDLE. Fires
+        IDLE callbacks like any other transition so the UI returns to "Ready".
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
+        with self._lock:
+            if self._current_state == State.IDLE:
+                return False
+            prev = self._current_state
+            self._current_state = State.IDLE
+            self._transitions.append(f"{prev.name} -> IDLE (forced)")
+            logger.warning(f"[fsm] Forced recovery {prev.name} -> IDLE")
+
+        # Notify outside the lock to avoid deadlocks (mirrors transition_to).
+        self._notify_callbacks(State.IDLE)
+        return True
+
     @property
     def transition_history(self) -> list[str]:
         """Return the history of state transitions."""
