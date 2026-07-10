@@ -510,7 +510,7 @@ class AudioEngine:
                 language=language,
                 beam_size=beam_size,
                 best_of=best_of,
-                vad_filter=True,
+                vad_filter=False,
                 condition_on_previous_text=False,
                 temperature=0,
                 initial_prompt=initial_prompt,

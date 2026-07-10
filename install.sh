@@ -92,21 +92,20 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 # Install (or update) dependencies. Editable install pulls the runtime deps
-# declared in pyproject.toml (faster-whisper, pyobjc-framework-Quartz, rumps,
-# sounddevice); Pillow is needed by generate_icons.py. Idempotent, so rerunning
-# the script after a code update picks up any new dependencies.
-echo -e "${YELLOW}Installing dependencies...${NC}"
-"$VENV_DIR/bin/pip" install --upgrade pip
-"$VENV_DIR/bin/pip" install -e "$SCRIPT_DIR" Pillow
-echo -e "${GREEN}[OK] Dependencies installed (whispy + Pillow)${NC}"
-
-if [ ! -d "$SCRIPT_DIR/icons" ] || [ ! -f "$SCRIPT_DIR/icons/whispy.png" ]; then
-    echo -e "${YELLOW}Generating menu bar icons...${NC}"
-    "$VENV_DIR/bin/python" "$SCRIPT_DIR/generate_icons.py"
-    echo -e "${GREEN}[OK] Icons generated${NC}"
+# declared in pyproject.toml. Pillow is only needed at build time (make app)
+# and is installed there. Skip full resolution when pyproject.toml is unchanged.
+DEPS_HASH_FILE="$VENV_DIR/.deps-hash"
+CURRENT_HASH=$(shasum -a 256 "$SCRIPT_DIR/pyproject.toml" | cut -d' ' -f1)
+if [ -f "$DEPS_HASH_FILE" ] && [ "$(cat "$DEPS_HASH_FILE")" = "$CURRENT_HASH" ]; then
+    echo -e "${YELLOW}Dependencies unchanged, refreshing editable link...${NC}"
+    "$VENV_DIR/bin/pip" install --no-deps -e "$SCRIPT_DIR" -q
 else
-    echo -e "${GREEN}[OK] Icons already exist${NC}"
+    echo -e "${YELLOW}Installing dependencies...${NC}"
+    "$VENV_DIR/bin/pip" install --upgrade pip
+    "$VENV_DIR/bin/pip" install -e "$SCRIPT_DIR"
+    echo "$CURRENT_HASH" > "$DEPS_HASH_FILE"
 fi
+echo -e "${GREEN}[OK] Dependencies installed${NC}"
 
 # Persist the chosen model into the config so the daemon actually uses it.
 # The daemon runs detached (LaunchAgent/systemd) and does NOT inherit this
