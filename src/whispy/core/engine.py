@@ -26,6 +26,7 @@ from .config import (
     load_config,
     save_config,
 )
+from .corrections import CorrectionStore, extract_corrections
 from .state_machine import State, StateMachine
 from .text_cleaner import clean_text
 
@@ -223,6 +224,11 @@ class Engine:
         # release (avoids mid-recording focus disruption in full-screen apps).
         self._chunk_texts: list[str] = []
 
+        # --- Correction detection (adaptive transcription memory) ---
+        corrections_dir = self._config_path.parent
+        self._correction_store = CorrectionStore(corrections_dir / "corrections.json")
+        self._last_injection: "InjectionSnapshot | None" = None
+
         # --- Hang-recovery watchdog ---
         # Monotonic timestamps of when the FSM entered a non-idle state (None when
         # idle), read by a dedicated watchdog thread that force-recovers a wedged
@@ -402,6 +408,11 @@ class Engine:
             except Exception:
                 logger.exception("[engine] Error in status-change callback")
 
+    @property
+    def correction_store(self) -> CorrectionStore:
+        """Expose the correction store for the UI layer."""
+        return self._correction_store
+
     def get_status(self) -> dict[str, Any]:
         """Return current engine status as a dict."""
         return {
@@ -474,14 +485,18 @@ class Engine:
                 auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
                 min_recording_duration=self.state.config.get("min_recording_duration", 0.3),
                 initial_prompt=initial_prompt,
+                hotwords=self._build_hotwords(),
             )
 
             if text:
                 # Strip Whisper watermark credits before injection
                 cleaned = clean_text(text)
                 if cleaned:
+                    self._correction_store.track_occurrences(cleaned)
+                    cleaned = self._correction_store.apply_corrections(cleaned)
                     self.state.last_transcription = cleaned
                     self._text_injector.inject(cleaned)
+                    self._snapshot_injection(cleaned)
 
             return text
         finally:
@@ -490,6 +505,41 @@ class Engine:
             # exception. Only the "nothing recorded" early return above (no
             # file to begin with) skips this.
             self._audio_engine.cleanup_audio_file(path)
+
+    # -- Correction detection --
+
+    def _snapshot_injection(self, text: str) -> None:
+        """Record what was injected for correction detection on next trigger."""
+        from ..hardware.ax_reader import InjectionSnapshot, get_frontmost_pid
+
+        pid = get_frontmost_pid()
+        if pid is not None:
+            self._last_injection = InjectionSnapshot(app_pid=pid, injected_text=text)
+
+    def _detect_corrections(self) -> None:
+        """Compare the current field against the last injection snapshot."""
+        snap = self._last_injection
+        if snap is None:
+            return
+        self._last_injection = None
+
+        from ..hardware.ax_reader import get_frontmost_pid, read_focused_field
+
+        pid = get_frontmost_pid()
+        if pid is None or pid != snap.app_pid:
+            return
+        field = read_focused_field()
+        if field is None:
+            return
+        corrections = extract_corrections(snap.injected_text, field)
+        for wrong, right in corrections.items():
+            logger.info("[corrections] learned: %s → %s", wrong, right)
+            self._correction_store.add_correction(wrong, right)
+
+    def _build_hotwords(self) -> str | None:
+        """Hotwords string from the correction store, or None."""
+        hw = self._correction_store.hotwords()
+        return hw if hw else None
 
     # -- Streaming chunk pipeline (FSM-1: runs during RECORDING) --
 
@@ -540,16 +590,17 @@ class Engine:
                 auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
                 min_recording_duration=self.state.config.get("min_chunk_s", 0.4),
                 initial_prompt=initial_prompt,
+                hotwords=self._build_hotwords(),
             )
             if not text:
                 return
             cleaned = clean_text(text)
             if not cleaned:
                 return
+            self._correction_store.track_occurrences(cleaned)
+            cleaned = self._correction_store.apply_corrections(cleaned)
             self.state.last_transcription = cleaned
             self._chunk_any_text = True
-            # Accumulate; the FSM worker types the assembled text once on release.
-            # Typing mid-recording disrupts focus in full-screen apps.
             self._chunk_texts.append(cleaned)
         except Exception:
             logger.exception("[engine] chunk transcription failed")
@@ -635,10 +686,14 @@ class Engine:
             auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
             min_recording_duration=self.state.config.get("min_recording_duration", 0.3),
             initial_prompt=initial_prompt,
+            hotwords=self._build_hotwords(),
         )
-        # Model ran and file was present: empty/None means "no speech" (e.g.
-        # silence) → "". None is reserved for not-loaded / missing-file above.
-        return clean_text(text) if text else ""
+        if not text:
+            return ""
+        cleaned = clean_text(text)
+        if cleaned:
+            cleaned = self._correction_store.apply_corrections(cleaned)
+        return cleaned or ""
 
     def stream_file(self, audio_path: str) -> list[str] | None:
         """Deterministic streaming seam: replay a WAV through live segmentation.
@@ -675,6 +730,7 @@ class Engine:
 
         vocab = cfg.get("custom_vocabulary") or []
         initial_prompt = ", ".join(vocab) if vocab else None
+        hotwords = self._build_hotwords()
         texts: list[str] = []
         for path in paths:
             try:
@@ -687,10 +743,12 @@ class Engine:
                     auto_detect_min_duration=cfg.get("auto_detect_min_duration", 0.5),
                     min_recording_duration=min_chunk_s,
                     initial_prompt=initial_prompt,
+                    hotwords=hotwords,
                 )
                 if text:
                     cleaned = clean_text(text)
                     if cleaned:
+                        cleaned = self._correction_store.apply_corrections(cleaned)
                         texts.append(cleaned)
             finally:
                 self._audio_engine.cleanup_audio_file(path)
@@ -720,6 +778,7 @@ class Engine:
 
         def _on_trigger_press() -> None:
             """Handle trigger key press — start recording."""
+            self._detect_corrections()
             self._notify_fn_pressed()
             self._notifier.recording_started()
             self.start_recording()
@@ -778,6 +837,7 @@ class Engine:
                             if assembled:
                                 self.state.last_transcription = assembled
                                 self._text_injector.inject(assembled)
+                                self._snapshot_injection(assembled)
                             produced_text = self._chunk_any_text
                         else:
                             produced_text = bool(self.run_transcription())

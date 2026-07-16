@@ -897,3 +897,128 @@ class TestWatchdogRecovery:
         engine._recording_since = time.monotonic()  # just entered — well within timeout
         engine._watchdog_tick()
         assert engine._state_machine.is_recording
+
+
+# ---------------------------------------------------------------------------
+# Correction detection (snapshot-diff learning)
+# ---------------------------------------------------------------------------
+
+
+class TestCorrectionDetection:
+    """Tests for the snapshot-diff correction detection in Engine."""
+
+    def test_snapshot_stored_after_injection(self, engine, mocker, tmp_path):
+        """After run_transcription injects text, _last_injection is set."""
+        # Setup: model loaded, recording path exists
+        wav = tmp_path / "test.wav"
+        wav.write_bytes(b"fake")
+        engine._audio_engine._recording_path = str(wav)
+        engine.state.model = mocker.MagicMock()
+
+        # Mock transcription to return text
+        mocker.patch.object(engine._audio_engine, "transcribe", return_value="hello world")
+        mocker.patch.object(engine._text_injector, "inject")
+        # Mock AX reader
+        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
+
+        engine.run_transcription()
+
+        assert engine._last_injection is not None
+        assert engine._last_injection.injected_text == "hello world"
+        assert engine._last_injection.app_pid == 42
+
+    def test_detect_corrections_extracts_diff(self, engine, mocker):
+        """_detect_corrections finds word changes and stores them."""
+        from whispy.hardware.ax_reader import InjectionSnapshot
+
+        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="wispy is great")
+
+        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
+        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="Hello Whispy is great")
+
+        engine._detect_corrections()
+
+        entries = engine._correction_store.all_entries()
+        assert "wispy" in entries
+        assert entries["wispy"]["replacement"] == "Whispy"
+
+    def test_detect_corrections_skips_different_app(self, engine, mocker):
+        """_detect_corrections skips when PID doesn't match."""
+        from whispy.hardware.ax_reader import InjectionSnapshot
+
+        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="wispy is great")
+
+        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=99)
+        read_mock = mocker.patch("whispy.hardware.ax_reader.read_focused_field")
+
+        engine._detect_corrections()
+
+        read_mock.assert_not_called()
+        assert engine._correction_store.all_entries() == {}
+
+    def test_detect_corrections_clears_snapshot(self, engine, mocker):
+        """_detect_corrections clears _last_injection after processing."""
+        from whispy.hardware.ax_reader import InjectionSnapshot
+
+        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="hello")
+
+        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
+        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="hello")
+
+        engine._detect_corrections()
+
+        assert engine._last_injection is None
+
+
+class TestHotwordsWiring:
+    """Tests for hotwords integration with the correction store."""
+
+    def test_build_hotwords_from_corrections(self, engine):
+        """_build_hotwords returns correction store entries."""
+        engine._correction_store.add_correction("wispy", "Whispy")
+
+        hw = engine._build_hotwords()
+        assert hw == "Whispy"
+
+    def test_build_hotwords_empty_store(self, engine):
+        """_build_hotwords returns None when store is empty."""
+        assert engine._build_hotwords() is None
+
+    def test_hotwords_passed_to_transcribe(self, engine, mocker, tmp_path):
+        """run_transcription passes hotwords to audio engine."""
+        wav = tmp_path / "test.wav"
+        wav.write_bytes(b"fake")
+        engine._audio_engine._recording_path = str(wav)
+        engine.state.model = mocker.MagicMock()
+        engine._correction_store.add_correction("wispy", "Whispy")
+
+        transcribe_mock = mocker.patch.object(engine._audio_engine, "transcribe", return_value=None)
+        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
+
+        engine.run_transcription()
+
+        transcribe_mock.assert_called_once()
+        assert transcribe_mock.call_args.kwargs.get("hotwords") == "Whispy"
+
+
+class TestPostTranscriptionCorrection:
+    """Tests for apply_corrections in the transcription pipeline."""
+
+    def test_corrections_applied_before_injection(self, engine, mocker, tmp_path):
+        """High-confidence corrections are applied to transcribed text."""
+        wav = tmp_path / "test.wav"
+        wav.write_bytes(b"fake")
+        engine._audio_engine._recording_path = str(wav)
+        engine.state.model = mocker.MagicMock()
+
+        # Add correction above threshold
+        for _ in range(3):
+            engine._correction_store.add_correction("wispy", "Whispy")
+
+        mocker.patch.object(engine._audio_engine, "transcribe", return_value="wispy is great")
+        inject_mock = mocker.patch.object(engine._text_injector, "inject")
+        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
+
+        engine.run_transcription()
+
+        inject_mock.assert_called_once_with("Whispy is great")
