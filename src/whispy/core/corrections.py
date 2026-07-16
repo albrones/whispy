@@ -89,9 +89,7 @@ class CorrectionStore:
         Sorted by corrections_count descending, truncated to fit the token
         budget (approximate: 1 word ≈ 1 token for proper nouns).
         """
-        eligible = [
-            (k, v) for k, v in self._data.items() if v.get("corrections_count", 0) >= 1
-        ]
+        eligible = [(k, v) for k, v in self._data.items() if v.get("corrections_count", 0) >= 1]
         eligible.sort(key=lambda x: x[1].get("corrections_count", 0), reverse=True)
         words: list[str] = []
         budget = max_tokens
@@ -150,11 +148,7 @@ def extract_corrections(injected: str, field_value: str) -> dict[str, str]:
     best_match = 0
     best_offset = -1
     for i in range(len(field_words) - window + 1):
-        matches = sum(
-            1
-            for j in range(window)
-            if field_words[i + j].lower() == injected_words[j].lower()
-        )
+        matches = sum(1 for j in range(window) if field_words[i + j].lower() == injected_words[j].lower())
         if matches > best_match:
             best_match = matches
             best_offset = i

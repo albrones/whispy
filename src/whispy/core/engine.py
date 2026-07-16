@@ -4,6 +4,8 @@ Integrates the StateMachine, AudioEngine, EventTapListener, and TextInjector
 into a unified interface for the UI and API layers.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import queue
@@ -12,9 +14,12 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from faster_whisper import WhisperModel
+
+if TYPE_CHECKING:
+    from ..hardware.ax_reader import InjectionSnapshot
 
 from ..hardware.event_decode import DEFAULT_TRIGGER_KEYCODE
 from ..platform import PlatformAdapters, detect
@@ -98,7 +103,7 @@ def _load_model(config: dict[str, Any]) -> WhisperModel:
 _MODEL_LOAD_RETRY_DELAY = 2.0  # seconds between the initial attempt and one retry
 
 
-def load_model_async(engine: "Engine") -> None:
+def load_model_async(engine: Engine) -> None:
     """Load the whisper model in a background thread.
 
     Retries once on failure (transient download/SSL hiccups), then — instead of
@@ -227,7 +232,7 @@ class Engine:
         # --- Correction detection (adaptive transcription memory) ---
         corrections_dir = self._config_path.parent
         self._correction_store = CorrectionStore(corrections_dir / "corrections.json")
-        self._last_injection: "InjectionSnapshot | None" = None
+        self._last_injection: InjectionSnapshot | None = None
 
         # --- Hang-recovery watchdog ---
         # Monotonic timestamps of when the FSM entered a non-idle state (None when
