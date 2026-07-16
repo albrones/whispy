@@ -4,7 +4,6 @@
 TBD - created by archiving change remove-whisper-credit. Update Purpose after archive.
 
 Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
-
 ## Requirements
 ### Requirement: Strip whisper credit prefixes
 The system SHALL remove Whisper watermark credit phrases from the beginning of transcribed text, preventing them from being injected into the active text field.
@@ -71,3 +70,11 @@ _Tier: unit-pure — `test_text_cleaning.py`._
 - **THEN** the text SHALL be returned with only normal whitespace normalization
 
 _Tier: unit-pure — `test_text_cleaning.py::test_plain_text_unchanged`._
+
+### Requirement: Apply learned corrections after cleaning
+The system SHALL apply corrections from the correction store as a post-processing step after existing text cleaning (credit stripping) and before text injection. Only entries with `corrections_count >= 3` SHALL be applied.
+
+#### Scenario: Correction applied after credit stripping
+- **WHEN** transcription output is "Sous-titres réalisés par Whisper wispy is great"
+- **THEN** credit stripping removes the prefix, then correction replacement changes "wispy" to "Whispy", yielding "Whispy is great"
+
