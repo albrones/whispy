@@ -10,17 +10,19 @@ release time.
 import re
 from pathlib import Path
 
-import tomllib
-
 ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = ROOT / "pyproject.toml"
 SETUP_APP = ROOT / "packaging" / "macos" / "setup_app.py"
 
 
 def _pyproject_version() -> str:
-    with PYPROJECT.open("rb") as f:
-        data = tomllib.load(f)
-    return data["project"]["version"]
+    # Regex rather than tomllib: tomllib is stdlib only on 3.11+, and this
+    # runs in the default tier down to 3.10. A single `version = "..."` line
+    # is all we compare, so no TOML parser is needed.
+    content = PYPROJECT.read_text(encoding="utf-8")
+    match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
+    assert match, "version assignment not found in pyproject.toml"
+    return match.group(1)
 
 
 def _setup_app_version() -> str:

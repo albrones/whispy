@@ -19,7 +19,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install ruff
-        run: pip install "ruff>=0.6"
+        # Pinned to match .pre-commit-config.yaml so `format --check` is
+        # deterministic (a floating newer ruff reformats differently).
+        run: pip install "ruff==0.6.9"
 
       - name: Ruff lint
         run: ruff check .

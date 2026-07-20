@@ -12,6 +12,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
+# The module under test pulls in AppKit (pyobjc) transitively via menu_theme,
+# which does not exist off macOS. Skip the whole module at collection time on
+# other platforms (the Linux CI tier collects it too).
+if sys.platform != "darwin":
+    pytest.skip("menu bar is macOS-only (AppKit)", allow_module_level=True)
+
 _project_root = str(Path(__file__).parent.parent)
 if _project_root in sys.path:
     sys.path.remove(_project_root)
