@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: Install scripts and CI do not require sox
+### Requirement: Install scripts do not require sox
 
 The install scripts (`install.sh`, `bootstrap.sh`) and the CI workflow (`.github/workflows/ci.yml`) SHALL NOT require or gate on `sox`, since the audio backend uses sounddevice/PortAudio.
 
