@@ -12,7 +12,14 @@ permissions:
   contents: write
 
 jobs:
+  ci:
+    # Runs the full CI suite (lint + all test jobs) against the exact tagged
+    # commit in this same workflow run, so a release can't ship from a commit
+    # whose CI is red or that was never tested at all.
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: [ci]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
