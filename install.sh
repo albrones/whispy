@@ -108,8 +108,10 @@ fi
 echo -e "${GREEN}[OK] Dependencies installed${NC}"
 
 # Persist the chosen model into the config so the daemon actually uses it.
-# The daemon runs detached (LaunchAgent/systemd) and does NOT inherit this
-# shell's WHISPER_MODEL env, so honoring it means writing it to config.json.
+# The daemon runs detached (systemd --user on Linux; SMAppService login item
+# or a plain background launch on macOS — no LaunchAgent) and does NOT
+# inherit this shell's WHISPER_MODEL env, so honoring it means writing it to
+# config.json.
 # Only write when explicitly set, to avoid clobbering a user's chosen model
 # with the default on every reinstall.
 if [ -n "${WHISPER_MODEL:-}" ]; then
@@ -137,7 +139,8 @@ PYTHON_BIN="$VENV_DIR/bin/python3"
 DAEMON_PATH="$SCRIPT_DIR/whispy_daemon.py"
 
 # -------------------------------------------------------------------------
-# Linux (X11): install a systemd --user service. macOS: a LaunchAgent below.
+# Linux (X11): install a systemd --user service. macOS: no LaunchAgent below
+# — see the SMAppService-based autostart note further down.
 # -------------------------------------------------------------------------
 if [ "$OS" = "Linux" ]; then
     if ! command -v systemctl &>/dev/null; then
@@ -180,7 +183,7 @@ UNITEOF
     echo ""
     echo "The model downloads automatically on first run (model: $WHISPER_MODEL_NAME)"
     echo "Logs: journalctl --user -u whispy -f"
-    echo "Test: curl http://localhost:9090/status"
+    echo "Test: curl -H \"Authorization: Bearer \$(cat ~/.config/whispy/config.token)\" http://localhost:9090/status"
     echo ""
     echo -e "${YELLOW}To uninstall:${NC}"
     echo "./install.sh --uninstall"

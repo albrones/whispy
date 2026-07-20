@@ -38,6 +38,8 @@ Tiers are defined in `openspec/specs/TESTING-TIERS.md`.
 | HTTP API endpoints | both | unit-mocked | `tests/test_api/` | status/config/last-transcription/start/stop |
 | Event decode (keycode → trigger) | macOS | unit-pure | `tests/test_event_decode.py` | Fn keycode 63 mapping |
 | Text injection logic (both modes) | both | unit-mocked | `tests/test_injection.py` | clipboard + keystroke, quote escaping |
+| Injection waits for trigger release | both | unit-mocked | `tests/test_engine.py::TestInjectWaitsForTriggerRelease` | held modifier (e.g. Right Option) would mangle typed chars; bounded 10s wait |
+| No double injection on rapid re-press | both | unit-mocked | `tests/test_engine.py::TestNoDoubleInjectionOnRapidRepress` | chunk buffer is consumed (swap-and-clear) by the worker, so a second stop_event never re-injects |
 | Permissions detection | macOS | unit-mocked | `tests/test_permissions.py`, `doctor` | Input Monitoring / Accessibility / Mic |
 | Linux adapters wiring | Linux | unit-mocked | `tests/test_linux_adapters.py` | pynput/pystray/xdotool selection |
 | Doctor preflight report | both | unit-mocked | `tests/test_doctor.py`, `doctor` | injected checks |
@@ -70,3 +72,4 @@ Tiers are defined in `openspec/specs/TESTING-TIERS.md`.
 | Model selection change takes effect | both | manual-ui | operator | switch model in menu, confirm reload + transcription |
 | Restart from menu relaunches daemon | macOS | manual-ui | operator | menu → Restart; daemon comes back on :9090 |
 | Quit from menu stops daemon | both | manual-ui | operator | menu/tray → Quit; daemon process exits |
+| Adaptive vocabulary (learns from corrections) | macOS | unit-mocked | `tests/test_corrections.py`, `tests/test_engine.py::TestCorrectionDetection`, `tests/test_engine.py::TestAdaptiveLearningDisabledByDefault` | **Currently disabled** (`ADAPTIVE_LEARNING_ENABLED=False`): the fixed-window alignment mislearned garbage word→word shifts from continued dictation and fed them back to Whisper as hotwords (self-reinforcing hallucination). Machinery intact + tested; re-enable after the alignment is rewritten |

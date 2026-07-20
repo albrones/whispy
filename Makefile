@@ -19,7 +19,7 @@ test: ## Run the test suite
 	$(PYTEST) -q
 
 cov: ## Run tests with coverage report
-	$(PYTEST) --cov=src/whispy --cov-report=term-missing
+	$(PYTEST) --cov=src/whispy --cov-report=term-missing --cov-fail-under=84
 
 lint: ## Lint with ruff
 	$(RUFF) check .
@@ -52,7 +52,7 @@ update: ## Pull latest, rebuild the app, and relaunch
 	open dist/Whispy.app
 	@echo "✓ Whispy updated and relaunched"
 
-app: ## Build & ad-hoc-sign the native macOS bundle (dist/Whispy.app)
+app: ## Build & sign the native macOS bundle (self-signed "Whispy Local Signing" cert, ad-hoc fallback) (dist/Whispy.app)
 	./packaging/macos/build_app.sh
 
 uninstall: ## Remove the venv and any legacy LaunchAgents
