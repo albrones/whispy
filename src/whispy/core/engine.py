@@ -31,7 +31,7 @@ from .config import (
     load_config,
     save_config,
 )
-from .corrections import CorrectionStore, extract_corrections
+from .corrections import ADAPTIVE_LEARNING_ENABLED, CorrectionStore, extract_corrections
 from .state_machine import State, StateMachine
 from .text_cleaner import clean_text
 
@@ -61,6 +61,17 @@ CHUNK_DRAIN_TIMEOUT_S = 30.0
 RECORDING_MAX_S = 300.0
 TRANSCRIBING_MAX_S = 120.0
 WATCHDOG_INTERVAL_S = 1.0
+# Bound on how long a synchronous stop (e.g. POST /stop) waits for the
+# background transcription worker to finish before giving up and returning
+# whatever result is currently available — generous enough to cover the chunk
+# drain plus a real transcription pass, but still bounded so the (single-
+# threaded) HTTP server can never hang forever on a wedged cycle.
+SYNC_STOP_TIMEOUT_S = 60.0
+
+# Bound on how long an inject waits for the push-to-talk key to be released
+# before typing anyway (a held modifier would otherwise mangle every injected
+# character into its Option/Command-layer variant).
+TRIGGER_RELEASE_INJECT_TIMEOUT_S = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -209,9 +220,26 @@ class Engine:
         # Hardware listener (wired up later via start_fn_listener)
         self._fn_listener: Any = None
 
+        # --- Trigger event handoff ---
+        # Press/release callbacks registered with the hotkey adapter run on the
+        # OS-owned listener thread (CGEventTap run loop / pynput's single
+        # thread) and must never block. They only enqueue a signal here; a
+        # dedicated worker thread performs the actual work (AX reads, notifier
+        # calls, start_recording()/stop_recording()) off that thread.
+        self._trigger_queue: queue.Queue[str] = queue.Queue()
+        self._trigger_thread: threading.Thread | None = None
+        self._trigger_worker_running = False
+
         # Transcription worker thread
         self._transcription_thread: threading.Thread | None = None
         self._transcription_running = False
+        # Set when the background transcription worker (or the watchdog's
+        # forced recovery) has finished handling a stop-event cycle. A
+        # synchronous caller (e.g. POST /stop) clears it, signals stop_event,
+        # then waits on it — see stop_and_wait_for_transcription(). Idle by
+        # default: nothing is pending until a cycle starts.
+        self._transcription_done_event = threading.Event()
+        self._transcription_done_event.set()
 
         # --- Streaming / incremental transcription ---
         # When enabled, the audio engine emits silence/length-bounded chunks onto
@@ -257,9 +285,12 @@ class Engine:
         self.state.is_transcribing = False
         self._recording_since = time.monotonic()
         self._transcribing_since = None
-        # Fresh per-recording streaming accounting.
-        self._chunk_any_text = False
-        self._chunk_texts = []
+        # Fresh per-recording streaming accounting. Lock-guarded: a stale
+        # chunk worker or transcription-worker read from a prior cycle could
+        # otherwise race this reset.
+        with self.state.lock:
+            self._chunk_any_text = False
+            self._chunk_texts = []
         self._notify_recording_start()
 
     def _on_fsm_transcribing(self, _state: State) -> None:
@@ -328,6 +359,22 @@ class Engine:
                 cb()
             except Exception:
                 logger.exception("[engine] Error in fn-released callback")
+
+    def _wait_trigger_released(self, timeout: float = TRIGGER_RELEASE_INJECT_TIMEOUT_S) -> None:
+        """Block (bounded) until the push-to-talk key is physically released.
+
+        Injecting keystrokes while the trigger is held merges the held
+        modifier into every typed character (e.g. Right Option turns the
+        whole injection into Option-layer glyphs), so both inject paths call
+        this first. Runs on the transcription worker — never on a hardware
+        listener thread. Bounded so a stuck _fn_pressed flag cannot wedge
+        the worker.
+        """
+        # ponytail: check-then-inject — a press landing mid-typing still
+        # mangles; closing that needs modifier-clearing CGEvent injection.
+        deadline = time.monotonic() + timeout
+        while self._fn_pressed and time.monotonic() < deadline:
+            time.sleep(0.05)
 
     # -- Callback system --
 
@@ -500,6 +547,7 @@ class Engine:
                     self._correction_store.track_occurrences(cleaned)
                     cleaned = self._correction_store.apply_corrections(cleaned)
                     self.state.last_transcription = cleaned
+                    self._wait_trigger_released()
                     self._text_injector.inject(cleaned)
                     self._snapshot_injection(cleaned)
 
@@ -523,6 +571,8 @@ class Engine:
 
     def _detect_corrections(self) -> None:
         """Compare the current field against the last injection snapshot."""
+        if not ADAPTIVE_LEARNING_ENABLED:
+            return
         snap = self._last_injection
         if snap is None:
             return
@@ -538,7 +588,7 @@ class Engine:
             return
         corrections = extract_corrections(snap.injected_text, field)
         for wrong, right in corrections.items():
-            logger.info("[corrections] learned: %s → %s", wrong, right)
+            logger.debug("[corrections] learned: %s → %s", wrong, right)
             self._correction_store.add_correction(wrong, right)
 
     def _build_hotwords(self) -> str | None:
@@ -605,8 +655,9 @@ class Engine:
             self._correction_store.track_occurrences(cleaned)
             cleaned = self._correction_store.apply_corrections(cleaned)
             self.state.last_transcription = cleaned
-            self._chunk_any_text = True
-            self._chunk_texts.append(cleaned)
+            with self.state.lock:
+                self._chunk_any_text = True
+                self._chunk_texts.append(cleaned)
         except Exception:
             logger.exception("[engine] chunk transcription failed")
         finally:
@@ -778,35 +829,87 @@ class Engine:
         return self.resolve_trigger()
 
     def start_fn_listener(self) -> None:
-        """Start the trigger key listener for the active platform."""
+        """Start the trigger key listener for the active platform.
+
+        The callbacks wired here run synchronously on the hardware listener's
+        own thread (the macOS CGEventTap run loop, or pynput's single listener
+        thread on Linux) — they must never block. Each only enqueues a signal
+        for the dedicated trigger-worker thread (see start_trigger_worker()),
+        which performs the actual work.
+        """
         trigger = self.resolve_trigger()
 
         def _on_trigger_press() -> None:
-            """Handle trigger key press — start recording."""
-            self._detect_corrections()
-            self._notify_fn_pressed()
-            self._notifier.recording_started()
-            self.start_recording()
+            """Enqueue a press signal — must return immediately."""
+            self._trigger_queue.put("press")
+
+        def _on_trigger_release() -> None:
+            """Enqueue a release signal — must return immediately."""
+            self._trigger_queue.put("release")
 
         self._fn_listener = self._adapters.make_hotkey_listener(
             trigger=trigger,
             on_trigger_press=_on_trigger_press,
-            on_trigger_release=self._handle_trigger_release,
+            on_trigger_release=_on_trigger_release,
         )
         self._fn_listener.start()
         self.state.fn_listener_active = self._fn_listener.active
 
-    def _handle_trigger_release(self) -> None:
-        """Handle trigger key release — stop recording, then wake the worker.
+    def _handle_trigger_press_work(self) -> None:
+        """Perform the press-side work: correction detection, then notify,
+        then the recording-started cue, then start recording, in that order.
 
-        Only signals the transcription worker when stopping actually transitioned
-        RECORDING -> TRANSCRIBING. A stray release (no active recording) is a
-        no-op, so the worker never transcribes a stale/missing file.
+        Runs on the trigger-worker thread — never on the hardware listener
+        thread — so this is where all the blocking calls the old inline
+        callback used to run directly now live.
+        """
+        self._detect_corrections()
+        self._notify_fn_pressed()
+        self._notifier.recording_started()
+        self.start_recording()
+
+    def _handle_trigger_release_work(self) -> None:
+        """Perform the release-side work: notify, then stop recording, then
+        wake the transcription worker.
+
+        Runs on the trigger-worker thread. Only signals the transcription
+        worker when stopping actually transitioned RECORDING -> TRANSCRIBING.
+        A stray release (no active recording) is a no-op, so the worker never
+        transcribes a stale/missing file.
         """
         self._notify_fn_released()
         transitioned = self.stop_recording()
         if transitioned:
             self.state.stop_event.set()
+
+    def _trigger_worker_loop(self) -> None:
+        """Single ordered consumer of the trigger queue (FIFO -> in-order press/release)."""
+        while self._trigger_worker_running:
+            try:
+                signal = self._trigger_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                if signal == "press":
+                    self._handle_trigger_press_work()
+                elif signal == "release":
+                    self._handle_trigger_release_work()
+            finally:
+                self._trigger_queue.task_done()
+
+    def start_trigger_worker(self) -> None:
+        """Start the trigger-event worker thread that consumes press/release signals."""
+        if self._trigger_worker_running:
+            return
+        self._trigger_worker_running = True
+        self._trigger_thread = threading.Thread(target=self._trigger_worker_loop, name="trigger-worker", daemon=True)
+        self._trigger_thread.start()
+
+    def stop_trigger_worker(self) -> None:
+        """Stop the trigger-event worker thread."""
+        self._trigger_worker_running = False
+        if self._trigger_thread and self._trigger_thread.is_alive():
+            self._trigger_thread.join(timeout=5.0)
 
     def stop_fn_listener(self) -> None:
         """Stop the trigger key event tap listener."""
@@ -825,6 +928,10 @@ class Engine:
                 self.state.stop_event.wait(timeout=0.1)
                 if self.state.stop_event.is_set():
                     self.state.stop_event.clear()
+                    # Cleared here (not only where it's set below) so a
+                    # synchronous waiter's .wait() can never observe a stale
+                    # "done" flag left over from a previous cycle.
+                    self._transcription_done_event.clear()
                     self._notify_status_change()
 
                     produced_text = False
@@ -836,14 +943,28 @@ class Engine:
                             # TRANSCRIBING only once all chunks are handled —
                             # bounded so a stalled chunk cannot wedge the FSM.
                             self._drain_chunk_queue(CHUNK_DRAIN_TIMEOUT_S)
+                            # Consume (swap-and-clear) under the lock, then
+                            # release it before the slower inject() work below.
+                            # Clearing here — not only at recording start — is
+                            # what makes a second stop_event with no new speech
+                            # a no-op: a rapid re-press during this cycle can
+                            # land its chunks in this same buffer, and without
+                            # the clear the next worker cycle would re-inject
+                            # the identical assembled text a second time.
+                            with self.state.lock:
+                                chunk_texts = self._chunk_texts
+                                chunk_any_text = self._chunk_any_text
+                                self._chunk_texts = []
+                                self._chunk_any_text = False
                             # Type the assembled text once, now that recording
                             # stopped (no mid-recording injection / focus steal).
-                            assembled = " ".join(self._chunk_texts).strip()
+                            assembled = " ".join(chunk_texts).strip()
                             if assembled:
                                 self.state.last_transcription = assembled
+                                self._wait_trigger_released()
                                 self._text_injector.inject(assembled)
                                 self._snapshot_injection(assembled)
-                            produced_text = self._chunk_any_text
+                            produced_text = chunk_any_text
                         else:
                             produced_text = bool(self.run_transcription())
                     except Exception:
@@ -856,6 +977,9 @@ class Engine:
                         # is not in TRANSCRIBING, so this is safe.
                         self._state_machine.transcription_complete()
                         self._notify_status_change()
+                        # Release any caller blocked in
+                        # stop_and_wait_for_transcription().
+                        self._transcription_done_event.set()
 
                     # Success sound only on a real transcription.
                     if produced_text:
@@ -869,6 +993,30 @@ class Engine:
         self._transcription_running = False
         if self._transcription_thread and self._transcription_thread.is_alive():
             self._transcription_thread.join(timeout=5.0)
+
+    def stop_and_wait_for_transcription(self, timeout: float = SYNC_STOP_TIMEOUT_S) -> str | None:
+        """Stop recording and wait (bounded) for the background worker to finish.
+
+        This is the single code path for a synchronous stop request — used by
+        the HTTP API's ``POST /stop`` — so streaming-mode chunk draining and
+        assembly is never reimplemented outside the transcription worker, and
+        so there is exactly one writer of the FSM/state transitions per cycle.
+
+        A stop request with nothing recording is a no-op: it does not touch
+        ``stop_event`` and returns ``None`` immediately, without waiting on the
+        completion signal.
+        """
+        transitioned = self.stop_recording()
+        if not transitioned:
+            return None
+        # Clear on the caller's side (before signaling stop_event), not only
+        # inside the worker's pickup — otherwise a stale "done" state left
+        # over from a previous cycle could be read as this cycle's completion
+        # if .wait() below runs before the worker wakes from its 0.1s poll.
+        self._transcription_done_event.clear()
+        self.state.stop_event.set()
+        self._transcription_done_event.wait(timeout=timeout)
+        return self.state.last_transcription
 
     # -- Hang-recovery watchdog --
 
@@ -920,9 +1068,14 @@ class Engine:
     def _force_recover(self) -> None:
         """Force the FSM back to IDLE and reset the transient recording state."""
         self.state.stop_event.clear()
-        self._chunk_texts = []
-        self._chunk_any_text = False
+        with self.state.lock:
+            self._chunk_texts = []
+            self._chunk_any_text = False
         self._state_machine.force_idle()
+        # Release any caller blocked in stop_and_wait_for_transcription(): the
+        # watchdog just resolved the cycle itself, so a waiter must not sit out
+        # the full timeout.
+        self._transcription_done_event.set()
         self._notify_status_change()
 
     # -- Config --
@@ -1025,6 +1178,9 @@ class Engine:
             for kind, granted, message in denials:
                 if granted is False:
                     self._notify_permission_missing(kind, message)
+        # Start the trigger worker before the listener so it is already
+        # consuming the queue before any press/release signal can arrive.
+        self.start_trigger_worker()
         self.start_fn_listener()
         self.start_transcription_worker()
         self.start_chunk_worker()
@@ -1036,4 +1192,7 @@ class Engine:
         self.stop_watchdog()
         self.stop_transcription_worker()
         self.stop_chunk_worker()
+        # Stop producing trigger signals before stopping the worker that
+        # consumes them.
         self.stop_fn_listener()
+        self.stop_trigger_worker()

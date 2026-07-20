@@ -314,6 +314,7 @@ class TestHTTPAPIWithEngine:
 
         server = HTTPServer(("127.0.0.1", port), RequestHandler)
         server.engine = engine
+        server.auth_token = _TEST_TOKEN
 
         def serve():
             server.serve_forever()
@@ -779,6 +780,9 @@ def _find_free_port():
         return s.getsockname()[1]
 
 
+_TEST_TOKEN = "e2e-test-token"
+
+
 def _http_get(port, path):
     """Make a GET request and return (status_code, body_dict)."""
     import urllib.error
@@ -787,6 +791,7 @@ def _http_get(port, path):
     url = f"http://127.0.0.1:{port}{path}"
     try:
         req = urllib.request.Request(url)
+        req.add_header("Authorization", f"Bearer {_TEST_TOKEN}")
         with urllib.request.urlopen(req, timeout=2) as resp:
             data = json.loads(resp.read().decode())
             return resp.status, data
@@ -804,6 +809,7 @@ def _http_post(port, path, body=None):
     try:
         req = urllib.request.Request(url, data=data, method="POST")
         req.add_header("Content-Type", "application/json")
+        req.add_header("Authorization", f"Bearer {_TEST_TOKEN}")
         with urllib.request.urlopen(req, timeout=2) as resp:
             return resp.status, json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:

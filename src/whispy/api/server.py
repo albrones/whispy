@@ -53,16 +53,21 @@ class RequestHandler(BaseHTTPRequestHandler):
             return False
 
         expected = getattr(self.server, "auth_token", None)
-        if expected:
-            header = self.headers.get(AUTH_HEADER, "")
-            prefix = f"{AUTH_SCHEME} "
-            presented = header[len(prefix) :] if header.startswith(prefix) else ""
-            # Constant-time compare to avoid leaking the token via timing.
-            import hmac
+        if not expected:
+            # No token configured (None or ""): fail closed rather than
+            # falling through to the Host/Origin checks alone.
+            self._json_response(401, {"error": "unauthorized"})
+            return False
 
-            if not presented or not hmac.compare_digest(presented, expected):
-                self._json_response(401, {"error": "unauthorized"})
-                return False
+        header = self.headers.get(AUTH_HEADER, "")
+        prefix = f"{AUTH_SCHEME} "
+        presented = header[len(prefix) :] if header.startswith(prefix) else ""
+        # Constant-time compare to avoid leaking the token via timing.
+        import hmac
+
+        if not presented or not hmac.compare_digest(presented, expected):
+            self._json_response(401, {"error": "unauthorized"})
+            return False
         return True
 
     def _read_body(self) -> dict | None:
@@ -114,7 +119,6 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         elif self.path == "/stop":
             text = self._sync_stop_and_transcribe(engine)
-            engine._notifier.transcription_succeeded()
             self._json_response(200, {"status": "done", "text": text})
 
         elif self.path == "/stop-async":
@@ -204,32 +208,16 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._json_response(404, {"error": "not found"})
 
     def _sync_stop_and_transcribe(self, engine: Engine) -> str | None:
-        """Stop recording and transcribe synchronously (for /stop endpoint)."""
-        import os
+        """Stop recording and wait for the background transcription worker to
+        finish handling it (for the synchronous /stop endpoint).
 
-        # Properly transition FSM through RECORDING -> TRANSCRIBING
-        # AudioEngine.stop() handles capture teardown + FSM transition
-        engine._audio_engine.stop()
-
-        engine.state.is_recording = False
-        engine._notify_status_change()
-
-        engine.state.is_transcribing = True
-        engine._notify_status_change()
-
-        path = engine._audio_engine.recording_path
-        if not path or not os.path.exists(path):
-            engine._state_machine.transcription_complete()
-            engine.state.is_transcribing = False
-            engine._notify_status_change()
-            return None
-
-        text = engine.run_transcription()
-
-        engine._state_machine.transcription_complete()
-        engine.state.is_transcribing = False
-        engine._notify_status_change()
-        return text
+        Delegates entirely to the engine so there is exactly one code path —
+        shared with the hardware trigger-release flow — that decides when a
+        recording/transcription cycle is complete. This also makes streaming
+        mode correct for free: the worker already knows how to drain the
+        chunk queue and assemble the recognized text.
+        """
+        return engine.stop_and_wait_for_transcription()
 
     def _json_response(self, code: int, data: dict[str, Any]) -> None:
         """Send a JSON HTTP response."""

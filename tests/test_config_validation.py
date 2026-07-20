@@ -1,6 +1,8 @@
 """Tests for config validation in save_config and restart path resolution."""
 
 import json
+import os
+import stat
 import sys
 from pathlib import Path
 
@@ -119,6 +121,52 @@ class TestSaveConfigFiltering:
         saved = json.loads(config_path.read_text())
         for key in DEFAULT_CONFIG:
             assert saved[key] == DEFAULT_CONFIG[key]
+
+
+# ---------------------------------------------------------------------------
+# save_config file/directory permissions (harden-privacy-file-perms)
+# ---------------------------------------------------------------------------
+
+
+class TestSaveConfigPermissions:
+    """save_config SHALL leave config.json at 0600 and its dir at 0700."""
+
+    def test_fresh_save_sets_owner_only_permissions(self, tmp_path):
+        config_dir = tmp_path / "whispy"
+        config_path = config_dir / "config.json"
+        save_config(dict(DEFAULT_CONFIG), config_path)
+
+        assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(config_dir.stat().st_mode) == 0o700
+
+    def test_preexisting_world_readable_file_is_tightened(self, tmp_path):
+        config_dir = tmp_path / "whispy"
+        config_dir.mkdir(parents=True)
+        config_path = config_dir / "config.json"
+        config_path.write_text("{}")
+        os.chmod(config_path, 0o644)
+
+        save_config(dict(DEFAULT_CONFIG), config_path)
+
+        assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
+
+    def test_chmod_failure_does_not_block_save(self, tmp_path, monkeypatch):
+        config_path = tmp_path / "whispy" / "config.json"
+
+        real_chmod = os.chmod
+
+        def _raising_chmod(path, mode, *args, **kwargs):
+            raise OSError("simulated chmod failure")
+
+        monkeypatch.setattr(os, "chmod", _raising_chmod)
+        try:
+            save_config(dict(DEFAULT_CONFIG), config_path)
+        finally:
+            monkeypatch.setattr(os, "chmod", real_chmod)
+
+        assert config_path.exists()
+        saved = json.loads(config_path.read_text())
+        assert saved["model_size"] == DEFAULT_CONFIG["model_size"]
 
 
 # ---------------------------------------------------------------------------

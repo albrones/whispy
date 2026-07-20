@@ -20,6 +20,16 @@ CORRECTIONS_VERSION = 1
 AUTO_REPLACE_THRESHOLD = 3
 _DEFAULT_PATH = Path.home() / ".config" / "whispy" / "corrections.json"
 
+# Adaptive correction learning is disabled: extract_corrections() aligns the
+# injected text against the whole focused field with a fixed-width window, so
+# ordinary continued dictation (the field accumulates text, cursor moves)
+# misaligns by a word and it learns garbage word→word shifts. That garbage was
+# then fed back into Whisper via hotwords(), biasing it toward the very tokens
+# it hallucinated (e.g. "│") — a self-reinforcing poison loop. Kept off until
+# the alignment is rewritten (proper diff, real single-word edits only).
+# Re-enable path: fix extract_corrections, then flip this to True.
+ADAPTIVE_LEARNING_ENABLED = False
+
 
 class CorrectionStore:
     """Persistent store for learned transcription corrections."""
@@ -41,22 +51,28 @@ class CorrectionStore:
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._path.parent.chmod(0o700)
+        except OSError as exc:
+            logger.warning("[corrections] failed to set permissions on %s: %s", self._path.parent, exc)
         payload = json.dumps(
             {"version": CORRECTIONS_VERSION, "corrections": self._data},
             ensure_ascii=False,
             indent=2,
         )
+        # tempfile.mkstemp creates the file at 0600 by stdlib default on POSIX —
+        # relied upon here for corrections.json's final permissions (os.replace
+        # keeps the replacing file's mode). A future refactor away from
+        # mkstemp (e.g. to open()) must preserve this or set the mode explicitly.
         fd, tmp = tempfile.mkstemp(dir=self._path.parent, suffix=".tmp")
         try:
             os.write(fd, payload.encode("utf-8"))
+        finally:
             os.close(fd)
+        try:
             os.replace(tmp, self._path)
-        except BaseException:
-            os.close(fd) if not os.get_inheritable(fd) else None
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
+        except Exception:
+            os.unlink(tmp)
             raise
 
     def add_correction(self, wrong: str, right: str) -> None:
@@ -89,6 +105,8 @@ class CorrectionStore:
         Sorted by corrections_count descending, truncated to fit the token
         budget (approximate: 1 word ≈ 1 token for proper nouns).
         """
+        if not ADAPTIVE_LEARNING_ENABLED:
+            return ""
         eligible = [(k, v) for k, v in self._data.items() if v.get("corrections_count", 0) >= 1]
         eligible.sort(key=lambda x: x[1].get("corrections_count", 0), reverse=True)
         words: list[str] = []
@@ -104,6 +122,8 @@ class CorrectionStore:
 
     def apply_corrections(self, text: str) -> str:
         """Case-insensitive whole-word replacement for high-confidence entries."""
+        if not ADAPTIVE_LEARNING_ENABLED:
+            return text
         if not text or not self._data:
             return text
         for key, entry in self._data.items():
@@ -115,6 +135,8 @@ class CorrectionStore:
 
     def track_occurrences(self, text: str) -> None:
         """Increment occurrence count for any known wrong words found in text."""
+        if not ADAPTIVE_LEARNING_ENABLED:
+            return
         if not text or not self._data:
             return
         text_lower = text.lower()

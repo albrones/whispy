@@ -1,11 +1,22 @@
 """Tests for the persistent correction store and diff-based extraction."""
 
 import json
+import os
+import stat
+
+import pytest
 
 from whispy.core.corrections import CorrectionStore, extract_corrections
 
 
 class TestCorrectionStore:
+    @pytest.fixture(autouse=True)
+    def _enable_learning(self, monkeypatch):
+        # These tests validate the underlying learning machinery, which is
+        # gated off by default (see TestAdaptiveLearningGate). Enable it so the
+        # hotwords/apply/track mechanics are exercised.
+        monkeypatch.setattr("whispy.core.corrections.ADAPTIVE_LEARNING_ENABLED", True)
+
     def test_store_empty_on_missing_file(self, tmp_path):
         store = CorrectionStore(tmp_path / "missing" / "corrections.json")
         assert store.all_entries() == {}
@@ -118,6 +129,53 @@ class TestCorrectionStore:
         assert "unknownword" not in store.all_entries()
 
 
+class TestCorrectionStorePermissions:
+    """corrections.json and its parent dir SHALL end up owner-only (harden-privacy-file-perms)."""
+
+    def test_fresh_save_sets_owner_only_permissions(self, tmp_path):
+        corrections_dir = tmp_path / "whispy"
+        path = corrections_dir / "corrections.json"
+        store = CorrectionStore(path)
+        store.add_correction("wispy", "Whispy")
+
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(corrections_dir.stat().st_mode) == 0o700
+
+    def test_preexisting_world_readable_file_is_tightened(self, tmp_path):
+        path = tmp_path / "corrections.json"
+        path.write_text(json.dumps({"version": 1, "corrections": {}}))
+        os.chmod(path, 0o644)
+
+        store = CorrectionStore(path)
+        store.add_correction("wispy", "Whispy")
+
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+    def test_replace_failure_propagates_and_cleans_up_tmp(self, tmp_path, monkeypatch):
+        path = tmp_path / "corrections.json"
+        store = CorrectionStore(path)
+
+        def _raising_replace(*_args, **_kwargs):
+            raise OSError("simulated replace failure")
+
+        monkeypatch.setattr(os, "replace", _raising_replace)
+        with pytest.raises(OSError, match="simulated replace failure"):
+            store.add_correction("wispy", "Whispy")
+
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_replace_keyboard_interrupt_propagates_immediately(self, tmp_path, monkeypatch):
+        path = tmp_path / "corrections.json"
+        store = CorrectionStore(path)
+
+        def _raising_replace(*_args, **_kwargs):
+            raise KeyboardInterrupt()
+
+        monkeypatch.setattr(os, "replace", _raising_replace)
+        with pytest.raises(KeyboardInterrupt):
+            store.add_correction("wispy", "Whispy")
+
+
 class TestExtractCorrections:
     def test_extract_no_change(self):
         assert extract_corrections("hello world", "hello world today") == {}
@@ -135,3 +193,26 @@ class TestExtractCorrections:
 
     def test_extract_low_match(self):
         assert extract_corrections("aaa bbb ccc ddd", "wxy wxz wxq wxr") == {}
+
+
+class TestAdaptiveLearningGate:
+    """Adaptive learning is disabled by default: the poison loop (mislearned
+    word→word shifts fed back to Whisper as hotwords) must be fully inert until
+    the alignment algorithm is rewritten."""
+
+    def test_hotwords_disabled_returns_empty(self, tmp_path):
+        store = CorrectionStore(tmp_path / "corrections.json")
+        # Even with entries present on disk, disabled hotwords feed nothing.
+        store._data = {"foo": {"replacement": "│", "corrections_count": 5}}
+        assert store.hotwords() == ""
+
+    def test_apply_corrections_disabled_is_noop(self, tmp_path):
+        store = CorrectionStore(tmp_path / "corrections.json")
+        store._data = {"le": {"replacement": "bruno", "corrections_count": 9}}
+        assert store.apply_corrections("le chat") == "le chat"
+
+    def test_track_occurrences_disabled_is_noop(self, tmp_path):
+        store = CorrectionStore(tmp_path / "corrections.json")
+        store._data = {"le": {"replacement": "bruno", "corrections_count": 9, "occurrences": 0}}
+        store.track_occurrences("le le le")
+        assert store._data["le"]["occurrences"] == 0
