@@ -7,6 +7,7 @@ repository, and that every locally-referenced asset actually exists on disk
 (the most common static-site breakage when files are renamed or moved).
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -16,6 +17,9 @@ WEBSITE_DIR = Path(__file__).resolve().parent.parent / "website"
 INDEX = WEBSITE_DIR / "index.html"
 BRAND_GREEN = "#24bf9e"
 REPO_URL = "https://github.com/albrones/whispy"
+# Canonical host the site declares. Update alongside index.html when a custom
+# domain is attached in Vercel.
+CANONICAL_HOST = "whispy-dun.vercel.app"
 
 
 @pytest.fixture(scope="module")
@@ -76,6 +80,53 @@ def test_og_image_is_not_svg(html: str):
     og = re.search(r'property="og:image"\s+content="([^"]+)"', html)
     assert og is not None, "missing og:image"
     assert og.group(1).lower().endswith((".png", ".jpg", ".jpeg")), "og:image must be PNG/JPG, not SVG"
+
+
+def test_has_canonical_link(html: str):
+    """A single canonical URL on the declared host, so crawlers index one origin."""
+    m = re.search(r'<link\s+rel="canonical"\s+href="([^"]+)"', html)
+    assert m is not None, 'missing <link rel="canonical">'
+    assert CANONICAL_HOST in m.group(1), "canonical href must point at the canonical host"
+
+
+def test_og_image_is_absolute(html: str):
+    """Social crawlers do not resolve relative paths — og/twitter images must be
+    absolute URLs on the canonical host."""
+    for prop in (r'property="og:image"', r'name="twitter:image"'):
+        m = re.search(prop + r'\s+content="([^"]+)"', html)
+        assert m is not None, f"missing {prop} tag"
+        url = m.group(1)
+        assert url.startswith(("http://", "https://")), f"{prop} must be an absolute URL"
+        assert CANONICAL_HOST in url, f"{prop} must be on the canonical host"
+
+
+def test_softwareapplication_jsonld(html: str):
+    """A parseable SoftwareApplication JSON-LD block powers Google app rich results."""
+    blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
+    assert blocks, "missing JSON-LD structured data"
+    apps = []
+    for raw in blocks:
+        data = json.loads(raw)  # must parse — invalid JSON fails the test
+        if data.get("@type") == "SoftwareApplication":
+            apps.append(data)
+    assert apps, "no SoftwareApplication JSON-LD block found"
+    app = apps[0]
+    assert app.get("name")
+    assert app.get("operatingSystem")
+    assert str(app.get("offers", {}).get("price")) == "0", "free app must declare price 0"
+    assert app.get("license"), "SoftwareApplication should declare a license"
+
+
+def test_crawler_files_present():
+    """robots.txt + sitemap.xml must exist and reference the canonical host."""
+    robots = WEBSITE_DIR / "robots.txt"
+    sitemap = WEBSITE_DIR / "sitemap.xml"
+    assert robots.is_file(), "website/robots.txt is missing"
+    assert sitemap.is_file(), "website/sitemap.xml is missing"
+    robots_txt = robots.read_text(encoding="utf-8")
+    assert "Sitemap:" in robots_txt, "robots.txt must declare a Sitemap"
+    assert CANONICAL_HOST in robots_txt, "robots.txt sitemap must use the canonical host"
+    assert CANONICAL_HOST in sitemap.read_text(encoding="utf-8"), "sitemap.xml must list the canonical host"
 
 
 def test_all_local_assets_exist(html: str):

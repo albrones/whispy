@@ -5,17 +5,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Whispy — Private voice dictation for macOS &amp; Linux</title>
   <meta name="description" content="Whispy is a fast, fully local voice dictation utility for macOS and Linux (X11). Hold your push-to-talk key, speak, release — your words appear in any app. Nothing ever leaves your computer." />
+  <!-- swap this host when a custom domain is attached in Vercel -->
+  <link rel="canonical" href="https://whispy-dun.vercel.app/" />
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
+  <link rel="icon" type="image/png" href="assets/favicon.png" sizes="512x512" />
 
   <!-- Open Graph / social -->
   <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://whispy-dun.vercel.app/" />
   <meta property="og:title" content="Whispy — Private voice dictation for macOS &amp; Linux" />
   <meta property="og:description" content="Hold your key, speak, release. Local Whisper transcription that types into any app. Zero data leaves your computer." />
-  <meta property="og:image" content="assets/og-image.png" />
+  <meta property="og:image" content="https://whispy-dun.vercel.app/assets/og-image.png" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:image" content="assets/og-image.png" />
+  <meta name="twitter:image" content="https://whispy-dun.vercel.app/assets/og-image.png" />
   <meta name="twitter:title" content="Whispy — Private voice dictation for macOS &amp; Linux" />
   <meta name="twitter:description" content="Hold your key, speak, release. Local Whisper transcription that types into any app." />
+
+  <!-- Structured data for app discovery (Google rich results) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Whispy",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "macOS, Linux",
+    "url": "https://whispy-dun.vercel.app/",
+    "description": "Fast, fully local voice dictation for macOS and Linux (X11). Hold a key, speak, release — your words type into any app. Nothing leaves your computer.",
+    "screenshot": "https://whispy-dun.vercel.app/assets/og-image.png",
+    "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "isAccessibleForFree": true,
+    "codeRepository": "https://github.com/albrones/whispy"
+  }
+  </script>
 
   <link rel="stylesheet" href="styles.css" />
 </head>

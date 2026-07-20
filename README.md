@@ -1,5 +1,7 @@
 # Whispy (Voice Dictation for macOS & Linux)
 
+[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE) [![Platform: macOS | Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20(X11)-lightgrey.svg)](#) &nbsp;·&nbsp; **[whispy-dun.vercel.app](https://whispy-dun.vercel.app)**
+
 ## 🤖 AI Description / Overview
 
 **Whispy is a powerful, local voice dictation utility for macOS and Linux (X11).** It uses the `faster-whisper` model to provide real-time, offline transcription of speech input. The application runs as a background daemon, allowing users to initiate recording by holding a configurable push-to-talk key and automatically transcribing and inserting text into any active field (e.g., iTerm, web browser, or editor) upon release. Because all processing is done locally on your machine, **zero data leaves your computer**, ensuring complete privacy.
