@@ -268,7 +268,6 @@ class TestAlertQueue:
         return SimpleNamespace(_pending_alerts=[])
 
     def test_model_load_failed_queues_without_settings_url(self):
-
         app = self._app()
         WhisperMenuBarApp._on_model_load_failed(app, "download failed")
         [(subtitle, message, url)] = app._pending_alerts
@@ -401,3 +400,26 @@ class TestStatusDisplayMarshaling:
 
         app._update_status_on_main.assert_called_once_with()
         app_helper.callAfter.assert_not_called()
+
+
+class TestLaunchRegressions:
+    """Startup crashes only reproducible under real rumps (mocked in this
+    tier), guarded by source inspection — same pattern as TestAlertWiring."""
+
+    def test_rebuild_learned_menu_guards_lazy_nsmenu(self):
+        """rumps creates the backing NSMenu lazily: clear() on a fresh
+        MenuItem crashes (NoneType.removeAllItems) and aborts app launch."""
+        import inspect
+
+        src = inspect.getsource(WhisperMenuBarApp._rebuild_learned_menu)
+        assert "_menu" in src and "is not None" in src, "clear() must be guarded for a fresh MenuItem"
+
+    def test_last_dark_assigned_before_anim_timer_starts(self):
+        """_tick_anim reads _last_dark on its first tick; the attribute must
+        exist before the timer is armed or a mid-init failure crashes ticks."""
+        import inspect
+
+        src = inspect.getsource(WhisperMenuBarApp.__init__)
+        assert (
+            "_last_dark" in src.split("_anim_timer.start()")[0]
+        ), "_last_dark must be set before the anim timer starts"

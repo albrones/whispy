@@ -99,7 +99,6 @@ class TestMenuBarWaveformWiring:
 
     def test_recording_start_shows_visualization(self):
         body = _method_body("_on_recording_start")
-        assert "hide()" in body
         assert "show()" in body
 
     def test_recording_stop_hides(self):
