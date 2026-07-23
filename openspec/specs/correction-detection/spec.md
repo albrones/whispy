@@ -19,7 +19,7 @@ The system SHALL capture a snapshot of the focused text field via the macOS Acce
 - **THEN** the snapshot SHALL be taken only after the final chunk is injected, covering the full aggregated text
 
 ### Requirement: Detect corrections on next Fn press
-The system SHALL read the focused text field on the next Fn key press (before recording starts) and compare the injected region against the stored snapshot. Word-level differences within the injected region SHALL be extracted as corrections.
+The system SHALL read the focused text field on the next Fn key press (before recording starts) and compare the injected region against the stored snapshot. Word-level differences within the injected region SHALL be extracted as corrections. When a correction is extracted, the system SHALL record it at `DEBUG` log level (not `INFO` or higher), so the wrong→right word pair — a fragment of the user's dictated text — is not written into the default-verbosity, world-readable `~/.whispy.log`.
 
 #### Scenario: Single word correction detected
 - **WHEN** the snapshot contains injected text "wispy is great" and the field now reads "Whispy is great" in the same region
@@ -37,3 +37,8 @@ The system SHALL read the focused text field on the next Fn key press (before re
 - **WHEN** the stored offset does not match the injected text (user typed before the region)
 - **THEN** the system SHALL search for the injected text within a ±50 character window around the stored offset before giving up
 
+#### Scenario: Learned correction is logged at DEBUG, not INFO
+- **WHEN** a correction is detected and passed to the correction store
+- **THEN** the `"[corrections] learned: %s → %s"` log line SHALL be emitted at `DEBUG` level, so it does not appear in the daemon's log file at the default `INFO` verbosity
+
+_Tier: unit-mocked — log level asserted via `caplog`/mocked logger in `test_engine.py`._

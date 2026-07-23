@@ -72,6 +72,10 @@ class WhisperMenuBarApp(rumps.App):
         # from the engine's worker threads would schedule it on a thread with no
         # running run loop, so it would never fire.
         self._frame = 0
+        # Cache the appearance the accents were built for BEFORE the timer can
+        # fire: _tick_anim reads _last_dark on its first tick.
+        self._last_dark = menu_theme.is_dark_appearance()
+
         self._anim_timer = rumps.Timer(self._tick_anim, WAVEROWS_INTERVAL)
         self._anim_timer.start()
 
@@ -85,10 +89,6 @@ class WhisperMenuBarApp(rumps.App):
         self._permission_settings_url = _SETTINGS_URLS["accessibility"]
 
         self._build_menu()
-
-        # Cache the appearance the accents were built for, so _tick_anim can
-        # rebuild them when the user flips light/dark while the app is running.
-        self._last_dark = menu_theme.is_dark_appearance()
 
         # Register for status updates
         self.engine.on_status_change(self.update_status_display)
@@ -469,7 +469,10 @@ class WhisperMenuBarApp(rumps.App):
 
     def _rebuild_learned_menu(self) -> None:
         """Rebuild the Learned Words submenu from the correction store."""
-        self.learned_menu.clear()
+        # rumps creates the backing NSMenu lazily: on a fresh MenuItem,
+        # _menu is None and clear() would crash (NoneType.removeAllItems).
+        if getattr(self.learned_menu, "_menu", None) is not None:
+            self.learned_menu.clear()
         entries = self.engine.correction_store.all_entries()
         if not entries:
             empty = rumps.MenuItem("No learned words yet")

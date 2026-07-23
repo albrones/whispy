@@ -8,6 +8,8 @@
 
 Whispy is a local voice dictation utility built on top of [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Hold the trigger key (the **Fn** key on macOS, **Right Ctrl** by default on Linux) to record, and release it to automatically transcribe the text into the active field.
 
+**Learns your words.** On macOS, Whispy detects when you correct a transcription in the active field and remembers it (`~/.config/whispy/corrections.json`): names, jargon, and brand terms get more accurate over time, with no setup required. _(Automatic learning is temporarily disabled while its word-matching is reworked — it mislearned from ordinary continued dictation; manual custom vocabulary is unaffected.)_
+
 Everything runs locally; no data is sent over the internet.
 
 > **Linux note:** Whispy v1 supports **X11 sessions only**. Global hotkeys and synthetic text input are restricted under Wayland's security model. If you run Wayland, log out and pick an "Xorg"/"X11" session at your display manager. Wayland support is deferred to a later release.
@@ -267,17 +269,31 @@ catch it (see the matrix header).
 
 ## Configuration
 
-You can edit `~/.config/whispy/config.json` to change:
-- `model_size` — Whisper model name (default: `small`)
-- `language` — transcription language (default: `fr`)
-- `copy_to_clipboard` — paste via the clipboard instead of synthesizing keystrokes
-- `trigger` — the push-to-talk key/combo. Leave it `null` (or omit it) to use the
-  platform default: the **Fn** key on macOS, **Right Ctrl** (`ctrl_r`) on Linux.
-  Set a macOS keycode (integer) or a key/combo name (string) to override.
-  On macOS you can also pick the trigger from the menu bar (**Settings → Trigger**:
-  Fn, Right Command, Right Option, or F13) — the change applies live, no restart.
+You can edit `~/.config/whispy/config.json` to change any of the following keys
+(each defined in `DEFAULT_CONFIG`, `src/whispy/core/config.py`):
 
-The HTTP `PORT` (default 9090) is defined near the top of `whispy_daemon.py`.
+| Key | Default | Description |
+|-----|---------|-------------|
+| `model_size` | `small` | Whisper model name (`tiny`, `base`, `small`, `medium`, `large-v3`) |
+| `language` | `en` | Transcription language (`en` or `fr`) |
+| `beam_size` | `1` | Beam search width passed to faster-whisper; higher can improve accuracy at the cost of speed |
+| `best_of` | `2` | Number of candidates sampled when not using beam search; higher can improve accuracy at the cost of speed |
+| `copy_to_clipboard` | `false` | Paste via the clipboard instead of synthesizing keystrokes |
+| `start_at_login` | `false` | Register the app as a login item. macOS `.app` bundle only (via `SMAppService`); ignored on the loose-script path |
+| `auto_detect_min_duration` | `0.5` | Minimum recording duration (seconds) before automatic language detection runs |
+| `min_recording_duration` | `0.3` | Recordings shorter than this (seconds) are discarded rather than transcribed |
+| `custom_vocabulary` | `[]` | User-curated terms (names, jargon) used to bias transcription toward the words you habitually say |
+| `trigger` | `null` | Push-to-talk key/combo. `null` uses the platform default: the **Fn** key on macOS, **Right Ctrl** (`ctrl_r`) on Linux. Set a macOS keycode (integer) or a key/combo name (string) to override |
+| `streaming_enabled` | `true` | Transcribe audio in chunks during recording (typed near-instantly on release) instead of the legacy record-then-transcribe path |
+| `pause_ms` | `600` | Minimum trailing silence (milliseconds) that closes a streaming chunk |
+| `min_chunk_s` | `0.4` | A streaming chunk shorter than this (seconds) is discarded rather than transcribed |
+| `max_chunk_s` | `12.0` | Hard cap (seconds) on streaming chunk length, so run-on speech with no pause still makes progress |
+| `vad_aggressiveness` | `2` | WebRTC VAD aggressiveness (0-3); higher classifies more audio as non-speech when finding chunk boundaries |
+
+On macOS you can also pick the trigger from the menu bar (**Settings → Trigger**:
+Fn, Right Command, Right Option, or F13) — the change applies live, no restart.
+
+The HTTP `PORT` (default 9090) is defined near the top of `src/whispy/api/server.py`.
 
 ## Practical Usage & FAQ
 
@@ -334,28 +350,28 @@ tail -f ~/.whispy.log ~/.whispy-error.log
 
 ### ❓ FAQ
 
-**Q: Will Whispy start automatically at each reboot?**  
+**Q: Will Whispy start automatically at each reboot?**
 A: On macOS, enable the in-app **Settings → Start at login** toggle (registered
 via `SMAppService` — no LaunchAgent). On Linux, the `systemd --user` unit
 installed by `install.sh` starts it at login.
 
-**Q: Can I use a different Python version or environment?**  
+**Q: Can I use a different Python version or environment?**
 A: The install script creates its own virtual environment in `.venv` and uses it automatically.
 
-**Q: How do I update Whispy?**  
+**Q: How do I update Whispy?**
 A: Pull the latest code (`git pull`), then on **macOS** rebuild and reinstall
 the bundle: `./install.sh && make app && cp -R dist/Whispy.app /Applications/`,
 then relaunch it. On **Linux**, rerun `./install.sh` (it reinstalls the venv and
 reloads the systemd unit). Running `/Applications/Whispy.app` from an old build
 is the usual reason a code or settings fix "doesn't take" — rebuild the bundle.
 
-**Q: What if I want to use a different Whisper model?**  
+**Q: What if I want to use a different Whisper model?**
 A: Run `WHISPER_MODEL=medium ./install.sh` (see model table above).
 
-**Q: How do I know if Whispy is running?**  
+**Q: How do I know if Whispy is running?**
 A: Check with `curl -H "Authorization: Bearer $(cat ~/.config/whispy/config.token)" http://localhost:9090/status` or look for the process in Activity Monitor.
 
-**Q: How do I extend or debug Whispy?**  
+**Q: How do I extend or debug Whispy?**
 A: Edit the Python files, then run `make run` to launch the daemon in the
 foreground against your working tree (logs stream to the terminal). No bundle
 rebuild needed for source runs; rebuild with `make app` only to ship the `.app`.
@@ -417,8 +433,7 @@ Test files are organized by scope:
 | `tests/test_api/test_server.py` | HTTP API server tests |
 | `tests/test_text_cleaning.py` | Whisper credit stripping |
 | `tests/test_config_validation.py` | Config validation and migration |
-| `tests/test_error_handling.py` | Error cases (sox, mic, model) |
-| `tests/test_stress.py` | Concurrent access stress tests |
+| `tests/test_error_handling.py` | Error cases (capture-backend failure, mic unavailable) |
 
 ## License
 

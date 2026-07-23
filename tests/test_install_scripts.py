@@ -1,11 +1,13 @@
-"""Structural tests for the install scripts (install.sh, scripts/bootstrap.sh).
+"""Structural tests for the install scripts (install.sh, scripts/bootstrap.sh)
+and the CI workflow's dependency list.
 
-CI has no clean macOS/Linux box to run these end to end, so we guard the
-release-critical invariants as text: the scripts must not gate on sox (the audio
-backend is sounddevice/PortAudio now), the one-liner must be safe under
-`curl | bash` (no blocking prompt), the chosen WHISPER_MODEL must be persisted so
-the detached daemon actually uses it, and install.sh must branch per-OS rather
-than writing a macOS LaunchAgent on Linux.
+CI has no clean macOS/Linux box to run the install scripts end to end, so we
+guard the release-critical invariants as text: the scripts (and the CI
+workflow) must not gate on sox (the audio backend is sounddevice/PortAudio
+now), the one-liner must be safe under `curl | bash` (no blocking prompt), the
+chosen WHISPER_MODEL must be persisted so the detached daemon actually uses
+it, and install.sh must branch per-OS rather than writing a macOS LaunchAgent
+on Linux.
 """
 
 import re
@@ -16,6 +18,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 INSTALL = ROOT / "install.sh"
 BOOTSTRAP = ROOT / "scripts" / "bootstrap.sh"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 @pytest.fixture(scope="module")
@@ -26,6 +29,11 @@ def install() -> str:
 @pytest.fixture(scope="module")
 def bootstrap() -> str:
     return BOOTSTRAP.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def ci_workflow() -> str:
+    return CI_WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_scripts_exist():
@@ -41,6 +49,13 @@ def test_install_does_not_gate_on_sox(install: str):
 def test_bootstrap_does_not_gate_on_sox(bootstrap: str):
     assert "command -v sox" not in bootstrap
     assert "brew install sox" not in bootstrap
+
+
+def test_ci_workflow_does_not_install_sox(ci_workflow: str):
+    # The audio backend is sounddevice/PortAudio, not sox; the CI test job
+    # must not install a dependency the project no longer has.
+    assert "command -v sox" not in ci_workflow
+    assert "brew install sox" not in ci_workflow
 
 
 def test_bootstrap_has_no_blocking_prompt(bootstrap: str):

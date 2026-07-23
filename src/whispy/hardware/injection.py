@@ -112,7 +112,7 @@ class TextInjector:
                     logger.warning("[inject] (%s) step %s error: %s", mode, cmd[0], exc)
                     return
                 rc = proc.returncode
-                detail = err.decode("utf-8", "replace").strip() if isinstance(err, (bytes, bytearray)) else str(err)
+                detail = err.decode("utf-8", "replace").strip() if isinstance(err, bytes | bytearray) else str(err)
                 if rc:
                     break  # stop the sequence on the first failing step
 

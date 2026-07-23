@@ -5,6 +5,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_call:
 
 jobs:
   lint:
@@ -18,7 +19,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install ruff
-        run: pip install "ruff>=0.6"
+        # Pinned to match .pre-commit-config.yaml so `format --check` is
+        # deterministic (a floating newer ruff reformats differently).
+        run: pip install "ruff==0.6.9"
 
       - name: Ruff lint
         run: ruff check .
@@ -40,8 +43,47 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install sox
-        run: brew install sox
+      - name: Create venv and install deps
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -e ".[dev]"
+
+      - name: Run tests with coverage
+        run: .venv/bin/pytest -v --tb=short --cov=src/whispy --cov-report=term-missing --cov-fail-under=84
+
+  test-macos-real-seam:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create venv and install deps
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -e ".[dev]"
+
+      - name: Run macOS real-seam tests
+        run: .venv/bin/pytest -m macos -v --tb=short --timeout=300
+
+  test-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
 
       - name: Create venv and install deps
         run: |
@@ -50,4 +92,4 @@ jobs:
           .venv/bin/pip install -e ".[dev]"
 
       - name: Run tests with coverage
-        run: .venv/bin/pytest -v --tb=short --cov=src/whispy --cov-report=term-missing
+        run: .venv/bin/pytest -v --tb=short --cov=src/whispy --cov-report=term-missing --cov-fail-under=84

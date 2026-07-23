@@ -419,12 +419,12 @@ from unittest.mock import MagicMock
 
 
 class TestTriggerReleaseGating:
-    """_handle_trigger_release only wakes the worker on a real stop."""
+    """_handle_trigger_release_work only wakes the worker on a real stop."""
 
     def test_release_while_recording_sets_stop_event(self, engine):
         engine.state.stop_event.clear()
         engine._state_machine.start_recording()  # enter RECORDING
-        engine._handle_trigger_release()
+        engine._handle_trigger_release_work()
         assert engine.state.stop_event.is_set()
 
     def test_stray_release_does_not_set_stop_event(self, engine):
@@ -432,8 +432,90 @@ class TestTriggerReleaseGating:
         # worker never transcribes a stale/missing file.
         engine.state.stop_event.clear()
         assert engine._state_machine.current_state == State.IDLE
-        engine._handle_trigger_release()
+        engine._handle_trigger_release_work()
         assert not engine.state.stop_event.is_set()
+
+
+# ---------------------------------------------------------------------------
+# Trigger callback handoff to a dedicated worker thread (fix-trigger-thread-blocking)
+# ---------------------------------------------------------------------------
+
+
+class TestTriggerCallbackHandoff:
+    """The hardware-callback closures only enqueue; the worker does the real work."""
+
+    def _capture_callbacks(self, engine, mocker):
+        """Wire a fake hotkey listener and return the (press, release) closures
+        the engine handed to it, without starting the trigger worker."""
+        import dataclasses
+
+        make = mocker.MagicMock(return_value=mocker.MagicMock(active=True))
+        engine._adapters = dataclasses.replace(engine._adapters, make_hotkey_listener=make)
+        engine.start_fn_listener()
+        kwargs = make.call_args.kwargs
+        return kwargs["on_trigger_press"], kwargs["on_trigger_release"]
+
+    def test_press_callback_returns_without_blocking(self, engine, mocker):
+        # A mock that would block forever if the callback called it directly.
+        detect = mocker.patch.object(engine, "_detect_corrections", side_effect=AssertionError("must not be called"))
+        start_recording = mocker.patch.object(engine, "start_recording")
+        press_cb, _ = self._capture_callbacks(engine, mocker)
+
+        press_cb()  # the trigger worker is not running: this must not block or dispatch
+
+        detect.assert_not_called()
+        start_recording.assert_not_called()
+        assert engine._trigger_queue.get(timeout=1.0) == "press"
+
+    def test_release_callback_returns_without_blocking(self, engine, mocker):
+        stop_recording = mocker.patch.object(engine, "stop_recording", side_effect=AssertionError("must not be called"))
+        _, release_cb = self._capture_callbacks(engine, mocker)
+
+        release_cb()
+
+        stop_recording.assert_not_called()
+        assert engine._trigger_queue.get(timeout=1.0) == "release"
+
+    def test_press_then_release_processed_in_order(self, engine, mocker):
+        order = []
+        mocker.patch.object(engine, "_detect_corrections")
+        mocker.patch.object(engine, "_notify_fn_pressed")
+        mocker.patch.object(engine._notifier, "recording_started")
+        mocker.patch.object(engine, "_notify_fn_released")
+        mocker.patch.object(engine, "start_recording", side_effect=lambda: order.append("start_recording"))
+        mocker.patch.object(engine, "stop_recording", side_effect=lambda: order.append("stop_recording") or False)
+
+        engine._trigger_queue.put("press")
+        engine._trigger_queue.put("release")
+        engine.start_trigger_worker()
+        try:
+            engine._trigger_queue.join()
+        finally:
+            engine.stop_trigger_worker()
+
+        assert order == ["start_recording", "stop_recording"]
+
+    def test_worker_preserves_press_call_order(self, engine, mocker):
+        order = []
+        mocker.patch.object(engine, "_detect_corrections", side_effect=lambda: order.append("detect"))
+        mocker.patch.object(engine, "_notify_fn_pressed", side_effect=lambda: order.append("notify_pressed"))
+        mocker.patch.object(engine._notifier, "recording_started", side_effect=lambda: order.append("sound"))
+        mocker.patch.object(engine, "start_recording", side_effect=lambda: order.append("start") or True)
+
+        engine._handle_trigger_press_work()
+
+        assert order == ["detect", "notify_pressed", "sound", "start"]
+
+    def test_worker_preserves_release_call_order(self, engine, mocker):
+        order = []
+        mocker.patch.object(engine, "_notify_fn_released", side_effect=lambda: order.append("notify_released"))
+        mocker.patch.object(engine, "stop_recording", side_effect=lambda: order.append("stop") or True)
+        engine.state.stop_event.clear()
+
+        engine._handle_trigger_release_work()
+
+        assert order == ["notify_released", "stop"]
+        assert engine.state.stop_event.is_set()
 
 
 # ---------------------------------------------------------------------------
@@ -732,6 +814,161 @@ class TestStreamingChunkPipeline:
             eng.stop_chunk_worker()
 
 
+class TestChunkStateLocking:
+    """`_chunk_texts`/`_chunk_any_text` are guarded by `DictationState.lock`."""
+
+    def test_chunk_worker_append_is_lock_guarded(self, engine, mocker, tmp_path):
+        lock = mocker.MagicMock()
+        engine.state.lock = lock
+        engine.state.model = mocker.MagicMock()
+        mocker.patch.object(engine._audio_engine, "transcribe", return_value="hello")
+
+        engine._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+
+        lock.__enter__.assert_called()
+        lock.__exit__.assert_called()
+        assert engine._chunk_texts == ["hello"]
+
+    def test_recording_entry_reset_is_lock_guarded(self, engine, mocker):
+        lock = mocker.MagicMock()
+        engine.state.lock = lock
+        engine._chunk_texts = ["stale"]
+        engine._chunk_any_text = True
+
+        engine._on_fsm_recording(None)
+
+        lock.__enter__.assert_called()
+        lock.__exit__.assert_called()
+        assert engine._chunk_texts == []
+        assert engine._chunk_any_text is False
+
+    def test_force_recover_reset_is_lock_guarded(self, engine, mocker):
+        lock = mocker.MagicMock()
+        engine.state.lock = lock
+        engine._chunk_texts = ["stale"]
+        engine._chunk_any_text = True
+
+        engine._force_recover()
+
+        lock.__enter__.assert_called()
+        lock.__exit__.assert_called()
+        assert engine._chunk_texts == []
+        assert engine._chunk_any_text is False
+
+    def test_transcription_worker_read_is_lock_guarded(self, config_path, mocker, tmp_path):
+        eng = _make_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", return_value="hi")
+        mocker.patch.object(eng._text_injector, "inject")
+        mocker.patch.object(eng._notifier, "transcription_succeeded")
+        lock = mocker.MagicMock()
+        eng.state.lock = lock
+
+        eng.start_chunk_worker()
+        eng.start_transcription_worker()
+        try:
+            eng._state_machine.start_recording()
+            eng._enqueue_chunk(_chunk_file(tmp_path, "a.wav"))
+            eng._chunk_queue.join()
+            eng._state_machine.stop_recording()  # -> TRANSCRIBING
+            eng.state.stop_event.set()
+            deadline = time.time() + 5.0
+            while eng._state_machine.current_state.name != "IDLE" and time.time() < deadline:
+                time.sleep(0.02)
+            assert eng._state_machine.current_state.name == "IDLE"
+        finally:
+            eng.stop_transcription_worker()
+            eng.stop_chunk_worker()
+
+        # Both the recording-entry reset and the release-time read acquired
+        # the (mocked) lock rather than touching the fields unguarded.
+        assert lock.__enter__.call_count >= 2
+        assert lock.__exit__.call_count == lock.__enter__.call_count
+
+    def test_concurrent_chunk_appends_and_read_are_consistent(self, engine, mocker, tmp_path):
+        # Regression guard: real threads hammering the append/read paths must
+        # never raise and must always see a consistent list length — the
+        # unlocked race this requirement closes.
+        engine.state.model = mocker.MagicMock()
+        mocker.patch.object(engine._audio_engine, "transcribe", return_value="x")
+
+        errors: list[Exception] = []
+        n = 50
+
+        def append_many():
+            try:
+                for i in range(n):
+                    path = _chunk_file(tmp_path, f"c{i}.wav")
+                    engine._transcribe_and_inject_chunk(path)
+            except Exception as exc:  # pragma: no cover - failure path
+                errors.append(exc)
+
+        def read_many():
+            try:
+                for _ in range(n):
+                    with engine.state.lock:
+                        list(engine._chunk_texts)
+            except Exception as exc:  # pragma: no cover - failure path
+                errors.append(exc)
+
+        threads = [threading.Thread(target=append_many), threading.Thread(target=read_many)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10.0)
+
+        assert errors == []
+        with engine.state.lock:
+            assert len(engine._chunk_texts) == n
+
+
+class TestStopAndWaitForTranscription:
+    """Engine.stop_and_wait_for_transcription: the single sync-stop code path."""
+
+    def test_streaming_mode_returns_assembled_text(self, config_path, mocker, tmp_path):
+        eng = _make_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["bonjour", "le monde"])
+        mocker.patch.object(eng._text_injector, "inject")
+        mocker.patch.object(eng._notifier, "transcription_succeeded")
+
+        eng.start_chunk_worker()
+        eng.start_transcription_worker()
+        try:
+            eng._on_fsm_recording(None)
+            eng._state_machine.start_recording()
+            eng._enqueue_chunk(_chunk_file(tmp_path, "c1.wav"))
+            eng._chunk_queue.join()
+            eng._enqueue_chunk(_chunk_file(tmp_path, "c2.wav"))
+            eng._chunk_queue.join()
+
+            text = eng.stop_and_wait_for_transcription(timeout=5.0)
+
+            assert text == "bonjour le monde"
+            assert eng._state_machine.current_state.name == "IDLE"
+        finally:
+            eng.stop_transcription_worker()
+            eng.stop_chunk_worker()
+
+    def test_noop_when_not_recording_returns_none_immediately(self, engine):
+        engine.state.stop_event.clear()
+        assert engine._state_machine.current_state == State.IDLE
+
+        result = engine.stop_and_wait_for_transcription(timeout=0.5)
+
+        assert result is None
+        assert not engine.state.stop_event.is_set()
+
+    def test_returns_after_timeout_when_worker_stalled(self, engine):
+        # RECORDING with no transcription worker running: stop_event is set
+        # but never consumed, so the done event is never signaled.
+        engine._state_machine.start_recording()
+
+        t0 = time.monotonic()
+        engine.stop_and_wait_for_transcription(timeout=0.2)
+        elapsed = time.monotonic() - t0
+
+        assert elapsed < 2.0  # bounded — did not hang waiting forever
+
+
 class TestStreamFileSeam:
     """engine.stream_file: deterministic streaming seam (no mic, no inject)."""
 
@@ -907,6 +1144,13 @@ class TestWatchdogRecovery:
 class TestCorrectionDetection:
     """Tests for the snapshot-diff correction detection in Engine."""
 
+    @pytest.fixture(autouse=True)
+    def _enable_learning(self, monkeypatch):
+        # Adaptive learning is gated off by default; enable it (in both the
+        # store module and engine's imported copy) to exercise the wiring.
+        monkeypatch.setattr("whispy.core.corrections.ADAPTIVE_LEARNING_ENABLED", True)
+        monkeypatch.setattr("whispy.core.engine.ADAPTIVE_LEARNING_ENABLED", True)
+
     def test_snapshot_stored_after_injection(self, engine, mocker, tmp_path):
         """After run_transcription injects text, _last_injection is set."""
         # Setup: model loaded, recording path exists
@@ -969,9 +1213,46 @@ class TestCorrectionDetection:
 
         assert engine._last_injection is None
 
+    def test_learned_correction_not_logged_at_info(self, engine, mocker, caplog):
+        """The learned-correction pair SHALL NOT appear at INFO (default) verbosity."""
+        import logging
+
+        from whispy.hardware.ax_reader import InjectionSnapshot
+
+        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="wispy is great")
+        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
+        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="Hello Whispy is great")
+
+        with caplog.at_level(logging.INFO):
+            engine._detect_corrections()
+
+        assert not any("[corrections] learned" in record.getMessage() for record in caplog.records)
+
+    def test_learned_correction_logged_at_debug(self, engine, mocker, caplog):
+        """The learned-correction pair SHALL be emitted at DEBUG with the wrong/right values."""
+        import logging
+
+        from whispy.hardware.ax_reader import InjectionSnapshot
+
+        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="wispy is great")
+        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
+        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="Hello Whispy is great")
+
+        with caplog.at_level(logging.DEBUG):
+            engine._detect_corrections()
+
+        matching = [r for r in caplog.records if "[corrections] learned" in r.getMessage()]
+        assert len(matching) == 1
+        assert matching[0].getMessage() == "[corrections] learned: wispy → Whispy"
+
 
 class TestHotwordsWiring:
     """Tests for hotwords integration with the correction store."""
+
+    @pytest.fixture(autouse=True)
+    def _enable_learning(self, monkeypatch):
+        monkeypatch.setattr("whispy.core.corrections.ADAPTIVE_LEARNING_ENABLED", True)
+        monkeypatch.setattr("whispy.core.engine.ADAPTIVE_LEARNING_ENABLED", True)
 
     def test_build_hotwords_from_corrections(self, engine):
         """_build_hotwords returns correction store entries."""
@@ -1004,6 +1285,11 @@ class TestHotwordsWiring:
 class TestPostTranscriptionCorrection:
     """Tests for apply_corrections in the transcription pipeline."""
 
+    @pytest.fixture(autouse=True)
+    def _enable_learning(self, monkeypatch):
+        monkeypatch.setattr("whispy.core.corrections.ADAPTIVE_LEARNING_ENABLED", True)
+        monkeypatch.setattr("whispy.core.engine.ADAPTIVE_LEARNING_ENABLED", True)
+
     def test_corrections_applied_before_injection(self, engine, mocker, tmp_path):
         """High-confidence corrections are applied to transcribed text."""
         wav = tmp_path / "test.wav"
@@ -1022,3 +1308,133 @@ class TestPostTranscriptionCorrection:
         engine.run_transcription()
 
         inject_mock.assert_called_once_with("Whispy is great")
+
+
+class TestAdaptiveLearningDisabledByDefault:
+    """With the default gate (ADAPTIVE_LEARNING_ENABLED=False) the whole
+    feedback loop is inert: nothing is learned, no learned words reach Whisper
+    as hotwords, and transcribed text is injected verbatim (no auto-replace)."""
+
+    def test_hotwords_not_fed_when_disabled(self, engine):
+        engine._correction_store.add_correction("wispy", "Whispy")
+        assert engine._build_hotwords() is None
+
+    def test_transcription_injected_verbatim_when_disabled(self, engine, mocker, tmp_path):
+        wav = tmp_path / "test.wav"
+        wav.write_bytes(b"fake")
+        engine._audio_engine._recording_path = str(wav)
+        engine.state.model = mocker.MagicMock()
+        for _ in range(3):
+            engine._correction_store.add_correction("wispy", "Whispy")
+        mocker.patch.object(engine._audio_engine, "transcribe", return_value="wispy is great")
+        inject_mock = mocker.patch.object(engine._text_injector, "inject")
+        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
+
+        engine.run_transcription()
+
+        inject_mock.assert_called_once_with("wispy is great")
+
+    def test_detect_corrections_learns_nothing_when_disabled(self, engine, mocker):
+        from whispy.hardware.ax_reader import InjectionSnapshot
+
+        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="the cat")
+        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
+        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="the dog")
+
+        engine._detect_corrections()
+
+        assert engine._correction_store.all_entries() == {}
+
+
+class TestInjectWaitsForTriggerRelease:
+    """Typing while the push-to-talk key is held merges the held modifier
+    into every injected character (e.g. Right Option -> Option-layer glyphs).
+    Both inject paths must wait (bounded) for release first."""
+
+    def test_wait_returns_immediately_when_not_pressed(self, engine):
+        start = time.monotonic()
+        engine._wait_trigger_released(timeout=5.0)
+        assert time.monotonic() - start < 0.5
+
+    def test_wait_blocks_until_release(self, engine):
+        engine._fn_pressed = True
+        threading.Timer(0.15, lambda: setattr(engine, "_fn_pressed", False)).start()
+        start = time.monotonic()
+        engine._wait_trigger_released(timeout=5.0)
+        elapsed = time.monotonic() - start
+        assert 0.1 <= elapsed < 2.0
+
+    def test_wait_times_out_on_stuck_flag(self, engine):
+        engine._fn_pressed = True
+        start = time.monotonic()
+        engine._wait_trigger_released(timeout=0.2)
+        assert time.monotonic() - start < 2.0  # bounded, never wedges the worker
+
+    def test_run_transcription_waits_before_inject(self, engine, mocker, tmp_path):
+        """The whole-file inject path calls the release gate before typing."""
+        wav = tmp_path / "test.wav"
+        wav.write_bytes(b"fake")
+        engine._audio_engine._recording_path = str(wav)
+        engine.state.model = mocker.MagicMock()
+        mocker.patch.object(engine._audio_engine, "transcribe", return_value="hello")
+        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
+        inject_mock = mocker.patch.object(engine._text_injector, "inject")
+        wait_mock = mocker.patch.object(engine, "_wait_trigger_released")
+
+        engine.run_transcription()
+
+        wait_mock.assert_called_once()
+        inject_mock.assert_called_once_with("hello")
+
+    def test_streaming_assembly_waits_before_inject(self):
+        """The streaming (assembled chunks) inject path is also gated."""
+        import inspect
+
+        from whispy.core.engine import Engine
+
+        src = inspect.getsource(Engine.start_transcription_worker)
+        inject_idx = src.index("inject(assembled)")
+        assembled_idx = src.index("assembled = ")
+        assert "_wait_trigger_released()" in src[assembled_idx:inject_idx]
+
+
+class TestNoDoubleInjectionOnRapidRepress:
+    """Rapid re-press while the previous transcription is in flight: both
+    recordings' chunks can land in one buffer and the second stop_event used
+    to re-inject the identical assembled text (buffer was only cleared at
+    recording start, never on consumption)."""
+
+    def test_second_stop_event_does_not_reinject(self, config_path, mocker, tmp_path):
+        eng = _make_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["test 1 2", "3"])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        mocker.patch.object(eng._notifier, "transcription_succeeded")
+
+        eng.start_chunk_worker()
+        eng.start_transcription_worker()
+        try:
+            # Recording n and a quick re-press n+1: chunks from both end up
+            # in the same buffer before the worker consumes it.
+            eng._on_fsm_recording(None)
+            eng._state_machine.start_recording()
+            eng._enqueue_chunk(_chunk_file(tmp_path, "c1.wav"))
+            eng._chunk_queue.join()
+            eng._enqueue_chunk(_chunk_file(tmp_path, "c2.wav"))
+            eng._chunk_queue.join()
+
+            # Stop n: worker consumes and injects the assembled buffer.
+            assert eng.stop_and_wait_for_transcription(timeout=5.0) == "test 1 2 3"
+            inject.assert_called_once_with("test 1 2 3")
+
+            # Stop n+1 arrives with no new speech: FSM cycles again but the
+            # buffer was consumed — nothing to inject a second time.
+            eng._state_machine.start_recording()
+            eng._transcription_done_event.clear()
+            eng.state.stop_event.set()
+            eng._state_machine.stop_recording()
+            assert eng._transcription_done_event.wait(timeout=5.0)
+
+            inject.assert_called_once()  # still exactly one injection
+        finally:
+            eng.stop_transcription_worker()
+            eng.stop_chunk_worker()

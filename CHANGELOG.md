@@ -1,125 +1,117 @@
 # Changelog V1 — Whispy
 
-**Date de release:** 2026-05-26
+## [Unreleased]
 
-## [Non publié]
+### Added
+- **Trigger key selection from the menu (macOS).** The **Settings → Trigger**
+  menu lets you pick the push-to-talk key from presets (Fn, Right Command,
+  Right Option, F13); the change applies live, with no restart.
+- Module `src/whispy/core/config.py`: config validation and migration.
+- Module `src/whispy/core/text_cleaner.py`: stripping of Whisper credits.
+- Error-handling tests (`test_error_handling.py`): missing sox, unavailable
+  microphone, engine without a model.
+- Automatic config migration (versioning via `_version`).
+- Validation of config values (`model_size`, `language`, `beam_size`, etc.).
 
-### Ajoutés
-- **Sélection de la touche de déclenchement depuis le menu (macOS).** Le menu
-  **Settings → Trigger** permet de choisir la touche push-to-talk parmi des
-  préréglages (Fn, Right Command, Right Option, F13) ; le changement s'applique
-  à chaud, sans redémarrage.
+### Changed
+- **macOS install consolidated on `Whispy.app`.** A single command
+  (`curl … | bash`) detects the OS: on macOS it builds and installs the
+  signed `Whispy.app` bundle into `/Applications`; Linux/X11 keeps venv +
+  `systemd --user`. `install.sh` no longer creates a LaunchAgent on macOS
+  (autostart is the in-app "Start at login" toggle). Existing installs have
+  their `com.whispy` LaunchAgent removed automatically (ending the
+  double-daemon-on-`:9090` issue).
+- Extracted `load_config`/`save_config` from `engine.py` into `config.py`.
+- Unified model loading (`_load_model_async` + `_load_model_on_device` →
+  `_load_model_async`).
+- Clarified the active visualization (indicator by default).
+- Improved logging of FSM transitions.
+- Fixed hanging tests (mocked the `afplay` subprocess).
 
-### Changés
-- **Install macOS consolidé sur `Whispy.app`.** Une seule commande
-  (`curl … | bash`) détecte l'OS : macOS construit et installe le bundle signé
-  `Whispy.app` dans `/Applications` ; Linux/X11 garde venv + `systemd --user`.
-  `install.sh` macOS ne crée plus de LaunchAgent (autostart = toggle in-app
-  « Start at login »). Les installs existantes voient leur LaunchAgent
-  `com.whispy` retiré automatiquement (fin du double daemon sur `:9090`).
+### Removed
+- **Homebrew formula.** `packaging/homebrew/whispy.rb`, the tap bump in
+  `release.yml`, the `HOMEBREW_TAP_TOKEN` secret, `docs/homebrew.md` and its
+  test. (A *Cask* — the correct tool for a GUI app — remains a future option,
+  blocked on notarization.)
+- `whispy_legacy.py` (redundant with `whispy_daemon.py`).
 
-### Supprimés
-- **Formula Homebrew.** `packaging/homebrew/whispy.rb`, le bump de tap dans
-  `release.yml`, le secret `HOMEBREW_TAP_TOKEN`, `docs/homebrew.md` et son test.
-  (Un *Cask* — l'outil correct pour une app GUI — reste une piste future,
-  bloquée sur la notarisation.)
+### Fixed
+- **Ghost checkmark in the menu.** An unchecked row kept its green checkmark
+  (AppKit's `attributedTitle` takes priority over `.title`); also affected
+  Model/Language and the clipboard toggle.
+- **Bug: freeze at recording start.** `_wait_for_recording_ready` never
+  unblocked the main thread when sox failed or timed out (missing
+  `ready.set()`) — the daemon could freeze. `ready.set()` is now guaranteed
+  via `finally`.
+- **Audio visualization replaced.** The old ferrofluid visualization never
+  rendered (the renderer targeted nonexistent APIs:
+  `NSApplication.mainScreen`, `NSApplication.graphicsContext`, a mix of
+  NSBezierPath/CGContext). Replaced with a simple, reliable **waveform**
+  indicator (`ui/waveform_window.py`): a pill centered at the bottom of the
+  screen with bars reacting to the mic, rendered with NSBezierPath/NSColor.
+  Rewired into the menu bar lifecycle.
+- Fixed 21 broken/blocking tests (event tap callback signature, FSM recovery
+  behavior, ferrofluid wiring, API fixture that hung on transcription).
+- Cleaned up duplicate keycodes in `event_tap.py` (`51` mapped both `m` and
+  `backspace`, `f13`-`f20` were duplicated).
 
-### Corrigés
-- **Coche fantôme dans le menu.** Une ligne décochée conservait sa coche verte
-  (`attributedTitle` AppKit prime sur `.title`) ; touche aussi Model/Language et
-  le toggle presse-papiers.
+### Tooling & quality
+- Diagnostic command `python whispy_daemon.py --doctor` (`make doctor`):
+  checks sox, the model, the 3 macOS permissions, and the daemon status.
+- Migrated linting to **Ruff** (lint + format); removed flake8.
+- `Makefile`, `.pre-commit-config.yaml`, dev dependency `ruff`.
+- CI: Python 3.10/3.11/3.12 matrix, `ruff check` + `ruff format --check`.
+
+### Open source
+- `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue and PR templates.
+- Real repository URLs (`albrones/whispy`); placeholders removed.
+- `graphify-out/` removed from version control (generated artifact, ~7.6 MB)
+  and ignored.
+- Documentation moved under `docs/`; model storage documented.
+
+### Documentation
+- `AGENTS.md` updated with the actual project structure.
+- `SPECIFICATION.md`: obsolete sections marked.
+- README.md: up-to-date install instructions.
 
 ## [Cross-platform] — macOS + Linux/X11 (2026-06-17)
 
-### Ajoutés
-- **Support Linux (X11).** Whispy tourne désormais sur macOS **et** Linux/X11.
-- **Couche ports-and-adapters** (`src/whispy/platform/`) : interfaces `Protocol`
-  pour les seams couplés à l'OS (hotkey, injection, audio, tray) liées au
-  runtime par `platform.detect()`.
-- **Adaptateurs Linux/X11** : hotkey via `pynput`, injection texte via `xdotool`
-  (+ `xclip`/`xsel`), tray via `pystray`. Détection de session X11.
-- **Touche de déclenchement configurable** (push-to-talk) : défaut **Fn** sur
-  macOS, **Right Ctrl** sur Linux ; décodage par key-match en plus du flag Fn.
-- **Doctor multi-plateforme** : vérifie le backend audio, `xdotool` (Linux), le
-  modèle, les permissions de la plateforme et l'état du daemon.
+### Added
+- **Linux (X11) support.** Whispy now runs on macOS **and** Linux/X11.
+- **Ports-and-adapters layer** (`src/whispy/platform/`): `Protocol`
+  interfaces for the OS-coupled seams (hotkey, injection, audio, tray) bound
+  at runtime by `platform.detect()`.
+- **Linux/X11 adapters**: hotkey via `pynput`, text injection via `xdotool`
+  (+ `xclip`/`xsel`), tray via `pystray`. X11 session detection.
+- **Configurable trigger key** (push-to-talk): default **Fn** on macOS,
+  **Right Ctrl** on Linux; decoding by key match in addition to the Fn flag.
+- **Cross-platform doctor**: checks the audio backend, `xdotool` (Linux),
+  the model, platform permissions, and daemon status.
 
-### Modifiés
-- **Backend audio cross-platform.** Capture via `sounddevice` (PortAudio) à la
-  place du sous-processus `sox`, unifiée sur macOS et Linux.
-- **Dépendances par OS** via marqueurs d'environnement PEP 508 :
-  `pyobjc-framework-Quartz`/`rumps` sur macOS, `pynput`/`pystray`/`Pillow` sur
-  Linux ; `sox` supprimé.
-- **Overlay macOS-only.** Sur Linux v1, l'état est exposé via le tray (pas de
-  fenêtre flottante).
-
-### Documentation
-- Site promotionnel et docs « living » (README, ROADMAP) mis à jour : Whispy
-  n'est plus présenté comme macOS-only.
-
-**Non couvert (différé) :** Wayland, Windows, packaging Linux natif, overlay Linux.
-
-## [Unreleased]
-
-### Corrigés (préparation open source)
-- **Bug : gel au démarrage de l'enregistrement.** `_wait_for_recording_ready`
-  ne débloquait jamais le thread principal quand sox échouait ou dépassait le
-  timeout (`ready.set()` manquant) — le daemon pouvait freezer. `ready.set()`
-  est désormais garanti via `finally`.
-- **Visualisation audio remplacée.** L'ancienne visu ferrofluid ne rendait
-  jamais (renderer écrit contre des APIs inexistantes : `NSApplication.mainScreen`,
-  `NSApplication.graphicsContext`, mélange NSBezierPath/CGContext). Remplacée par
-  un indicateur **waveform** simple et fiable (`ui/waveform_window.py`) :
-  pilule centrée en bas d'écran avec barres réactives au micro, rendu en
-  NSBezierPath/NSColor. Recâblée dans le cycle de vie du menu bar.
-- Réparation de 21 tests cassés/bloquants (signature de callback event tap,
-  comportement FSM de récupération, câblage ferrofluid, fixture API qui
-  hangait sur la transcription).
-- Doublons de keycodes nettoyés dans `event_tap.py` (`51` mappait `m` ET
-  `backspace`, `f13`-`f20` dupliqués).
-
-### Outillage & qualité
-- Commande de diagnostic `python whispy_daemon.py --doctor` (`make doctor`) :
-  vérifie sox, le modèle, les 3 permissions macOS et l'état du daemon.
-- Migration du lint vers **Ruff** (lint + format) ; suppression de flake8.
-- `Makefile`, `.pre-commit-config.yaml`, dépendance dev `ruff`.
-- CI : matrice Python 3.10/3.11/3.12, `ruff check` + `ruff format --check`.
-
-### Open source
-- `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, templates d'issue et de PR.
-- URLs réelles du dépôt (`albrones/whispy`) ; placeholders supprimés.
-- `graphify-out/` retiré du versioning (artefact généré, ~7,6 Mo) et ignoré.
-- Documentation déplacée sous `docs/` ; stockage des modèles documenté.
-
-### Ajoutés
-- Module `src/whispy/core/config.py` : validation et migration de config
-- Module `src/whispy/core/text_cleaner.py` : stripping des credits Whisper
-- Tests d'erreur (`test_error_handling.py`) : sox manquant, micro indisponible, engine sans modèle
-- Migration automatique de config (versioning via `_version`)
-- Validation des valeurs de config (`model_size`, `language`, `beam_size`, etc.)
-
-### Modifiés
-- Extraction `load_config` / `save_config` de `engine.py` vers `config.py`
-- Unification du model loading (`_load_model_async` + `_load_model_on_device` → `_load_model_async`)
-- Clarification de la visualisation active (indicator par défaut)
-- Logging amélioré des transitions FSM
-- Correction des tests qui hang (mock `afplay` subprocess)
-
-### Supprimés
-- `whispy_legacy.py` (redondant avec `whispy_daemon.py`)
+### Changed
+- **Cross-platform audio backend.** Capture via `sounddevice` (PortAudio)
+  instead of the `sox` subprocess, unified across macOS and Linux.
+- **Per-OS dependencies** via PEP 508 environment markers:
+  `pyobjc-framework-Quartz`/`rumps` on macOS, `pynput`/`pystray`/`Pillow` on
+  Linux; `sox` removed.
+- **macOS-only overlay.** On Linux in v1, state is exposed via the tray
+  (no floating window).
 
 ### Documentation
-- `AGENTS.md` mis à jour avec la structure réelle du projet
-- `SPECIFICATION.md` : sections obsolètes marquées
-- README.md : instructions d'installation à jour
+- Promotional website and living docs (README, ROADMAP) updated: Whispy is
+  no longer presented as macOS-only.
 
-## Critères de sortie V1
+**Not covered (deferred):** Wayland, Windows, native Linux packaging, Linux
+overlay.
 
-- [x] Tous les tests passent (297 passed, 0 failure, 0 hang)
-- [x] `install.sh` vérifie sox, permissions, LaunchAgent
-- [x] Daemon démarre et s'arrête proprement
-- [x] Recording → transcription → injection fonctionne
-- [x] Config par défaut fonctionne sans fichier de config
-- [x] README.md à jour avec instructions d'installation
-- [x] Permissions macOS documentées
-- [x] CHANGELOG.md pour la V1
-- [x] CI configurée (GitHub Actions : lint Ruff + tests sur Python 3.10–3.12)
+## V1 Exit Criteria
+
+- [x] All tests pass (297 passed, 0 failures, 0 hangs)
+- [x] `install.sh` checks sox, permissions, LaunchAgent
+- [x] Daemon starts and stops cleanly
+- [x] Recording → transcription → injection works
+- [x] Default config works without a config file
+- [x] README.md up to date with install instructions
+- [x] macOS permissions documented
+- [x] CHANGELOG.md for V1
+- [x] CI configured (GitHub Actions: Ruff lint + tests on Python 3.10–3.12)

@@ -163,7 +163,7 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
 
     # Validate auto_detect_min_duration (must be positive number)
     adm = validated.get("auto_detect_min_duration")
-    if not isinstance(adm, (int, float)) or adm < 0:
+    if not isinstance(adm, int | float) or adm < 0:
         print(
             f"[config] Invalid auto_detect_min_duration '{adm}', defaulting to {DEFAULT_CONFIG['auto_detect_min_duration']}",
             file=sys.stderr,
@@ -172,7 +172,7 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
 
     # Validate min_recording_duration (must be a non-negative number)
     mrd = validated.get("min_recording_duration")
-    if not isinstance(mrd, (int, float)) or isinstance(mrd, bool) or mrd < 0:
+    if not isinstance(mrd, int | float) or isinstance(mrd, bool) or mrd < 0:
         print(
             f"[config] Invalid min_recording_duration '{mrd}', defaulting to {DEFAULT_CONFIG['min_recording_duration']}",
             file=sys.stderr,
@@ -207,7 +207,7 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
 
     # Validate pause_ms (must be a positive number; bool rejected).
     pause = validated.get("pause_ms")
-    if not isinstance(pause, (int, float)) or isinstance(pause, bool) or pause <= 0:
+    if not isinstance(pause, int | float) or isinstance(pause, bool) or pause <= 0:
         print(
             f"[config] Invalid pause_ms '{pause}', defaulting to {DEFAULT_CONFIG['pause_ms']}",
             file=sys.stderr,
@@ -216,7 +216,7 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
 
     # Validate min_chunk_s (must be a non-negative number; bool rejected).
     mcs = validated.get("min_chunk_s")
-    if not isinstance(mcs, (int, float)) or isinstance(mcs, bool) or mcs < 0:
+    if not isinstance(mcs, int | float) or isinstance(mcs, bool) or mcs < 0:
         print(
             f"[config] Invalid min_chunk_s '{mcs}', defaulting to {DEFAULT_CONFIG['min_chunk_s']}",
             file=sys.stderr,
@@ -225,7 +225,7 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
 
     # Validate max_chunk_s (must be a positive number greater than min_chunk_s).
     maxcs = validated.get("max_chunk_s")
-    if not isinstance(maxcs, (int, float)) or isinstance(maxcs, bool) or maxcs <= validated["min_chunk_s"]:
+    if not isinstance(maxcs, int | float) or isinstance(maxcs, bool) or maxcs <= validated["min_chunk_s"]:
         print(
             f"[config] Invalid max_chunk_s '{maxcs}', defaulting to {DEFAULT_CONFIG['max_chunk_s']}",
             file=sys.stderr,
@@ -338,9 +338,17 @@ def save_config(config: dict[str, Any], config_path: Path) -> None:
     config_dir = config_path.parent
     try:
         config_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            config_dir.chmod(0o700)
+        except OSError as exc:
+            print(f"[config] Failed to set permissions on {config_dir}: {exc}", file=sys.stderr)
         tmp_path = config_path.with_suffix(".json.tmp")
         with open(tmp_path, "w") as f:
             json.dump(filtered, f, indent=2)
+        try:
+            tmp_path.chmod(0o600)
+        except OSError as exc:
+            print(f"[config] Failed to set permissions on {tmp_path}: {exc}", file=sys.stderr)
         os.replace(tmp_path, config_path)
     except OSError as exc:
         print(f"[config] Failed to save {config_path}: {exc}", file=sys.stderr)

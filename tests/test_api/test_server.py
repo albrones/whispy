@@ -226,6 +226,79 @@ class TestPostStartStop:
         assert engine.state.stop_event.is_set()
 
 
+class TestPostStopSyncViaWorker:
+    """POST /stop delegates to Engine.stop_and_wait_for_transcription (fix-trigger-thread-blocking).
+
+    Streaming is enabled by default (DEFAULT_CONFIG), so `test_server`'s engine
+    is already wired for the streaming path.
+    """
+
+    def test_stop_returns_assembled_streaming_text(self, test_server, mocker, tmp_path):
+        # Regression: /stop used to call run_transcription() directly, which
+        # only knows the whole-file path — in streaming mode it always
+        # returned None instead of the assembled chunk text.
+        _, port, engine = test_server
+        engine.state.model = MagicMock()
+        mocker.patch.object(engine._audio_engine, "transcribe", side_effect=["hello", "world"])
+        inject = mocker.patch.object(engine._text_injector, "inject")
+        succeeded = mocker.patch.object(engine._notifier, "transcription_succeeded")
+
+        engine.start_chunk_worker()
+        engine.start_transcription_worker()
+        try:
+            status, _ = _post(port, "/start")
+            assert status == 200
+
+            for name in ("c1.wav", "c2.wav"):
+                chunk = tmp_path / name
+                chunk.write_bytes(b"\x00" * 100)
+                engine._enqueue_chunk(str(chunk))
+            engine._chunk_queue.join()
+
+            status, body = _post(port, "/stop")
+            assert status == 200
+            assert body["status"] == "done"
+            assert body["text"] == "hello world"
+            inject.assert_called_once_with("hello world")
+            succeeded.assert_called_once()
+        finally:
+            engine.stop_transcription_worker()
+            engine.stop_chunk_worker()
+
+    def test_stop_while_not_recording_is_noop(self, test_server, mocker):
+        _, port, engine = test_server
+        succeeded = mocker.patch.object(engine._notifier, "transcription_succeeded")
+
+        status, body = _post(port, "/stop")
+
+        assert status == 200
+        assert body == {"status": "done", "text": None}
+        succeeded.assert_not_called()
+
+    def test_stop_fires_success_cue_exactly_once_non_streaming(self, test_server, mocker, tmp_path):
+        _, port, engine = test_server
+        engine.update_config({"streaming_enabled": False})
+        engine.state.model = MagicMock()
+        wav = tmp_path / "rec.wav"
+        wav.write_bytes(b"\x00" * 6000)
+        mocker.patch.object(type(engine._audio_engine), "recording_path", property(lambda self: str(wav)))
+        mocker.patch.object(engine._audio_engine, "transcribe", return_value="hello")
+        mocker.patch.object(engine._text_injector, "inject")
+        succeeded = mocker.patch.object(engine._notifier, "transcription_succeeded")
+
+        engine.start_transcription_worker()
+        try:
+            status, _ = _post(port, "/start")
+            assert status == 200
+
+            status, body = _post(port, "/stop")
+            assert status == 200
+            assert body["status"] == "done"
+            succeeded.assert_called_once()
+        finally:
+            engine.stop_transcription_worker()
+
+
 class TestPostTranscribeFile:
     """Test POST /transcribe-file — the deterministic validation seam."""
 
@@ -363,6 +436,68 @@ class TestApiSecurity:
             assert False, "Should have raised"
         except urllib.error.HTTPError as e:
             assert e.code == 413
+
+
+class TestFailClosedAuth:
+    """No configured token (None or "") SHALL reject every endpoint with 401 (harden-privacy-file-perms)."""
+
+    def _server_with_token(self, mocker, tmp_path, token):
+        import whispy.core.audio as audio_module
+
+        recording_file = tmp_path / "whispy.wav"
+        recording_file.write_bytes(b"\x00" * 6000)
+        mocker.patch.object(audio_module, "RECORDING_PATH", str(recording_file))
+
+        ds = DictationState()
+        engine = Engine(ds)
+        mock_popen = mocker.patch("subprocess.Popen")
+        mock_instance = MagicMock()
+        mock_instance.poll.return_value = None
+        mock_popen.return_value = mock_instance
+
+        port = _find_free_port()
+        server = HTTPServer(("127.0.0.1", port), RequestHandler)
+        server.engine = engine
+        server.auth_token = token
+        server.allow_dir = str(tmp_path)
+
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        time.sleep(0.1)
+        return server, port
+
+    @pytest.mark.parametrize("token", [None, ""])
+    def test_every_endpoint_rejected_when_no_token_configured(self, mocker, tmp_path, token):
+        server, port = self._server_with_token(mocker, tmp_path, token)
+        try:
+            for path in ("/status", "/config"):
+                status, body = _get(port, path, token=None)
+                assert status == 401, f"GET {path} should be 401 when no token configured"
+                assert "error" in body
+
+            for path in ("/start", "/stop"):
+                status, body = _post(port, path, token=None)
+                assert status == 401, f"POST {path} should be 401 when no token configured"
+                assert "error" in body
+        finally:
+            server.shutdown()
+
+    @pytest.mark.parametrize("token", [None, ""])
+    def test_rejected_even_with_correct_host_and_no_origin(self, mocker, tmp_path, token):
+        # Correct Host, no Origin/Referer — would pass the DNS-rebinding and
+        # browser-origin checks; the missing token must still fail closed.
+        server, port = self._server_with_token(mocker, tmp_path, token)
+        try:
+            status, body = _get(
+                port,
+                "/status",
+                headers={"Host": f"127.0.0.1:{port}"},
+                token=None,
+            )
+            assert status == 401
+            assert "error" in body
+        finally:
+            server.shutdown()
 
 
 class TestUnknownEndpoints:

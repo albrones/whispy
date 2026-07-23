@@ -36,6 +36,7 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-mock>=3.10",
+    "pytest-timeout>=2.3",
     "ruff>=0.6",
     "pre-commit>=3.0",
 ]
@@ -54,6 +55,11 @@ markers = [
     "macos: requires macOS (real Whisper model, live hardware, CGEventTap/rumps)",
     "linux: requires a live Linux/X11 session (pynput, xdotool, pystray, real audio)",
 ]
+# Bounds a single test's runtime so a hang fails fast instead of blocking the
+# job until the CI-level timeout (up to 6h by default). The macos-real-seam
+# CI job overrides this with a longer --timeout for real model load/inference.
+timeout = 120
+timeout_method = "thread"
 
 [tool.ruff]
 line-length = 120

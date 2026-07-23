@@ -94,5 +94,27 @@ def clean_text(text: str | None) -> str | None:
     # Strip known hallucination phrases anywhere in the text, then collapse the
     # whitespace they leave behind. If nothing meaningful remains, return "".
     cleaned = _HALLUCINATION_PATTERN.sub(" ", cleaned)
+    cleaned = _strip_degenerate(cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
+
+
+# A run of the same character repeated this many times or more is a Whisper
+# repetition hallucination ("kkkkk…"), never natural language — collapse it to
+# a single character. 4 keeps legitimate long-vowel interjections ("aaah").
+_MAX_CHAR_RUN = 4
+_CHAR_RUN_RE = re.compile(rf"(.)\1{{{_MAX_CHAR_RUN - 1},}}", re.DOTALL)
+
+
+def _strip_degenerate(text: str) -> str:
+    """Remove Whisper's degenerate non-speech output.
+
+    Two signatures observed on silence / near-empty audio: a single character
+    repeated in a long run (``kkkkk…``) and box-drawing tokens (``│───────``).
+    Collapse over-long same-character runs, then drop whitespace-separated
+    tokens that carry no letter/digit and are not plain ASCII — this removes
+    box-drawing/symbol garbage while keeping real ASCII punctuation ("...", "?").
+    """
+    text = _CHAR_RUN_RE.sub(r"\1", text)
+    kept = [tok for tok in text.split() if re.search(r"\w", tok, re.UNICODE) or tok.isascii()]
+    return " ".join(kept)
