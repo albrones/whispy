@@ -652,6 +652,14 @@ class TestTextInjector:
             time.sleep(0.01)
         return mock_popen.call_count >= n
 
+    @staticmethod
+    def _wait_communicate(inst, n, timeout=2.0):
+        import time
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and inst.communicate.call_count < n:
+            time.sleep(0.01)
+
     def test_inject_via_clipboard(self, mocker):
         """Clipboard mode snapshots the clipboard, copies via pbcopy (stdin),
         pastes with Cmd+V, then restores the snapshot."""
@@ -699,6 +707,7 @@ class TestTextInjector:
         injector.inject('say "hello"')
 
         assert self._wait(mock_popen, 2)
+        self._wait_communicate(inst, 1)
         # Verbatim to pbcopy stdin — no escaping applied.
         assert inst.communicate.call_args_list[0].kwargs.get("input") == b'say "hello"'
 

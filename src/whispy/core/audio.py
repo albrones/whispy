@@ -467,11 +467,13 @@ class AudioEngine:
         auto_detect_min_duration: float = 0.5,
         min_recording_duration: float = 0.3,
         initial_prompt: str | None = None,
+        hotwords: str | None = None,
     ) -> str | None:
         """Transcribe an audio file. Returns None if transcription fails.
 
         ``initial_prompt`` biases the decoder toward a custom vocabulary; when
-        None the call behaves exactly as without it.
+        None the call behaves exactly as without it. ``hotwords`` provides
+        additional vocabulary hints via a separate decoder channel.
         """
         if model is None:
             print(
@@ -514,6 +516,7 @@ class AudioEngine:
                 condition_on_previous_text=False,
                 temperature=0,
                 initial_prompt=initial_prompt,
+                hotwords=hotwords,
             )
             text_parts = [seg.text.strip() for seg in segments]
             text = " ".join(text_parts)
