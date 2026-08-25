@@ -117,10 +117,10 @@ def mock_subprocess(mocker):
 
 
 @pytest.fixture
-def mock_whisper_model(mocker):
-    """Create a mock WhisperModel with transcribe output."""
+def mock_asr_model(mocker):
+    """Create a mock Parakeet model returning no text."""
     mock = MagicMock()
-    mock.transcribe.return_value = iter([])
+    mock.recognize.return_value = ""
     return mock
 
 
@@ -565,16 +565,12 @@ class TestFullFnWorkflowIntegration:
         assert engine._state_machine.is_idle is True
         assert engine._state_machine.is_transcribing is False
 
-    def test_transcription_with_mocked_whisper(self, state, engine, tmp_path, mocker):
+    def test_transcription_with_mocked_model(self, state, engine, tmp_path, mocker):
         """Full chain: stop recording → set up mock model → run_transcription → verify text."""
         mocker.patch("subprocess.Popen")
 
         mock_model = MagicMock()
-        mock_segments = [
-            MagicMock(text="hello"),
-            MagicMock(text="world"),
-        ]
-        mock_model.transcribe.return_value = (iter(mock_segments), MagicMock())
+        mock_model.recognize.return_value = "hello world"
         state.model = mock_model
 
         audio_file = tmp_path / "whispy.wav"
@@ -588,9 +584,7 @@ class TestFullFnWorkflowIntegration:
         assert "hello" in text
         assert "world" in text
 
-        mock_model.transcribe.assert_called_once()
-        call_args = mock_model.transcribe.call_args
-        assert call_args[0][0] == str(audio_file)
+        mock_model.recognize.assert_called_once_with(str(audio_file))
 
     def test_text_injection_after_transcription(self, state, engine, tmp_path, mock_subprocess, mocker):
         """Verify TextInjector inject is called with transcribed text."""
@@ -600,8 +594,7 @@ class TestFullFnWorkflowIntegration:
         audio_file.write_bytes(b"\x00" * 160)
 
         mock_model = MagicMock()
-        mock_segments = [MagicMock(text="test output")]
-        mock_model.transcribe.return_value = (iter(mock_segments), MagicMock())
+        mock_model.recognize.return_value = "test output"
         state.model = mock_model
 
         # run_transcription reads the audio engine's current recording path.
@@ -633,8 +626,7 @@ class TestFullFnWorkflowIntegration:
                 engine = Engine(state, tmp_config)
 
                 mock_model = MagicMock()
-                mock_segments = [MagicMock(text="final text")]
-                mock_model.transcribe.return_value = (iter(mock_segments), MagicMock())
+                mock_model.recognize.return_value = "final text"
                 state.model = mock_model
 
                 press_called = []
@@ -774,22 +766,22 @@ class TestFullFnWorkflowIntegration:
     def test_config_save_load_roundtrip(self, tmp_config):
         """Config save and load should preserve all values."""
         config = {
-            "model_size": "medium",
-            "language": "fr",
-            "beam_size": 3,
-            "best_of": 4,
+            "pause_ms": 800,
+            "min_chunk_s": 0.6,
+            "max_chunk_s": 10.0,
+            "vad_aggressiveness": 3,
             "copy_to_clipboard": False,
-            "auto_detect_min_duration": 1.0,
+            "custom_vocabulary": ["Whispy"],
         }
         save_config(config, tmp_config)
 
         loaded = load_config(tmp_config)
-        assert loaded["model_size"] == "medium"
-        assert loaded["language"] == "fr"
-        assert loaded["beam_size"] == 3
-        assert loaded["best_of"] == 4
+        assert loaded["pause_ms"] == 800
+        assert loaded["min_chunk_s"] == 0.6
+        assert loaded["max_chunk_s"] == 10.0
+        assert loaded["vad_aggressiveness"] == 3
         assert loaded["copy_to_clipboard"] is False
-        assert loaded["auto_detect_min_duration"] == 1.0
+        assert loaded["custom_vocabulary"] == ["Whispy"]
 
     def test_audio_engine_fsm_integration(self, sm):
         """AudioEngine start/stop should drive FSM transitions correctly."""

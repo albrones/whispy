@@ -3,8 +3,6 @@
 from .audio import AudioEngine
 from .engine import (
     DEFAULT_CONFIG,
-    MODEL_PRESETS,
-    SUPPORTED_LANGUAGES,
     DictationState,
     Engine,
     load_config,
@@ -17,8 +15,6 @@ __all__ = [
     "DictationState",
     "Engine",
     "DEFAULT_CONFIG",
-    "MODEL_PRESETS",
-    "SUPPORTED_LANGUAGES",
     "load_config",
     "save_config",
     "load_model_async",

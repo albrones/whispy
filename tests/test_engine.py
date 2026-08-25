@@ -24,11 +24,11 @@ class TestLoadConfig:
         config_dir = tmp_dir / ".config" / "whispy"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.json"
-        config_file.write_text(json.dumps({"model_size": "base", "language": "fr"}))
+        config_file.write_text(json.dumps({"copy_to_clipboard": True, "pause_ms": 800}))
 
         loaded = load_config(config_file)
-        assert loaded["model_size"] == "base"
-        assert loaded["language"] == "fr"
+        assert loaded["copy_to_clipboard"] is True
+        assert loaded["pause_ms"] == 800
 
     def test_missing_config_file_falls_back_to_defaults(self, tmp_dir):
         config_file = tmp_dir / "nonexistent" / "config.json"
@@ -48,20 +48,20 @@ class TestLoadConfig:
         config_dir = tmp_dir / ".config" / "whispy"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.json"
-        config_file.write_text(json.dumps({"model_size": "medium"}))
+        config_file.write_text(json.dumps({"pause_ms": 800}))
 
         loaded = load_config(config_file)
-        assert loaded["model_size"] == "medium"
-        assert loaded["language"] == "en"
+        assert loaded["pause_ms"] == 800
+        assert loaded["copy_to_clipboard"] == DEFAULT_CONFIG["copy_to_clipboard"]
 
     def test_unknown_keys_in_config_are_ignored(self, tmp_dir):
         config_dir = tmp_dir / ".config" / "whispy"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.json"
-        config_file.write_text(json.dumps({"model_size": "tiny", "unknown_key": 42}))
+        config_file.write_text(json.dumps({"pause_ms": 800, "unknown_key": 42}))
 
         loaded = load_config(config_file)
-        assert loaded["model_size"] == "tiny"
+        assert loaded["pause_ms"] == 800
         assert "unknown_key" not in loaded
 
     def test_all_default_keys_present(self, tmp_dir):
@@ -70,11 +70,17 @@ class TestLoadConfig:
         for key in DEFAULT_CONFIG:
             assert key in loaded
 
-    def test_default_language_is_english(self, tmp_dir):
-        config_file = tmp_dir / "nonexistent" / "config.json"
+    def test_legacy_whisper_keys_load_and_are_dropped(self, tmp_dir):
+        """A config from before the Parakeet swap still loads."""
+        config_dir = tmp_dir / ".config" / "whispy"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_file = config_dir / "config.json"
+        config_file.write_text(json.dumps({"model_size": "small", "language": "fr", "copy_to_clipboard": True}))
+
         loaded = load_config(config_file)
-        assert loaded["language"] == "en"
-        assert DEFAULT_CONFIG["language"] == "en"
+        assert "model_size" not in loaded
+        assert "language" not in loaded
+        assert loaded["copy_to_clipboard"] is True
 
     def test_default_copy_to_clipboard_is_false(self, tmp_dir):
         config_file = tmp_dir / "nonexistent" / "config.json"
@@ -93,13 +99,13 @@ class TestSaveConfig:
 
     def test_saves_correct_json(self, tmp_path):
         config = dict(DEFAULT_CONFIG)
-        config["model_size"] = "base"
+        config["pause_ms"] = 800
         config_path = tmp_path / "config.json"
         save_config(config, config_path)
 
         assert config_path.exists()
         saved = json.loads(config_path.read_text())
-        assert saved["model_size"] == "base"
+        assert saved["pause_ms"] == 800
 
     def test_creates_directory_if_missing(self, tmp_path):
         config = dict(DEFAULT_CONFIG)
@@ -109,23 +115,23 @@ class TestSaveConfig:
 
     def test_writes_json_to_disk(self, tmp_path):
         config = dict(DEFAULT_CONFIG)
-        config["model_size"] = "base"
+        config["pause_ms"] = 800
         config_path = tmp_path / "config.json"
         save_config(config, config_path)
 
         content = config_path.read_text()
-        assert '"model_size": "base"' in content
+        assert '"pause_ms": 800' in content
 
     def test_overwrites_existing_config(self, tmp_path):
         """Test that save_config overwrites the config at the given path."""
         config_path = tmp_path / "config.json"
         # Write a known config first
-        config_path.write_text(json.dumps({"model_size": "tiny", "language": "fr"}))
+        config_path.write_text(json.dumps({"pause_ms": 999, "copy_to_clipboard": True}))
 
         save_config(dict(DEFAULT_CONFIG), config_path)
         saved = json.loads(config_path.read_text())
-        assert saved["model_size"] == "small"
-        assert saved["language"] == "en"
+        assert saved["pause_ms"] == DEFAULT_CONFIG["pause_ms"]
+        assert saved["copy_to_clipboard"] == DEFAULT_CONFIG["copy_to_clipboard"]
 
 
 # ---------------------------------------------------------------------------
@@ -196,34 +202,33 @@ class TestEngineConfigUpdate:
     """Test Engine.update_config behavior."""
 
     def test_update_applies_changes(self, engine):
-        engine.update_config({"model_size": "base"})
-        assert engine.state.config["model_size"] == "base"
+        engine.update_config({"pause_ms": 800})
+        assert engine.state.config["pause_ms"] == 800
 
     def test_update_saves_to_disk(self, engine, config_path):
         # Verify save_config writes to the exact path passed to Engine
         assert engine._config_path == config_path
-        engine.update_config({"model_size": "base"})
+        engine.update_config({"pause_ms": 800})
         assert config_path.exists()
         saved = json.loads(config_path.read_text())
-        assert saved["model_size"] == "base"
+        assert saved["pause_ms"] == 800
 
-    def test_update_returns_true_on_model_size_change(self, engine):
-        result = engine.update_config({"model_size": "base"})
-        assert result is True
+    def test_update_never_requests_a_model_reload(self, engine):
+        """There is one model; no config key can select a different one.
 
-    def test_update_returns_false_on_only_copy_to_clipboard_change(self, engine):
-        result = engine.update_config({"copy_to_clipboard": False})
-        assert result is False
+        The old boolean return meant "reload the model now" and only
+        model_size ever set it.
+        """
+        assert engine.update_config({"copy_to_clipboard": False}) is None
 
     def test_update_updates_injector(self, engine):
         engine.update_config({"copy_to_clipboard": False})
         assert engine._text_injector._copy_to_clipboard is False
 
     def test_update_with_multiple_keys(self, engine):
-        result = engine.update_config({"model_size": "base", "language": "fr"})
-        assert result is True
-        assert engine.state.config["model_size"] == "base"
-        assert engine.state.config["language"] == "fr"
+        engine.update_config({"pause_ms": 800, "copy_to_clipboard": True})
+        assert engine.state.config["pause_ms"] == 800
+        assert engine.state.config["copy_to_clipboard"] is True
 
     def test_trigger_change_restarts_listener_when_active(self, engine, mocker):
         stop = mocker.patch.object(engine, "stop_fn_listener")
@@ -259,16 +264,16 @@ class TestEngineConfigUpdate:
         Guards the persistence path end-to-end: update_config -> save_config ->
         load_config returns the chosen values, not the defaults.
         """
-        engine.update_config({"model_size": "base", "language": "fr", "copy_to_clipboard": True})
+        engine.update_config({"pause_ms": 800, "min_chunk_s": 0.6, "copy_to_clipboard": True})
 
         # Simulate a fresh process start: read the same file from scratch.
         reloaded = load_config(config_path)
 
-        assert reloaded["model_size"] == "base"
-        assert reloaded["language"] == "fr"
+        assert reloaded["pause_ms"] == 800
+        assert reloaded["min_chunk_s"] == 0.6
         assert reloaded["copy_to_clipboard"] is True
         # And they differ from the shipped defaults, so this isn't a false pass.
-        assert reloaded["language"] != DEFAULT_CONFIG["language"]
+        assert reloaded["pause_ms"] != DEFAULT_CONFIG["pause_ms"]
 
 
 # ---------------------------------------------------------------------------
@@ -355,12 +360,12 @@ class TestTranscriptionWorkerFsm:
 
 
 # ---------------------------------------------------------------------------
-# custom_vocabulary -> initial_prompt wiring
+# custom_vocabulary -> text-cleaning wiring
 # ---------------------------------------------------------------------------
 
 
 class TestCustomVocabularyWiring:
-    """run_transcription builds an initial_prompt from custom_vocabulary."""
+    """run_transcription hands the vocabulary to cleaning, never to the model."""
 
     def _prep(self, engine, mocker, tmp_path):
         """Point the recording path at a real file and stub the I/O side effects."""
@@ -373,21 +378,34 @@ class TestCustomVocabularyWiring:
         mocker.patch.object(engine._audio_engine, "cleanup_audio_file")
         return transcribe
 
-    def test_vocabulary_builds_initial_prompt(self, engine, mocker, tmp_path):
+    def test_vocabulary_never_reaches_the_transcription_call(self, engine, mocker, tmp_path):
+        """The transducer has no biasing channel; sending one would be a bug."""
         transcribe = self._prep(engine, mocker, tmp_path)
-        engine.state.config["custom_vocabulary"] = ["Whispy", "ctranslate2"]
+        engine.state.config["custom_vocabulary"] = ["Whispy", "Parakeet"]
 
         engine.run_transcription()
 
-        assert transcribe.call_args[1]["initial_prompt"] == "Whispy, ctranslate2"
+        kwargs = transcribe.call_args[1]
+        for forbidden in ("initial_prompt", "hotwords", "vocabulary", "language"):
+            assert forbidden not in kwargs, f"{forbidden} was forwarded to the model"
 
-    def test_empty_vocabulary_passes_none(self, engine, mocker, tmp_path):
+    def test_vocabulary_is_applied_during_cleaning(self, engine, mocker, tmp_path):
         transcribe = self._prep(engine, mocker, tmp_path)
+        transcribe.return_value = "wispy is great"
+        engine.state.config["custom_vocabulary"] = ["Whispy"]
+
+        engine.run_transcription()
+
+        assert engine.state.last_transcription == "Whispy is great"
+
+    def test_empty_vocabulary_leaves_text_alone(self, engine, mocker, tmp_path):
+        transcribe = self._prep(engine, mocker, tmp_path)
+        transcribe.return_value = "wispy is great"
         engine.state.config["custom_vocabulary"] = []
 
         engine.run_transcription()
 
-        assert transcribe.call_args[1]["initial_prompt"] is None
+        assert engine.state.last_transcription == "wispy is great"
 
 
 # ---------------------------------------------------------------------------
@@ -742,8 +760,9 @@ class TestStreamingChunkPipeline:
         assert eng._chunk_texts == ["alpha", "beta"]
 
     def test_chunks_transcribed_independently(self, config_path, mocker, tmp_path):
-        # The previous chunk's text is never fed back as decoder context: each
-        # call's initial_prompt depends only on the custom vocabulary.
+        # No conditioning argument is passed to achieve independence: the
+        # transducer carries no cross-call decoder context by construction.
+        # Each call therefore differs only in the audio path.
         eng = _make_streaming_engine(config_path, mocker)
         eng.state.config["custom_vocabulary"] = ["Whispy"]
         transcribe = mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["one", "two"])
@@ -752,8 +771,13 @@ class TestStreamingChunkPipeline:
         eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
         eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"))
 
-        prompts = [c.kwargs["initial_prompt"] for c in transcribe.call_args_list]
-        assert prompts == ["Whispy", "Whispy"]
+        assert len(transcribe.call_args_list) == 2
+        for call in transcribe.call_args_list:
+            for forbidden in ("initial_prompt", "condition_on_previous_text", "hotwords", "language"):
+                assert forbidden not in call.kwargs
+        # The only difference between the two calls is which chunk they read.
+        paths = [c.kwargs["audio_path"] for c in transcribe.call_args_list]
+        assert paths[0] != paths[1]
 
     def test_empty_chunk_injects_nothing(self, config_path, mocker, tmp_path):
         eng = _make_streaming_engine(config_path, mocker)

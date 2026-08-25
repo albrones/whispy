@@ -15,7 +15,6 @@ set -euo pipefail
 #   WHISPY_HOME    install location (default: ~/.local/share/whispy)
 #   WHISPY_REPO    git URL (default: https://github.com/albrones/whispy.git)
 #   WHISPY_REF     branch/tag to check out (default: main)
-#   WHISPER_MODEL  whisper model passed through to install.sh (default: small)
 #
 # Uninstall:
 #   curl -fsSL .../bootstrap.sh | bash -s -- --uninstall
@@ -35,7 +34,7 @@ echo ""
 
 # Uninstall path: delegate to install.sh, then remove the managed source tree.
 # install.sh also offers to remove user data (config incl. API token, logs,
-# and the downloaded Whisper model cache) -- interactively only, so this
+# and the downloaded model cache) -- interactively only, so this
 # stays safe to pipe via `curl | bash` with no TTY (see install.sh).
 if [[ "${1:-}" == "--uninstall" ]]; then
     if [ -x "$WHISPY_HOME/install.sh" ]; then
@@ -78,7 +77,7 @@ fi
 echo -e "${GREEN}[OK] Source ready at $WHISPY_HOME${NC}"
 echo ""
 
-# Route by OS. WHISPER_MODEL is honored by install.sh if exported.
+# Route by OS.
 case "$(uname -s)" in
 Linux)
     # Linux: venv + systemd --user unit (unchanged).

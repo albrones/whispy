@@ -197,11 +197,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self._json_response(400, {"error": "compute_key is no longer configurable"})
                 return
 
-            needs_reload = engine.update_config(body)
-            if needs_reload:
-                from ..core.engine import load_model_async
-
-                load_model_async(engine)
+            engine.update_config(body)
             self._json_response(200, {"status": "ok", "config": engine.state.config})
 
         else:

@@ -1,9 +1,9 @@
 """Environment diagnostic for Whispy.
 
 Run via ``python whispy_daemon.py --doctor`` (or ``make doctor``). Checks the
-things that most often block a fresh install — the audio backend, the Whisper
-model, the platform permissions/prerequisites, and whether the daemon is
-already running — and prints an actionable report.
+things that most often block a fresh install — the audio backend, the
+transcription model, the platform permissions/prerequisites, and whether the
+daemon is already running — and prints an actionable report.
 
 Each check is a small function returning a :class:`CheckResult`, so the report
 logic can be unit-tested with injected checks.
@@ -18,7 +18,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from .core.config import DEFAULT_CONFIG, get_default_config_path, load_config
+from .core.config import get_default_config_path
 
 OK = "ok"
 WARN = "warn"
@@ -59,18 +59,27 @@ def check_xdotool() -> CheckResult:
     return CheckResult("xdotool", FAIL, "not found — install with your package manager (e.g. `apt install xdotool`)")
 
 
-def check_model(config_path: Path | None = None) -> CheckResult:
-    """The configured Whisper model should be present in the HF cache."""
-    try:
-        cfg = load_config(config_path or get_default_config_path())
-    except Exception:
-        cfg = dict(DEFAULT_CONFIG)
-    size = cfg.get("model_size", DEFAULT_CONFIG["model_size"])
+# HuggingFace hub cache directory for the Parakeet ONNX weights. Kept here (and
+# in install.sh's uninstall glob) so both agree on what belongs to Whispy inside
+# a cache directory shared with every other HF-using tool on the machine.
+MODEL_CACHE_GLOB = "models--istupakov--parakeet-tdt-0.6b-v3-onnx"
 
+
+def check_model(config_path: Path | None = None) -> CheckResult:
+    """The Parakeet model should be present in the HF cache.
+
+    Absence is a warning, not a failure: the first run downloads the weights.
+    ``config_path`` is accepted (and ignored) so the check keeps the uniform
+    signature the report runner calls every check with.
+    """
     cache = Path.home() / ".cache" / "huggingface" / "hub"
-    if cache.exists() and list(cache.glob(f"*faster-whisper-{size}*")):
-        return CheckResult("model", OK, f"{size} cached")
-    return CheckResult("model", WARN, f"{size} not downloaded yet (downloads automatically on first use)")
+    if cache.exists() and list(cache.glob(MODEL_CACHE_GLOB)):
+        return CheckResult("model", OK, "parakeet-tdt-0.6b-v3 (int8) cached")
+    return CheckResult(
+        "model",
+        WARN,
+        "parakeet-tdt-0.6b-v3 not downloaded yet (~639 MB, downloads automatically on first use)",
+    )
 
 
 def check_input_monitoring() -> CheckResult:

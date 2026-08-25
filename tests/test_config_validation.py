@@ -86,33 +86,51 @@ class TestSaveConfigFiltering:
 
     def test_valid_configs_pass_through_unchanged(self, tmp_path):
         config = dict(DEFAULT_CONFIG)
-        config["model_size"] = "base"
+        config["copy_to_clipboard"] = True
         config_path = tmp_path / "config.json"
         save_config(config, config_path)
 
         saved = json.loads(config_path.read_text())
-        assert saved["model_size"] == "base"
-        assert saved["language"] == "en"
+        assert saved["copy_to_clipboard"] is True
         for key in DEFAULT_CONFIG:
             assert key in saved
 
     def test_mixed_valid_invalid_configs_save_only_valid(self, tmp_path):
         config = {
-            "model_size": "tiny",
-            "language": "en",
             "copy_to_clipboard": True,
+            "min_recording_duration": 0.5,
             "unknown_key": "should_not_appear",
-            "beam_size": 5,
         }
         config_path = tmp_path / "config.json"
         save_config(config, config_path)
 
         saved = json.loads(config_path.read_text())
-        assert saved["model_size"] == "tiny"
-        assert saved["language"] == "en"
         assert saved["copy_to_clipboard"] is True
-        assert saved["beam_size"] == 5
+        assert saved["min_recording_duration"] == 0.5
         assert "unknown_key" not in saved
+
+    def test_legacy_whisper_keys_are_dropped_not_fatal(self, tmp_path):
+        """A config written before the Parakeet swap must still load.
+
+        model_size / language / beam_size / best_of / auto_detect_min_duration
+        configured the Whisper decoder and no longer exist. They are dropped
+        like any other unknown key rather than raising.
+        """
+        config = {
+            "model_size": "small",
+            "language": "fr",
+            "beam_size": 1,
+            "best_of": 2,
+            "auto_detect_min_duration": 0.5,
+            "copy_to_clipboard": True,
+        }
+        config_path = tmp_path / "config.json"
+        save_config(config, config_path)
+
+        saved = json.loads(config_path.read_text())
+        for legacy in ("model_size", "language", "beam_size", "best_of", "auto_detect_min_duration"):
+            assert legacy not in saved
+        assert saved["copy_to_clipboard"] is True
 
     def test_empty_config_uses_all_defaults(self, tmp_path):
         config_path = tmp_path / "config.json"
@@ -166,7 +184,7 @@ class TestSaveConfigPermissions:
 
         assert config_path.exists()
         saved = json.loads(config_path.read_text())
-        assert saved["model_size"] == DEFAULT_CONFIG["model_size"]
+        assert saved["copy_to_clipboard"] == DEFAULT_CONFIG["copy_to_clipboard"]
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +290,7 @@ class TestStreamingConfig:
 
         config_file = tmp_path / "config.json"
         # A pre-streaming config without the new keys.
-        config_file.write_text(json.dumps({"model_size": "small", "_version": 0}))
+        config_file.write_text(json.dumps({"copy_to_clipboard": False, "_version": 0}))
 
         loaded = load_config(config_file)
         for key in ("streaming_enabled", "pause_ms", "min_chunk_s", "max_chunk_s", "vad_aggressiveness"):

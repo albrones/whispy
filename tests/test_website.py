@@ -152,9 +152,32 @@ def test_no_adaptive_learning_claim(html: str):
     assert "learned words" not in lowered
 
 
-def test_demo_menu_shows_trigger_submenu(html: str):
-    """The animated menu-bar demo mirrors the real menu: it includes a
-    Trigger entry alongside Model and Language."""
+def test_demo_menu_mirrors_the_real_menu(html: str):
+    """The animated menu-bar demo may only depict settings that exist.
+
+    Model and Language went away with the Whisper backend: Parakeet ships in
+    one size and detects language itself.
+    """
     dropdown = html.split("data-demo-dropdown", 1)[1].split("</div>\n\n", 1)[0]
-    for entry in ("Model", "Language", "Trigger"):
-        assert f"<span>{entry}</span>" in dropdown, f"demo dropdown missing {entry} entry"
+    assert "<span>Trigger</span>" in dropdown, "demo dropdown missing Trigger entry"
+    for gone in ("Model", "Language"):
+        assert f"<span>{gone}</span>" not in dropdown, f"demo dropdown still shows a {gone} row"
+
+
+def test_site_names_the_model_that_actually_runs(html: str):
+    """The page must not present faster-whisper as the engine."""
+    assert "parakeet" in html.lower()
+    assert "faster-whisper" not in html.lower()
+
+
+def test_site_attributes_the_model(html: str):
+    """The model is CC-BY-4.0, so attribution is owed on the page."""
+    assert "CC-BY-4.0" in html, "site must credit the model licence"
+    assert "NVIDIA" in html, "site must credit NVIDIA for the model"
+
+
+def test_site_offers_no_model_choice(html: str):
+    """No copy may imply a choice of model size or quality tier."""
+    lowered = html.lower()
+    for claim in ("pick your model", "model size", "tunable models"):
+        assert claim not in lowered, f"site still offers a model choice: {claim!r}"

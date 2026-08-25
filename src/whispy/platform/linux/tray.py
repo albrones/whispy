@@ -40,7 +40,7 @@ class PystrayApp:
     def _status_text(self) -> str:
         state = self.engine.state
         if state.model_loading:
-            return f"Loading model ({state.config['model_size']})…"
+            return "Loading model…"
         if state.model is None:
             return "⚠ Model not loaded"
         if state.is_recording:

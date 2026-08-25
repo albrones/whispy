@@ -135,12 +135,15 @@ def temp_audio_file(tmp_dir):
 
 
 @pytest.fixture
-def mock_whisper_model(mocker):
-    """Create a mock WhisperModel."""
-    from faster_whisper import WhisperModel
+def mock_asr_model(mocker):
+    """Create a mock Parakeet model.
 
-    mock = MagicMock(spec=WhisperModel)
-    mock.transcribe.return_value = iter([])
+    The backend contract is one method: ``recognize(audio)`` returns a string
+    (empty for silence). No spec= here — onnx_asr builds the model class at
+    load time, so there is no importable type to spec against.
+    """
+    mock = MagicMock()
+    mock.recognize.return_value = ""
     return mock
 
 

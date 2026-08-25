@@ -94,13 +94,10 @@ def mock_subprocess(mocker):
 
 
 @pytest.fixture
-def mock_whisper_model(mocker):
-    """Create a mock WhisperModel with transcribe output."""
+def mock_asr_model(mocker):
+    """Create a mock Parakeet model with recognize output."""
     mock = MagicMock()
-    mock.transcribe.return_value = [
-        MagicMock(text="hello world"),
-        MagicMock(text="test phrase"),
-    ]
+    mock.recognize.return_value = "hello world test phrase"
     return mock
 
 
@@ -116,8 +113,8 @@ class TestFullWorkflow:
         """Test the full workflow: engine init -> start recording -> stop -> transcribe -> inject."""
         # 1. Engine is created and initialized
         assert engine.state is state
-        assert engine.state.config["model_size"] == "small"
-        assert engine.state.config["language"] == "en"
+        assert engine.state.config["copy_to_clipboard"] is False
+        assert engine.state.config["streaming_enabled"] is True
 
         status = engine.get_status()
         assert status["is_recording"] is False
@@ -142,15 +139,7 @@ class TestFullWorkflow:
 
         # 4. Set up mock model for transcription
         mock_model = MagicMock()
-        mock_model.transcribe.return_value = (
-            iter(
-                [
-                    MagicMock(text="hello world"),
-                    MagicMock(text="test phrase"),
-                ]
-            ),
-            {},
-        )
+        mock_model.recognize.return_value = "hello world test phrase"
         state.model = mock_model
 
         # 5. Run transcription (spy the injector port — injection backend is
@@ -172,15 +161,7 @@ class TestFullWorkflow:
         engine.update_config({"copy_to_clipboard": False})
 
         mock_model = MagicMock()
-        mock_model.transcribe.return_value = (
-            iter(
-                [
-                    MagicMock(text="hello world"),
-                    MagicMock(text="test phrase"),
-                ]
-            ),
-            {},
-        )
+        mock_model.recognize.return_value = "hello world test phrase"
         state.model = mock_model
 
         audio_file = tmp_path / "whispy.wav"
@@ -208,22 +189,22 @@ class TestConfigPersistence:
     def test_save_and_load_config(self, config_path):
         """Test saving and loading config preserves all values."""
         config = {
-            "model_size": "medium",
-            "language": "fr",
-            "beam_size": 3,
-            "best_of": 4,
+            "pause_ms": 800,
+            "min_chunk_s": 0.6,
+            "max_chunk_s": 10.0,
+            "vad_aggressiveness": 3,
             "copy_to_clipboard": False,
-            "auto_detect_min_duration": 1.0,
+            "custom_vocabulary": ["Whispy"],
         }
         save_config(config, config_path)
 
         loaded = load_config(config_path)
-        assert loaded["model_size"] == "medium"
-        assert loaded["language"] == "fr"
-        assert loaded["beam_size"] == 3
-        assert loaded["best_of"] == 4
+        assert loaded["pause_ms"] == 800
+        assert loaded["min_chunk_s"] == 0.6
+        assert loaded["max_chunk_s"] == 10.0
+        assert loaded["vad_aggressiveness"] == 3
         assert loaded["copy_to_clipboard"] is False
-        assert loaded["auto_detect_min_duration"] == 1.0
+        assert loaded["custom_vocabulary"] == ["Whispy"]
 
     def test_load_missing_config_falls_back_to_defaults(self, tmp_path):
         """Test loading a non-existent config file returns defaults."""
@@ -240,30 +221,30 @@ class TestConfigPersistence:
     def test_config_partial_update(self, config_path):
         """Test that partial config saves and loads correctly."""
         # Save initial
-        save_config({"model_size": "tiny", "language": "en"}, config_path)
+        save_config({"pause_ms": 700, "copy_to_clipboard": True}, config_path)
 
         # Load
         loaded = load_config(config_path)
-        assert loaded["model_size"] == "tiny"
-        assert loaded["language"] == "en"
+        assert loaded["pause_ms"] == 700
+        assert loaded["copy_to_clipboard"] is True
 
         # Update only one key
-        loaded["model_size"] = "base"
+        loaded["pause_ms"] = 800
         save_config(loaded, config_path)
 
         # Verify only that key changed
         reloaded = load_config(config_path)
-        assert reloaded["model_size"] == "base"
-        assert reloaded["language"] == "en"
+        assert reloaded["pause_ms"] == 800
+        assert reloaded["copy_to_clipboard"] is True
 
     def test_save_config_uses_passed_path_not_hardcoded(self, config_path):
         """Test that save_config writes to the exact path passed, not a hardcoded one."""
-        config = {"model_size": "base"}
+        config = {"pause_ms": 800}
         save_config(config, config_path)
 
         assert config_path.exists()
         content = json.loads(config_path.read_text())
-        assert content["model_size"] == "base"
+        assert content["pause_ms"] == 800
 
         # Verify no file was created in ~/.config/whispy (the old hardcoded path bug)
         # This is the key test for the save_config fix
@@ -280,12 +261,12 @@ class TestConfigPersistence:
         initial_path = engine._config_path
         assert initial_path.exists() is False  # Fresh engine, no config yet
 
-        engine.update_config({"model_size": "base", "language": "fr"})
+        engine.update_config({"pause_ms": 800, "copy_to_clipboard": True})
 
         assert initial_path.exists()
         loaded = load_config(initial_path)
-        assert loaded["model_size"] == "base"
-        assert loaded["language"] == "fr"
+        assert loaded["pause_ms"] == 800
+        assert loaded["copy_to_clipboard"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -343,24 +324,24 @@ class TestHTTPAPIWithEngine:
         _, port, engine = test_server
         status, body = _http_get(port, "/config")
         assert status == 200
-        assert body["model_size"] == "small"
-        assert body["language"] == "en"
+        assert body["copy_to_clipboard"] is False
+        assert body["streaming_enabled"] is True
 
     def test_post_config_updates_and_persists(self, test_server, tmp_path):
         """Test POST /config updates engine config and persists to disk."""
         _, port, engine = test_server
-        status, body = _http_post(port, "/config", {"model_size": "medium", "language": "fr"})
+        status, body = _http_post(port, "/config", {"pause_ms": 800, "copy_to_clipboard": True})
         assert status == 200
         assert body["status"] == "ok"
-        assert engine.state.config["model_size"] == "medium"
-        assert engine.state.config["language"] == "fr"
+        assert engine.state.config["pause_ms"] == 800
+        assert engine.state.config["copy_to_clipboard"] is True
 
         # Verify persistence
         config_file = engine._config_path
         assert config_file.exists()
         persisted = json.loads(config_file.read_text())
-        assert persisted["model_size"] == "medium"
-        assert persisted["language"] == "fr"
+        assert persisted["pause_ms"] == 800
+        assert persisted["copy_to_clipboard"] is True
 
     def test_get_last_transcription(self, test_server):
         """Test GET /last-transcription returns last transcription text."""
@@ -397,10 +378,7 @@ class TestHTTPAPIWithEngine:
         audio_file.write_bytes(b"\x00" * 160)  # Minimal WAV header
 
         mock_model = MagicMock()
-        mock_model.transcribe.return_value = [
-            MagicMock(text="transcribed text"),
-            MagicMock(text="more text"),
-        ]
+        mock_model.recognize.return_value = "transcribed text more text"
         state.model = mock_model
 
         # /stop transcribes the audio engine's current recording path.
@@ -442,28 +420,22 @@ class TestEngineLifecycle:
         """Test Engine config updates work correctly."""
         engine.update_config(
             {
-                "model_size": "base",
-                "language": "fr",
-                "beam_size": 3,
-                "best_of": 5,
+                "pause_ms": 800,
+                "min_chunk_s": 0.6,
+                "vad_aggressiveness": 3,
                 "copy_to_clipboard": False,
             }
         )
 
-        assert engine.state.config["model_size"] == "base"
-        assert engine.state.config["language"] == "fr"
-        assert engine.state.config["beam_size"] == 3
-        assert engine.state.config["best_of"] == 5
+        assert engine.state.config["pause_ms"] == 800
+        assert engine.state.config["min_chunk_s"] == 0.6
+        assert engine.state.config["vad_aggressiveness"] == 3
         assert engine.state.config["copy_to_clipboard"] is False
 
-    def test_engine_config_update_returns_reload_flag(self, state, engine):
-        """Test that config update returns True when model reload is needed."""
-        # model_size change triggers reload
-        assert engine.update_config({"model_size": "medium"}) is True
-
-        # other changes don't trigger reload
-        assert engine.update_config({"language": "fr"}) is False
-        assert engine.update_config({"beam_size": 3}) is False
+    def test_engine_config_update_never_requests_a_reload(self, state, engine):
+        """No config key selects a model, so no update can require a reload."""
+        assert engine.update_config({"pause_ms": 800}) is None
+        assert engine.update_config({"copy_to_clipboard": True}) is None
 
     def test_engine_text_injector_config_sync(self, state):
         """Test that TextInjector config stays in sync with engine config."""
@@ -757,15 +729,11 @@ class TestFullEngineAudioFSMIntegration:
         assert engine.start_recording() is False
 
     def test_engine_transcription_worker_config(self, state, engine):
-        """Test that transcription worker respects config."""
-        assert engine.state.config["model_size"] in (
-            "tiny",
-            "base",
-            "small",
-            "medium",
-            "large-v3",
-        )
-        assert engine.state.config["language"] in ("fr", "en")
+        """The transcription config carries no model or decoder knobs."""
+        cfg = engine.state.config
+        for gone in ("model_size", "language", "beam_size", "best_of", "auto_detect_min_duration"):
+            assert gone not in cfg
+        assert isinstance(cfg["min_recording_duration"], int | float)
 
 
 # ---------------------------------------------------------------------------

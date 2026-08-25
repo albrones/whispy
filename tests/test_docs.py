@@ -70,12 +70,29 @@ def _test_table_paths(readme_text: str) -> list[str]:
 # --- Documented defaults match code -----------------------------------------
 
 
-def test_readme_language_default_matches_config(readme: str):
-    """README-documented `language` default equals DEFAULT_CONFIG['language']."""
+def test_readme_does_not_document_removed_config_keys(readme: str):
+    """Keys that configured the Whisper decoder must not appear as settings."""
     section = _section(readme, "Configuration")
-    match = re.search(r"`language`\s*\|\s*`([a-zA-Z_-]+)`", section)
-    assert match is not None, "language row not found in the README Configuration table"
-    assert match.group(1) == DEFAULT_CONFIG["language"]
+    for gone in ("model_size", "language", "beam_size", "best_of", "auto_detect_min_duration"):
+        assert f"`{gone}`" not in section, f"README still documents the removed `{gone}` setting"
+
+
+def test_readme_names_the_model_that_actually_runs(readme: str):
+    """The README must present Parakeet as the engine, not Whisper.
+
+    faster-whisper may still be *named* — the upgrade note points at the stale
+    model cache — but never as the thing that transcribes.
+    """
+    lowered = readme.lower()
+    assert "parakeet" in lowered
+
+    for line in lowered.splitlines():
+        if "faster-whisper" not in line:
+            continue
+        # Allowed: the stale-cache path and the sentence retiring it.
+        assert (
+            "no longer used" in line or "models--systran--faster-whisper" in line
+        ), f"README still presents faster-whisper as the engine: {line.strip()!r}"
 
 
 # --- Complete config key reference ------------------------------------------

@@ -2,6 +2,7 @@
 
 import os
 import sys
+import wave
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -373,161 +374,130 @@ class TestStaleRecordingSweep:
 class TestTranscribe:
     """Test AudioEngine.transcribe() behavior."""
 
+    @staticmethod
+    def _clip(tmp_path):
+        audio_path = str(tmp_path / "test.wav")
+        with open(audio_path, "wb") as f:
+            f.write(b"\x00" * 100)
+        return audio_path
+
     def test_none_model_returns_none(self, sm):
         audio = AudioEngine(sm)
         result = audio.transcribe("/tmp/test.wav", model=None)
         assert result is None
 
-    def test_valid_model_calls_transcribe(self, sm, mock_whisper_model, tmp_path):
+    def test_valid_model_calls_recognize(self, sm, mock_asr_model, tmp_path):
         audio = AudioEngine(sm)
-        audio_path = str(tmp_path / "test.wav")
-        with open(audio_path, "wb") as f:
-            f.write(b"\x00" * 100)
+        audio_path = self._clip(tmp_path)
+        mock_asr_model.recognize.return_value = "hello world"
 
-        # Mock segments to return text
-        mock_segment = MagicMock()
-        mock_segment.text = "hello world"
-        mock_whisper_model.transcribe.return_value = ([mock_segment], MagicMock())
-
-        result = audio.transcribe(audio_path, mock_whisper_model)
+        result = audio.transcribe(audio_path, mock_asr_model)
         assert result == "hello world"
-        mock_whisper_model.transcribe.assert_called_once()
+        mock_asr_model.recognize.assert_called_once_with(audio_path)
 
-    def test_language_parameter_passed_through(self, sm, mock_whisper_model, tmp_path):
+    def test_no_decoder_arguments_are_forwarded(self, sm, mock_asr_model, tmp_path):
+        """The transducer takes audio and nothing else.
+
+        Guards the requirement directly: a forced language made the previous
+        backend translate instead of recognize, and disabling previous-text
+        conditioning without VAD truncated long recordings. Neither knob may
+        come back through this call.
+        """
         audio = AudioEngine(sm)
-        audio_path = str(tmp_path / "test.wav")
-        with open(audio_path, "wb") as f:
-            f.write(b"\x00" * 100)
+        mock_asr_model.recognize.return_value = "bonjour"
 
-        mock_segment = MagicMock()
-        mock_segment.text = "bonjour"
-        mock_whisper_model.transcribe.return_value = ([mock_segment], MagicMock())
+        audio.transcribe(self._clip(tmp_path), mock_asr_model)
 
-        audio.transcribe(audio_path, mock_whisper_model, language="fr")
-        call_kwargs = mock_whisper_model.transcribe.call_args
-        assert call_kwargs[1]["language"] == "fr"
+        _args, kwargs = mock_asr_model.recognize.call_args
+        assert kwargs == {}, f"unexpected decoder arguments: {kwargs}"
 
-    def test_beam_size_passed_through(self, sm, mock_whisper_model, tmp_path):
+    def test_result_is_stripped(self, sm, mock_asr_model, tmp_path):
         audio = AudioEngine(sm)
-        audio_path = str(tmp_path / "test.wav")
-        with open(audio_path, "wb") as f:
-            f.write(b"\x00" * 100)
+        mock_asr_model.recognize.return_value = "  bonjour  "
+        assert audio.transcribe(self._clip(tmp_path), mock_asr_model) == "bonjour"
 
-        mock_segment = MagicMock()
-        mock_segment.text = "hello"
-        mock_whisper_model.transcribe.return_value = ([mock_segment], MagicMock())
-
-        audio.transcribe(audio_path, mock_whisper_model, beam_size=5)
-        call_kwargs = mock_whisper_model.transcribe.call_args
-        assert call_kwargs[1]["beam_size"] == 5
-
-    def test_best_of_passed_through(self, sm, mock_whisper_model, tmp_path):
+    def test_empty_result_returns_none(self, sm, mock_asr_model, tmp_path):
         audio = AudioEngine(sm)
-        audio_path = str(tmp_path / "test.wav")
-        with open(audio_path, "wb") as f:
-            f.write(b"\x00" * 100)
+        mock_asr_model.recognize.return_value = ""
+        assert audio.transcribe(self._clip(tmp_path), mock_asr_model) is None
 
-        mock_segment = MagicMock()
-        mock_segment.text = "hello"
-        mock_whisper_model.transcribe.return_value = ([mock_segment], MagicMock())
-
-        audio.transcribe(audio_path, mock_whisper_model, best_of=4)
-        call_kwargs = mock_whisper_model.transcribe.call_args
-        assert call_kwargs[1]["best_of"] == 4
-
-    def test_initial_prompt_passed_through(self, sm, mock_whisper_model, tmp_path):
+    def test_whitespace_only_result_returns_none(self, sm, mock_asr_model, tmp_path):
         audio = AudioEngine(sm)
-        audio_path = str(tmp_path / "test.wav")
-        with open(audio_path, "wb") as f:
-            f.write(b"\x00" * 100)
+        mock_asr_model.recognize.return_value = "   "
+        assert audio.transcribe(self._clip(tmp_path), mock_asr_model) is None
 
-        mock_segment = MagicMock()
-        mock_segment.text = "hello"
-        mock_whisper_model.transcribe.return_value = ([mock_segment], MagicMock())
-
-        audio.transcribe(audio_path, mock_whisper_model, initial_prompt="Whispy, ctranslate2")
-        call_kwargs = mock_whisper_model.transcribe.call_args
-        assert call_kwargs[1]["initial_prompt"] == "Whispy, ctranslate2"
-
-    def test_initial_prompt_defaults_to_none(self, sm, mock_whisper_model, tmp_path):
+    def test_none_result_returns_none(self, sm, mock_asr_model, tmp_path):
         audio = AudioEngine(sm)
-        audio_path = str(tmp_path / "test.wav")
-        with open(audio_path, "wb") as f:
-            f.write(b"\x00" * 100)
+        mock_asr_model.recognize.return_value = None
+        assert audio.transcribe(self._clip(tmp_path), mock_asr_model) is None
 
-        mock_segment = MagicMock()
-        mock_segment.text = "hello"
-        mock_whisper_model.transcribe.return_value = ([mock_segment], MagicMock())
-
-        audio.transcribe(audio_path, mock_whisper_model)
-        call_kwargs = mock_whisper_model.transcribe.call_args
-        assert call_kwargs[1]["initial_prompt"] is None
-
-    def test_empty_result_returns_none(self, sm, mock_whisper_model, tmp_path):
+    def test_exception_returns_none(self, sm, mock_asr_model, tmp_path):
         audio = AudioEngine(sm)
-        audio_path = str(tmp_path / "test.wav")
-        with open(audio_path, "wb") as f:
-            f.write(b"\x00" * 100)
+        mock_asr_model.recognize.side_effect = RuntimeError("onnxruntime session failed")
+        assert audio.transcribe(self._clip(tmp_path), mock_asr_model) is None
 
-        mock_whisper_model.transcribe.return_value = ([], MagicMock())
-        result = audio.transcribe(audio_path, mock_whisper_model)
-        assert result is None
-
-    def test_exception_returns_none(self, sm, mock_whisper_model, tmp_path):
+    def test_short_recording_discarded_without_transcribing(self, sm, mock_asr_model, tmp_path):
+        """A misclick-length clip is discarded before the model runs."""
         audio = AudioEngine(sm)
-        audio_path = str(tmp_path / "test.wav")
-        with open(audio_path, "wb") as f:
-            f.write(b"\x00" * 100)
-
-        mock_whisper_model.transcribe.side_effect = RuntimeError("transcription failed")
-        result = audio.transcribe(audio_path, mock_whisper_model)
-        assert result is None
-
-    def test_short_recording_discarded_without_transcribing(self, sm, mock_whisper_model, tmp_path):
-        """A misclick-length clip is discarded before model.transcribe runs."""
-        audio = AudioEngine(sm)
-        audio_path = str(tmp_path / "test.wav")
-        with open(audio_path, "wb") as f:
-            f.write(b"\x00" * 100)
+        audio_path = self._clip(tmp_path)
 
         audio._get_audio_duration = MagicMock(return_value=0.1)
-        result = audio.transcribe(audio_path, mock_whisper_model, min_recording_duration=0.3)
+        result = audio.transcribe(audio_path, mock_asr_model, min_recording_duration=0.3)
         assert result is None
-        mock_whisper_model.transcribe.assert_not_called()
+        mock_asr_model.recognize.assert_not_called()
 
-    def test_long_enough_recording_passes_vad_filter_off(self, sm, mock_whisper_model, tmp_path):
-        """A clip above the threshold is transcribed with vad_filter disabled (webrtcvad handles segmentation)."""
+    def test_long_enough_recording_proceeds(self, sm, mock_asr_model, tmp_path):
         audio = AudioEngine(sm)
-        audio_path = str(tmp_path / "test.wav")
-        with open(audio_path, "wb") as f:
-            f.write(b"\x00" * 100)
+        audio_path = self._clip(tmp_path)
 
         audio._get_audio_duration = MagicMock(return_value=1.0)
-        mock_segment = MagicMock()
-        mock_segment.text = "bonjour"
-        mock_whisper_model.transcribe.return_value = ([mock_segment], MagicMock())
+        mock_asr_model.recognize.return_value = "bonjour"
 
-        result = audio.transcribe(audio_path, mock_whisper_model, min_recording_duration=0.3)
+        result = audio.transcribe(audio_path, mock_asr_model, min_recording_duration=0.3)
         assert result == "bonjour"
-        call_kwargs = mock_whisper_model.transcribe.call_args[1]
-        assert call_kwargs["vad_filter"] is False
-        assert call_kwargs["condition_on_previous_text"] is False
-        assert call_kwargs["temperature"] == 0
+        mock_asr_model.recognize.assert_called_once()
 
-    def test_multiple_segments_joined(self, sm, mock_whisper_model, tmp_path):
+    def test_near_silent_clip_discarded_without_transcribing(self, sm, mock_asr_model, tmp_path):
+        """Near-silence must not reach the model.
+
+        Parakeet invents short fillers ("Yeah.", "Okay.", "Mm-hmm.") on quiet
+        audio, which would be typed into the user's active field.
+        """
         audio = AudioEngine(sm)
-        audio_path = str(tmp_path / "test.wav")
-        with open(audio_path, "wb") as f:
-            f.write(b"\x00" * 100)
+        audio_path = self._clip(tmp_path)
+        audio._get_audio_duration = MagicMock(return_value=2.0)
+        audio._get_audio_rms = MagicMock(return_value=0.0006)
 
-        seg1 = MagicMock()
-        seg1.text = "hello"
-        seg2 = MagicMock()
-        seg2.text = "world"
-        mock_whisper_model.transcribe.return_value = ([seg1, seg2], MagicMock())
+        assert audio.transcribe(audio_path, mock_asr_model) is None
+        mock_asr_model.recognize.assert_not_called()
 
-        result = audio.transcribe(audio_path, mock_whisper_model)
-        assert result == "hello world"
+    def test_audible_clip_passes_the_silence_gate(self, sm, mock_asr_model, tmp_path):
+        audio = AudioEngine(sm)
+        audio_path = self._clip(tmp_path)
+        audio._get_audio_duration = MagicMock(return_value=2.0)
+        audio._get_audio_rms = MagicMock(return_value=0.15)
+        mock_asr_model.recognize.return_value = "bonjour"
+
+        assert audio.transcribe(audio_path, mock_asr_model) == "bonjour"
+
+    def test_unmeasurable_rms_does_not_block_transcription(self, sm, mock_asr_model, tmp_path):
+        """An unmeasurable clip is transcribed rather than silently dropped."""
+        audio = AudioEngine(sm)
+        audio_path = self._clip(tmp_path)
+        audio._get_audio_rms = MagicMock(return_value=None)
+        mock_asr_model.recognize.return_value = "bonjour"
+
+        assert audio.transcribe(audio_path, mock_asr_model) == "bonjour"
+
+    def test_unreadable_duration_does_not_block_transcription(self, sm, mock_asr_model, tmp_path):
+        """A clip whose duration cannot be measured is still attempted."""
+        audio = AudioEngine(sm)
+        audio_path = self._clip(tmp_path)
+
+        audio._get_audio_duration = MagicMock(return_value=None)
+        mock_asr_model.recognize.return_value = "bonjour"
+
+        assert audio.transcribe(audio_path, mock_asr_model) == "bonjour"
 
 
 # ---------------------------------------------------------------------------
@@ -646,3 +616,95 @@ class TestSegmentPcm:
         audio.segment_pcm(bytes(1600 * 2) * 5)
         assert audio._on_chunk is None
         assert audio._segmenter is None
+
+
+# ---------------------------------------------------------------------------
+# Audio duration detection (relocated from the deleted test_language_detection.py,
+# which existed for the auto-detect-language feature; these cover
+# _get_audio_duration, which outlived it as the short-clip discard guard.)
+# ---------------------------------------------------------------------------
+
+
+class TestAudioDurationDetection:
+    """Test audio file duration detection."""
+
+    @staticmethod
+    def _wav(path, seconds, rate=16000):
+        with wave.open(str(path), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(rate)
+            wf.writeframes(b"\x00\x00" * int(rate * seconds))
+        return str(path)
+
+    def test_detects_duration_of_wav_file(self, tmp_path):
+        audio = AudioEngine(MagicMock())
+        duration = audio._get_audio_duration(self._wav(tmp_path / "test.wav", 2.0))
+        assert duration is not None
+        assert abs(duration - 2.0) < 0.01
+
+    def test_detects_short_audio_duration(self, tmp_path):
+        audio = AudioEngine(MagicMock())
+        duration = audio._get_audio_duration(self._wav(tmp_path / "short.wav", 0.5))
+        assert duration is not None
+        assert abs(duration - 0.5) < 0.01
+
+    def test_returns_none_for_non_wav_file(self, tmp_path):
+        audio = AudioEngine(MagicMock())
+        non_wav = tmp_path / "test.mp3"
+        non_wav.write_bytes(b"not a wav file")
+        assert audio._get_audio_duration(str(non_wav)) is None
+
+    def test_returns_none_for_missing_file(self):
+        audio = AudioEngine(MagicMock())
+        assert audio._get_audio_duration("/nonexistent/file.wav") is None
+
+
+class TestAudioRms:
+    """RMS measurement backing the silence gate."""
+
+    @staticmethod
+    def _wav(path, samples, rate=16000):
+        with wave.open(str(path), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(rate)
+            wf.writeframes(samples.astype("<i2").tobytes())
+        return str(path)
+
+    def test_digital_silence_measures_zero(self, tmp_path):
+        import numpy as np
+
+        audio = AudioEngine(MagicMock())
+        path = self._wav(tmp_path / "sil.wav", np.zeros(16000))
+        assert audio._get_audio_rms(path) == 0.0
+
+    def test_full_scale_tone_measures_near_one(self, tmp_path):
+        import numpy as np
+
+        audio = AudioEngine(MagicMock())
+        loud = np.full(16000, np.iinfo(np.int16).max)
+        rms = audio._get_audio_rms(self._wav(tmp_path / "loud.wav", loud))
+        assert rms is not None and rms > 0.9
+
+    def test_quiet_noise_stays_below_the_gate(self, tmp_path):
+        import numpy as np
+
+        from whispy.core.audio import SILENCE_RMS_THRESHOLD
+
+        audio = AudioEngine(MagicMock())
+        # ~0.002 of full scale: the realistic quiet-room floor that made the
+        # model emit "Okay." / "Mm-hmm." / "No." in the real-model tier.
+        quiet = np.full(16000, int(0.002 * np.iinfo(np.int16).max))
+        rms = audio._get_audio_rms(self._wav(tmp_path / "quiet.wav", quiet))
+        assert rms is not None and rms < SILENCE_RMS_THRESHOLD
+
+    def test_returns_none_for_non_wav_file(self, tmp_path):
+        audio = AudioEngine(MagicMock())
+        bad = tmp_path / "x.mp3"
+        bad.write_bytes(b"not a wav")
+        assert audio._get_audio_rms(str(bad)) is None
+
+    def test_returns_none_for_missing_file(self):
+        audio = AudioEngine(MagicMock())
+        assert audio._get_audio_rms("/nonexistent/file.wav") is None

@@ -4,10 +4,10 @@ and the CI workflow's dependency list.
 CI has no clean macOS/Linux box to run the install scripts end to end, so we
 guard the release-critical invariants as text: the scripts (and the CI
 workflow) must not gate on sox (the audio backend is sounddevice/PortAudio
-now), the one-liner must be safe under `curl | bash` (no blocking prompt), the
-chosen WHISPER_MODEL must be persisted so the detached daemon actually uses
-it, and install.sh must branch per-OS rather than writing a macOS LaunchAgent
-on Linux.
+now), the one-liner must be safe under `curl | bash` (no blocking prompt),
+uninstall must scope model-cache deletion to Whispy's own snapshot, and
+install.sh must branch per-OS rather than writing a macOS LaunchAgent on
+Linux.
 """
 
 import re
@@ -64,12 +64,16 @@ def test_bootstrap_has_no_blocking_prompt(bootstrap: str):
     assert "read -p" not in bootstrap
 
 
-def test_install_persists_whisper_model(install: str):
-    # The daemon runs detached and won't inherit WHISPER_MODEL from the shell,
-    # so the installer must write it into config.json.
-    assert 'if [ -n "${WHISPER_MODEL:-}" ]' in install
-    assert '"model_size"' in install
-    assert "config.json" in install
+def test_install_has_no_model_selection(install: str):
+    # There is one model. WHISPER_MODEL selected among Whisper's five size
+    # presets; with a single-size backend it selects nothing, so it must not
+    # linger as dead surface in the installer.
+    assert "WHISPER_MODEL" not in install
+    assert "model_size" not in install
+
+
+def test_bootstrap_has_no_model_selection(bootstrap: str):
+    assert "WHISPER_MODEL" not in bootstrap
 
 
 def test_install_branches_per_os(install: str):
@@ -82,11 +86,25 @@ def test_install_branches_per_os(install: str):
 
 def test_install_uninstall_offers_user_data_removal(install: str):
     # The venv/LaunchAgent/systemd-unit removal leaves behind the config
-    # (has the API token), the logs, and the downloaded Whisper model cache
-    # (0.5-3 GB) -- uninstall must at least offer to clean those up too.
+    # (has the API token), the logs, and the downloaded model cache (639 MB)
+    # -- uninstall must at least offer to clean those up too.
     assert ".config/whispy" in install
     assert ".whispy.log" in install
-    assert "models--Systran--faster-whisper-" in install
+    assert "models--istupakov--parakeet-tdt-0.6b-v3-onnx" in install
+
+
+def test_uninstall_never_deletes_the_shared_hub_cache(install: str):
+    # The hub cache holds other tools' models; only Whispy's snapshot may go.
+    assert "rm -rf $MODEL_CACHE_GLOB" in install
+    assert 'rm -rf "$HOME/.cache/huggingface/hub"' not in install
+    assert "rm -rf $HOME/.cache/huggingface/hub\n" not in install
+
+
+def test_uninstall_reports_the_stale_whisper_cache_without_deleting_it(install: str):
+    # Upgraders keep a 466 MB orphan; name it, do not delete another era's data.
+    assert "STALE_WHISPER_GLOB" in install
+    assert "models--Systran--faster-whisper-*" in install
+    assert "rm -rf $STALE_WHISPER_GLOB" not in install
 
 
 def test_install_uninstall_scopes_model_cache_deletion(install: str):

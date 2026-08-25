@@ -274,8 +274,6 @@ code { font-family: var(--mono); color: var(--green); }
    trailing at the right, so all settings titles line up. */
 .dd-toggle .dd-tick { opacity: 0; margin-right: 0; }
 .dd-toggle.is-checked .dd-tick { opacity: 1; }
-.is-langrow.is-active { background: var(--green); color: #06120f; }
-.is-langrow.is-active .dd-val { color: rgba(6, 18, 15, 0.7); }
 
 /* Language submenu */
 .dd-submenu {
@@ -614,4 +612,13 @@ code { font-family: var(--mono); color: var(--green); }
   .card:hover { transform: none; }
   .demo-cursor { transition: none; }
   .demo-window.is-focused .dw-caret { animation: none; }
+}
+
+/* Model/licence attribution in the footer: present but deliberately quiet. */
+.footer-attribution {
+  max-width: 46rem;
+  margin: 0.75rem auto 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  opacity: 0.62;
 }

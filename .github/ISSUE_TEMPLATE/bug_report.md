@@ -26,7 +26,7 @@ What actually happened.
 ## Environment
 
 - OS (macOS version, or Linux distro + X11/Wayland):
-- Whisper model in use (tiny/base/small/medium/large-v3):
+- Language spoken:
 - Whispy version / commit:
 
 ## Logs
