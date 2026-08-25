@@ -457,13 +457,11 @@ class TestTriggerCallbackHandoff:
 
     def test_press_callback_returns_without_blocking(self, engine, mocker):
         # A mock that would block forever if the callback called it directly.
-        detect = mocker.patch.object(engine, "_detect_corrections", side_effect=AssertionError("must not be called"))
         start_recording = mocker.patch.object(engine, "start_recording")
         press_cb, _ = self._capture_callbacks(engine, mocker)
 
         press_cb()  # the trigger worker is not running: this must not block or dispatch
 
-        detect.assert_not_called()
         start_recording.assert_not_called()
         assert engine._trigger_queue.get(timeout=1.0) == "press"
 
@@ -478,7 +476,6 @@ class TestTriggerCallbackHandoff:
 
     def test_press_then_release_processed_in_order(self, engine, mocker):
         order = []
-        mocker.patch.object(engine, "_detect_corrections")
         mocker.patch.object(engine, "_notify_fn_pressed")
         mocker.patch.object(engine._notifier, "recording_started")
         mocker.patch.object(engine, "_notify_fn_released")
@@ -497,14 +494,13 @@ class TestTriggerCallbackHandoff:
 
     def test_worker_preserves_press_call_order(self, engine, mocker):
         order = []
-        mocker.patch.object(engine, "_detect_corrections", side_effect=lambda: order.append("detect"))
         mocker.patch.object(engine, "_notify_fn_pressed", side_effect=lambda: order.append("notify_pressed"))
         mocker.patch.object(engine._notifier, "recording_started", side_effect=lambda: order.append("sound"))
         mocker.patch.object(engine, "start_recording", side_effect=lambda: order.append("start") or True)
 
         engine._handle_trigger_press_work()
 
-        assert order == ["detect", "notify_pressed", "sound", "start"]
+        assert order == ["notify_pressed", "sound", "start"]
 
     def test_worker_preserves_release_call_order(self, engine, mocker):
         order = []
@@ -1136,216 +1132,6 @@ class TestWatchdogRecovery:
         assert engine._state_machine.is_recording
 
 
-# ---------------------------------------------------------------------------
-# Correction detection (snapshot-diff learning)
-# ---------------------------------------------------------------------------
-
-
-class TestCorrectionDetection:
-    """Tests for the snapshot-diff correction detection in Engine."""
-
-    @pytest.fixture(autouse=True)
-    def _enable_learning(self, monkeypatch):
-        # Adaptive learning is gated off by default; enable it (in both the
-        # store module and engine's imported copy) to exercise the wiring.
-        monkeypatch.setattr("whispy.core.corrections.ADAPTIVE_LEARNING_ENABLED", True)
-        monkeypatch.setattr("whispy.core.engine.ADAPTIVE_LEARNING_ENABLED", True)
-
-    def test_snapshot_stored_after_injection(self, engine, mocker, tmp_path):
-        """After run_transcription injects text, _last_injection is set."""
-        # Setup: model loaded, recording path exists
-        wav = tmp_path / "test.wav"
-        wav.write_bytes(b"fake")
-        engine._audio_engine._recording_path = str(wav)
-        engine.state.model = mocker.MagicMock()
-
-        # Mock transcription to return text
-        mocker.patch.object(engine._audio_engine, "transcribe", return_value="hello world")
-        mocker.patch.object(engine._text_injector, "inject")
-        # Mock AX reader
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-
-        engine.run_transcription()
-
-        assert engine._last_injection is not None
-        assert engine._last_injection.injected_text == "hello world"
-        assert engine._last_injection.app_pid == 42
-
-    def test_detect_corrections_extracts_diff(self, engine, mocker):
-        """_detect_corrections finds word changes and stores them."""
-        from whispy.hardware.ax_reader import InjectionSnapshot
-
-        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="wispy is great")
-
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="Hello Whispy is great")
-
-        engine._detect_corrections()
-
-        entries = engine._correction_store.all_entries()
-        assert "wispy" in entries
-        assert entries["wispy"]["replacement"] == "Whispy"
-
-    def test_detect_corrections_skips_different_app(self, engine, mocker):
-        """_detect_corrections skips when PID doesn't match."""
-        from whispy.hardware.ax_reader import InjectionSnapshot
-
-        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="wispy is great")
-
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=99)
-        read_mock = mocker.patch("whispy.hardware.ax_reader.read_focused_field")
-
-        engine._detect_corrections()
-
-        read_mock.assert_not_called()
-        assert engine._correction_store.all_entries() == {}
-
-    def test_detect_corrections_clears_snapshot(self, engine, mocker):
-        """_detect_corrections clears _last_injection after processing."""
-        from whispy.hardware.ax_reader import InjectionSnapshot
-
-        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="hello")
-
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="hello")
-
-        engine._detect_corrections()
-
-        assert engine._last_injection is None
-
-    def test_learned_correction_not_logged_at_info(self, engine, mocker, caplog):
-        """The learned-correction pair SHALL NOT appear at INFO (default) verbosity."""
-        import logging
-
-        from whispy.hardware.ax_reader import InjectionSnapshot
-
-        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="wispy is great")
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="Hello Whispy is great")
-
-        with caplog.at_level(logging.INFO):
-            engine._detect_corrections()
-
-        assert not any("[corrections] learned" in record.getMessage() for record in caplog.records)
-
-    def test_learned_correction_logged_at_debug(self, engine, mocker, caplog):
-        """The learned-correction pair SHALL be emitted at DEBUG with the wrong/right values."""
-        import logging
-
-        from whispy.hardware.ax_reader import InjectionSnapshot
-
-        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="wispy is great")
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="Hello Whispy is great")
-
-        with caplog.at_level(logging.DEBUG):
-            engine._detect_corrections()
-
-        matching = [r for r in caplog.records if "[corrections] learned" in r.getMessage()]
-        assert len(matching) == 1
-        assert matching[0].getMessage() == "[corrections] learned: wispy → Whispy"
-
-
-class TestHotwordsWiring:
-    """Tests for hotwords integration with the correction store."""
-
-    @pytest.fixture(autouse=True)
-    def _enable_learning(self, monkeypatch):
-        monkeypatch.setattr("whispy.core.corrections.ADAPTIVE_LEARNING_ENABLED", True)
-        monkeypatch.setattr("whispy.core.engine.ADAPTIVE_LEARNING_ENABLED", True)
-
-    def test_build_hotwords_from_corrections(self, engine):
-        """_build_hotwords returns correction store entries."""
-        engine._correction_store.add_correction("wispy", "Whispy")
-
-        hw = engine._build_hotwords()
-        assert hw == "Whispy"
-
-    def test_build_hotwords_empty_store(self, engine):
-        """_build_hotwords returns None when store is empty."""
-        assert engine._build_hotwords() is None
-
-    def test_hotwords_passed_to_transcribe(self, engine, mocker, tmp_path):
-        """run_transcription passes hotwords to audio engine."""
-        wav = tmp_path / "test.wav"
-        wav.write_bytes(b"fake")
-        engine._audio_engine._recording_path = str(wav)
-        engine.state.model = mocker.MagicMock()
-        engine._correction_store.add_correction("wispy", "Whispy")
-
-        transcribe_mock = mocker.patch.object(engine._audio_engine, "transcribe", return_value=None)
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-
-        engine.run_transcription()
-
-        transcribe_mock.assert_called_once()
-        assert transcribe_mock.call_args.kwargs.get("hotwords") == "Whispy"
-
-
-class TestPostTranscriptionCorrection:
-    """Tests for apply_corrections in the transcription pipeline."""
-
-    @pytest.fixture(autouse=True)
-    def _enable_learning(self, monkeypatch):
-        monkeypatch.setattr("whispy.core.corrections.ADAPTIVE_LEARNING_ENABLED", True)
-        monkeypatch.setattr("whispy.core.engine.ADAPTIVE_LEARNING_ENABLED", True)
-
-    def test_corrections_applied_before_injection(self, engine, mocker, tmp_path):
-        """High-confidence corrections are applied to transcribed text."""
-        wav = tmp_path / "test.wav"
-        wav.write_bytes(b"fake")
-        engine._audio_engine._recording_path = str(wav)
-        engine.state.model = mocker.MagicMock()
-
-        # Add correction above threshold
-        for _ in range(3):
-            engine._correction_store.add_correction("wispy", "Whispy")
-
-        mocker.patch.object(engine._audio_engine, "transcribe", return_value="wispy is great")
-        inject_mock = mocker.patch.object(engine._text_injector, "inject")
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-
-        engine.run_transcription()
-
-        inject_mock.assert_called_once_with("Whispy is great")
-
-
-class TestAdaptiveLearningDisabledByDefault:
-    """With the default gate (ADAPTIVE_LEARNING_ENABLED=False) the whole
-    feedback loop is inert: nothing is learned, no learned words reach Whisper
-    as hotwords, and transcribed text is injected verbatim (no auto-replace)."""
-
-    def test_hotwords_not_fed_when_disabled(self, engine):
-        engine._correction_store.add_correction("wispy", "Whispy")
-        assert engine._build_hotwords() is None
-
-    def test_transcription_injected_verbatim_when_disabled(self, engine, mocker, tmp_path):
-        wav = tmp_path / "test.wav"
-        wav.write_bytes(b"fake")
-        engine._audio_engine._recording_path = str(wav)
-        engine.state.model = mocker.MagicMock()
-        for _ in range(3):
-            engine._correction_store.add_correction("wispy", "Whispy")
-        mocker.patch.object(engine._audio_engine, "transcribe", return_value="wispy is great")
-        inject_mock = mocker.patch.object(engine._text_injector, "inject")
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-
-        engine.run_transcription()
-
-        inject_mock.assert_called_once_with("wispy is great")
-
-    def test_detect_corrections_learns_nothing_when_disabled(self, engine, mocker):
-        from whispy.hardware.ax_reader import InjectionSnapshot
-
-        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="the cat")
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="the dog")
-
-        engine._detect_corrections()
-
-        assert engine._correction_store.all_entries() == {}
-
-
 class TestInjectWaitsForTriggerRelease:
     """Typing while the push-to-talk key is held merges the held modifier
     into every injected character (e.g. Right Option -> Option-layer glyphs).
@@ -1377,7 +1163,6 @@ class TestInjectWaitsForTriggerRelease:
         engine._audio_engine._recording_path = str(wav)
         engine.state.model = mocker.MagicMock()
         mocker.patch.object(engine._audio_engine, "transcribe", return_value="hello")
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
         inject_mock = mocker.patch.object(engine._text_injector, "inject")
         wait_mock = mocker.patch.object(engine, "_wait_trigger_released")
 

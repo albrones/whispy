@@ -147,14 +147,13 @@ def test_readme_error_handling_description_has_no_sox_claim(readme: str):
 # --- Feature documentation parity -------------------------------------------
 
 
-def test_feature_matrix_has_adaptive_vocabulary_row():
+def test_docs_do_not_advertise_correction_learning(readme: str):
+    """The adaptive-correction feature was removed (tracked in issue #8);
+    docs must not claim Whispy learns from corrections."""
     feature_matrix = (ROOT / "FEATURE_MATRIX.md").read_text(encoding="utf-8")
-    assert "test_corrections.py" in feature_matrix
-    assert re.search(r"[Aa]daptive vocabulary|[Cc]orrection learning", feature_matrix)
-
-
-def test_readme_mentions_adaptive_vocabulary_feature(readme: str):
-    assert re.search(r"[Ll]earns your words|correct.*transcription.*remember", readme)
+    for doc in (readme, feature_matrix):
+        assert not re.search(r"[Ll]earns your words", doc)
+        assert "test_corrections.py" not in doc
 
 
 # --- CHANGELOG is English-only with a single open section ------------------

@@ -414,14 +414,6 @@ class TestLaunchRegressions:
     """Startup crashes only reproducible under real rumps (mocked in this
     tier), guarded by source inspection — same pattern as TestAlertWiring."""
 
-    def test_rebuild_learned_menu_guards_lazy_nsmenu(self):
-        """rumps creates the backing NSMenu lazily: clear() on a fresh
-        MenuItem crashes (NoneType.removeAllItems) and aborts app launch."""
-        import inspect
-
-        src = inspect.getsource(WhisperMenuBarApp._rebuild_learned_menu)
-        assert "_menu" in src and "is not None" in src, "clear() must be guarded for a fresh MenuItem"
-
     def test_last_dark_assigned_before_anim_timer_starts(self):
         """_tick_anim reads _last_dark on its first tick; the attribute must
         exist before the timer is armed or a mid-init failure crashes ticks."""

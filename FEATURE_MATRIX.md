@@ -72,4 +72,3 @@ Tiers are defined in `openspec/specs/TESTING-TIERS.md`.
 | Model selection change takes effect | both | manual-ui | operator | switch model in menu, confirm reload + transcription |
 | Restart from menu relaunches daemon | macOS | manual-ui | operator | menu → Restart; daemon comes back on :9090 |
 | Quit from menu stops daemon | both | manual-ui | operator | menu/tray → Quit; daemon process exits |
-| Adaptive vocabulary (learns from corrections) | macOS | unit-mocked | `tests/test_corrections.py`, `tests/test_engine.py::TestCorrectionDetection`, `tests/test_engine.py::TestAdaptiveLearningDisabledByDefault` | **Currently disabled** (`ADAPTIVE_LEARNING_ENABLED=False`): the fixed-window alignment mislearned garbage word→word shifts from continued dictation and fed them back to Whisper as hotwords (self-reinforcing hallucination). Machinery intact + tested; re-enable after the alignment is rewritten |

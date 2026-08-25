@@ -199,10 +199,6 @@ class WhisperMenuBarApp(rumps.App):
                 menu_theme.toggle_title("Start at login", cfg.get("start_at_login", False)),
             )
 
-        # Learned words (adaptive transcription memory)
-        self.learned_menu = rumps.MenuItem("Learned Words")
-        self._rebuild_learned_menu()
-
         # Reload and quit
         self.reload_item = rumps.MenuItem("Restart", callback=self._on_reload)
         quit_item = rumps.MenuItem("Quit", callback=self._on_quit, key="q")
@@ -218,7 +214,6 @@ class WhisperMenuBarApp(rumps.App):
             self.copy_menu,
             self.trigger_menu,
             *([self.login_item_menu] if self.login_item_menu is not None else []),
-            self.learned_menu,
             None,
             self.reload_item,
             quit_item,
@@ -466,33 +461,6 @@ class WhisperMenuBarApp(rumps.App):
                 item, menu_theme.check_title(item._label, self._trigger_is_active(item._trigger_value))
             )
         self._update_trigger_title()
-
-    def _rebuild_learned_menu(self) -> None:
-        """Rebuild the Learned Words submenu from the correction store."""
-        # rumps creates the backing NSMenu lazily: on a fresh MenuItem,
-        # _menu is None and clear() would crash (NoneType.removeAllItems).
-        if getattr(self.learned_menu, "_menu", None) is not None:
-            self.learned_menu.clear()
-        entries = self.engine.correction_store.all_entries()
-        if not entries:
-            empty = rumps.MenuItem("No learned words yet")
-            empty.set_callback(None)
-            self.learned_menu.add(empty)
-            return
-        from ..core.corrections import AUTO_REPLACE_THRESHOLD
-
-        for key, entry in entries.items():
-            count = entry.get("corrections_count", 0)
-            status = "active" if count >= AUTO_REPLACE_THRESHOLD else f"learning ({count}/{AUTO_REPLACE_THRESHOLD})"
-            label = f"{key} → {entry['replacement']}  [{status}]"
-            item = rumps.MenuItem(label, callback=self._on_remove_learned)
-            item._correction_key = key
-            self.learned_menu.add(item)
-
-    def _on_remove_learned(self, sender: rumps.MenuItem) -> None:
-        """Remove a learned word correction."""
-        self.engine.correction_store.remove(sender._correction_key)
-        self._rebuild_learned_menu()
 
     def _on_toggle_copy(self, sender: rumps.MenuItem) -> None:
         enabled = not self.engine.state.config.get("copy_to_clipboard", False)

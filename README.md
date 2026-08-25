@@ -10,9 +10,7 @@
 
 Whispy is a local voice dictation utility built on top of [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Hold the trigger key (the **Fn** key on macOS, **Right Ctrl** by default on Linux) to record, and release it to automatically transcribe the text into the active field.
 
-**Learns your words.** On macOS, Whispy detects when you correct a transcription in the active field and remembers it (`~/.config/whispy/corrections.json`): names, jargon, and brand terms get more accurate over time, with no setup required. _(Automatic learning is temporarily disabled while its word-matching is reworked — it mislearned from ordinary continued dictation; manual custom vocabulary is unaffected.)_
-
-Everything runs locally; no data is sent over the internet.
+Everything runs locally; no data is sent over the internet. You can bias recognition toward your own names and jargon with the manual custom vocabulary (`custom_vocabulary` in the config); automatic correction learning was removed and its reimplementation is tracked in [issue #8](https://github.com/albrones/whispy/issues/8).
 
 > **Linux note:** Whispy v1 supports **X11 sessions only**. Global hotkeys and synthetic text input are restricted under Wayland's security model. If you run Wayland, log out and pick an "Xorg"/"X11" session at your display manager. Wayland support is deferred to a later release.
 

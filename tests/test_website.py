@@ -141,3 +141,20 @@ def test_all_local_assets_exist(html: str):
         if not target.is_file():
             missing.append(ref)
     assert not missing, f"referenced local assets do not exist: {missing}"
+
+
+def test_no_adaptive_learning_claim(html: str):
+    """Adaptive correction learning was removed (tracked in issue #8); the
+    site must not claim it, and the demo menu must not depict it."""
+    lowered = html.lower()
+    assert "learns your words" not in lowered
+    assert "remembers it" not in lowered
+    assert "learned words" not in lowered
+
+
+def test_demo_menu_shows_trigger_submenu(html: str):
+    """The animated menu-bar demo mirrors the real menu: it includes a
+    Trigger entry alongside Model and Language."""
+    dropdown = html.split("data-demo-dropdown", 1)[1].split("</div>\n\n", 1)[0]
+    for entry in ("Model", "Language", "Trigger"):
+        assert f"<span>{entry}</span>" in dropdown, f"demo dropdown missing {entry} entry"
