@@ -17,7 +17,7 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 import whispy.core.audio as audio_module
-from whispy.core.audio import AudioEngine
+from whispy.core.audio import SILENCE_RMS_THRESHOLD, AudioEngine
 
 
 class _SpyStream:
@@ -690,8 +690,6 @@ class TestAudioRms:
     def test_quiet_noise_stays_below_the_gate(self, tmp_path):
         import numpy as np
 
-        from whispy.core.audio import SILENCE_RMS_THRESHOLD
-
         audio = AudioEngine(MagicMock())
         # ~0.002 of full scale: the realistic quiet-room floor that made the
         # model emit "Okay." / "Mm-hmm." / "No." in the real-model tier.
@@ -708,3 +706,90 @@ class TestAudioRms:
     def test_returns_none_for_missing_file(self):
         audio = AudioEngine(MagicMock())
         assert audio._get_audio_rms("/nonexistent/file.wav") is None
+
+
+class TestSpeechGate:
+    """`_carries_speech` — the VAD gate for non-speech that clears the RMS gate."""
+
+    @staticmethod
+    def _wav(path, samples, rate=16000, width=2, channels=1):
+        with wave.open(str(path), "wb") as wf:
+            wf.setnchannels(channels)
+            wf.setsampwidth(width)
+            wf.setframerate(rate)
+            wf.writeframes(samples.astype("<i2").tobytes())
+        return str(path)
+
+    @staticmethod
+    def _voiced(seconds=1.0, rate=16000):
+        import numpy as np
+
+        t = np.arange(int(rate * seconds)) / rate
+        # A harmonic stack: webrtcvad reads every frame of this as speech.
+        return sum(np.sin(2 * np.pi * (120 * h) * t) / h for h in range(1, 12)) * 8000
+
+    def test_voiced_audio_passes(self, tmp_path):
+        audio = AudioEngine(MagicMock())
+        assert audio._carries_speech(self._wav(tmp_path / "v.wav", self._voiced())) is True
+
+    def test_non_speech_above_the_rms_gate_is_rejected(self, tmp_path):
+        """Room noise that clears the RMS gate but carries no voiced frames.
+
+        Sigma 500 puts this at ~0.015 normalized RMS: 3x over the RMS gate, and
+        inside the band where the real-model tier measured the model answering
+        noise with a filler. Above roughly 0.04 RMS webrtcvad calls steady noise
+        voiced and this gate stops discriminating — that ceiling is deliberate,
+        see MIN_SPEECH_DURATION_S.
+        """
+        import numpy as np
+
+        audio = AudioEngine(MagicMock())
+        noise = np.random.default_rng(7).normal(0, 500, 32000)
+        path = self._wav(tmp_path / "noise.wav", noise)
+        assert audio._get_audio_rms(path) > SILENCE_RMS_THRESHOLD
+        assert audio._carries_speech(path) is False
+
+    def test_digital_silence_is_rejected(self, tmp_path):
+        import numpy as np
+
+        audio = AudioEngine(MagicMock())
+        assert audio._carries_speech(self._wav(tmp_path / "s.wav", np.zeros(16000))) is False
+
+    def test_a_rejected_clip_never_reaches_the_model(self, tmp_path, sm, mock_asr_model):
+        import numpy as np
+
+        audio = AudioEngine(sm)
+        path = self._wav(tmp_path / "s.wav", np.zeros(16000))
+        assert audio.transcribe(path, mock_asr_model) is None
+        mock_asr_model.recognize.assert_not_called()
+
+    def test_fails_open_on_a_non_wav_file(self, tmp_path):
+        audio = AudioEngine(MagicMock())
+        bad = tmp_path / "x.mp3"
+        bad.write_bytes(b"not a wav")
+        assert audio._carries_speech(str(bad)) is True
+
+    def test_fails_open_on_a_missing_file(self):
+        audio = AudioEngine(MagicMock())
+        assert audio._carries_speech("/nonexistent/file.wav") is True
+
+    def test_fails_open_on_an_unsupported_sample_width(self, tmp_path):
+        """8-bit PCM cannot be framed for the VAD; it must not be dropped."""
+        import numpy as np
+
+        path = str(tmp_path / "w8.wav")
+        with wave.open(path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(1)
+            wf.setframerate(16000)
+            wf.writeframes(np.full(16000, 128, dtype=np.uint8).tobytes())
+        assert AudioEngine(MagicMock())._carries_speech(path) is True
+
+    def test_fails_open_without_webrtcvad(self, tmp_path, monkeypatch):
+        import numpy as np
+
+        import whispy.core.segmentation as seg_mod
+
+        monkeypatch.setattr(seg_mod, "webrtcvad", None)
+        audio = AudioEngine(MagicMock())
+        assert audio._carries_speech(self._wav(tmp_path / "s.wav", np.zeros(16000))) is True

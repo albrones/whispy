@@ -194,6 +194,27 @@ There is no language setting either. The model detects language per utterance
 and handles switching mid-recording; forcing a language was measurably worse
 (English speech came back translated into French).
 
+**Non-speech never reaches it.** Given silence or room noise, the model answers
+with a short filler — `Yeah.`, `Okay.`, `Mm-hmm.` — which would be typed into
+whatever you had focused. Two gates run before it, and a clip has to clear both:
+
+| Gate | Discards |
+|---|---|
+| Loudness | Anything below 0.005 normalized RMS — a muted mic, a misfire, a quiet room |
+| Voice detection | Anything with under 0.20 s of detected voice — steady noise, a fan, mains hum |
+
+Both fail open: a clip that cannot be measured is transcribed rather than
+dropped, because losing real dictation is worse than an occasional stray word.
+Neither looks at *what* was said — `Okay.` and `No.` are legitimate one-word
+dictations, so filtering by text would delete real speech. Holding the trigger
+while you think is fine too: the second gate measures how much voice it heard,
+not what fraction of the recording was voice.
+
+In a genuinely loud room (above roughly 0.04 RMS of noise) voice detection stops
+being able to tell noise from speech, and you are relying on the model, which
+returned nothing for every such clip measured. If you do get a stray word in a
+noisy environment, that is the gap.
+
 **Upgrading from a Whisper-era Whispy?** The old model cache at
 `~/.cache/huggingface/hub/models--Systran--faster-whisper-*` is no longer used.
 `./install.sh --uninstall` points at it but will not delete another era's data —
@@ -359,6 +380,14 @@ is the usual reason a code or settings fix "doesn't take" — rebuild the bundle
 **Q: Can I use a different model?**
 A: No. Whispy ships one model (see "The Transcription Model" above), so there is
 no model setting and no `WHISPER_MODEL` variable any more.
+
+**Q: I spoke and nothing was typed.**
+A: A clip has to clear both non-speech gates (see "The Transcription Model"). The
+usual causes are a recording under `min_recording_duration` (0.3 s — a tap rather
+than a hold), a muted or wrong input device, or speech too far from the mic to
+register as voice. `~/.whispy.log` says which gate discarded it and with what
+measurement — `Recording too short`, `near-silent (RMS ...)`, or
+`No speech detected (... of voiced frames)`.
 
 **Q: My language isn't transcribing at all.**
 A: Parakeet covers 25 European languages. Anything outside that set will not

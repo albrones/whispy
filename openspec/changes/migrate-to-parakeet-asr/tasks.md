@@ -111,3 +111,24 @@ would help. Measured both.
 - [x] 10.7 Tests: `TestPhoneticCorrection` (6), `TestPhoneticKey` (5), two tuning-constant guards. Suite 649 passed; `-m macos` 30 passed.
 - [x] 10.8 Artifacts: design decision 6 extended + new decision 11 (model size, with the Canary table) + a new risk entry, `specs/text-cleaning` (2 new scenarios), `proposal.md`, `README.md`, `CHANGELOG.md`, `docs/transcription-quality-and-memory.md`.
 - [x] 10.9 Purge the 982 MB canary weights from the HF cache.
+
+## 11. Speech gate (added after an independent A/B re-measurement)
+
+The migration's numbers were re-derived from scratch rather than trusted, with
+`faster-whisper` reinstalled into a throwaway venv and both backends run over the
+same synthesized clips. Most claims held. Two turned out to be stated backwards,
+and one real gap surfaced: the silence gate only covers *near*-silence, so
+non-speech that is merely loud still reached the model.
+
+- [x] 11.1 Re-measure the migration claims independently: latency 6-16x and proportional to audio (0.035s at 0.5s, 0.075s at 2.2s) vs Whisper flat at 0.58-0.70s; WER 5.2% vs 17.2% at the pre-migration defaults, 3.4% with Whisper's language detection left on. Truncation reproduced under four decoder configs (beam 1/5, `vad_filter`, `condition_on_previous_text=False`): a 16.6s clip returns one sentence of eight. Forced-language mistranslation reproduced.
+- [x] 11.2 Correct two claims that were stated backwards. Whisper does **not** behave better than Parakeet on non-speech: over 100 noise realizations per backend on identical files, `faster-whisper small` answered 52-100% with text (`you`, `Thank you.`), Parakeet 3%. And Parakeet's apparent weakness on short foreign words was a test artifact — an English `say` voice pronouncing French. With a matched voice it recognizes `oui`, `non`, `stop`, `d'accord`.
+- [x] 11.3 Measure the real gap: noise at 0.010-0.035 normalized RMS clears the 0.005 silence gate, reaches the model, and comes back as a filler in 3 of 100 realizations.
+- [x] 11.4 Reject a confidence gate with data. `with_timestamps()` exposes `logprobs`, but the populations overlap completely: an invented `Hello` on a mid-word cut scores -0.040 mean against -0.399 for a correctly recognized `Oui.`. Any threshold catching the invention discards real dictation first.
+- [x] 11.5 Reject a voiced/silent **ratio** with data: one word inside a 10s trigger-hold is ~6% voiced and steady noise ~5%, so the metric orders the populations by at most 1.4x and flipped to overlap on a second draw. Absolute voiced duration separates them 2.7x (0.33s vs 0.12s across 125 noise realizations).
+- [x] 11.6 Add `speech_duration_s()` to `segmentation.py` — reuses the `webrtcvad` the streaming segmenter already needs, no new dependency — and `_carries_speech()` + `MIN_SPEECH_DURATION_S = 0.20` to `audio.py`, gated after the RMS check. Fails **open** on every unmeasurable path (no VAD, unreadable file, unsupported width).
+- [x] 11.7 Document the ceiling rather than hide it: past ~0.04 normalized RMS `webrtcvad` labels steady noise fully voiced and the gate is inert. Left to the model, which returned empty text for all 15 such clips. Raising the threshold is explicitly not the fix — it would reach real speech first.
+- [x] 11.8 Verify: leak rate 3/100 -> 0/100, with real speech unaffected (1.62-2.85s voiced on phrases, 0.33-0.69s on one-word clips, 0.66s for a word buried in a 10s hold).
+- [x] 11.9 Tests: `test_segmentation.py::TestSpeechDuration` (6), `test_audio.py::TestSpeechGate` (8), `test_transcription_quality.py::TestSilenceGate::test_loud_non_speech_above_the_rms_gate_is_discarded` (5 noise types, seeded), `::TestShortDictation` (5 words + the buried-word case). Suite 663 passed; `-m macos` 40 passed over four consecutive runs.
+- [x] 11.10 Fix three flaky tests found on the way, two of them mine: `sox synth` draws fresh noise per call (now `-R`); `_find_voice("en")` returns the legacy novelty voice `Albert`, whose `okay` transcribes to nothing (now `_prefer_voice` with modern voices); `oui` synthesizes close enough to English `we` to fail ~half the draws (parameter removed, reason documented); and the synthetic `_speech_block` fixture reads only 18% voiced, so it cannot back a duration assertion (new `_voiced_block`, a harmonic stack).
+- [x] 11.11 Version the measurement scripts in `scripts/asr-bench/` (with a README) rather than leaving them in a scratch directory — re-deriving them costs an hour, re-running them a minute. Absolute paths removed, duplicated helpers factored into `_bench.py`, outputs written outside the repo.
+- [x] 11.12 Artifacts: `specs/audio-capture` (2 new requirements, 7 scenarios), `specs/transcription-quality` (requirement extended, 3 new scenarios), `CHANGELOG.md`, `README.md` (gate table + a "nothing was typed" FAQ pointing at the log lines), `docs/SPECIFICATION.md`, `docs/transcription-quality-and-memory.md`, `FEATURE_MATRIX.md`, `website/index.html`.

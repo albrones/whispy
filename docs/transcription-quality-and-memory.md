@@ -37,9 +37,27 @@ What ships:
 | Safeguard | Where | What it prevents |
 | --------- | ----- | ---------------- |
 | **RMS silence gate** | `audio.py` — `SILENCE_RMS_THRESHOLD = 0.005`, checked before the model | The fillers above. Every observed false positive measured ≤0.00065 and every real utterance ≥0.147, a 220× gap, so the threshold is robust rather than fiddly. Fails **open**: an unmeasurable clip is transcribed, not dropped. |
+| **Voiced-duration speech gate** | `audio.py` — `MIN_SPEECH_DURATION_S = 0.20`, `_carries_speech` via `segmentation.speech_duration_s` | Non-speech that is *loud enough to clear the RMS gate*: a noisy room, a fan, mains hum, all 0.010–0.035 RMS. Those reached the model and 3 of 100 realizations came back as a filler; with the gate, 0 of 100. Reuses the `webrtcvad` the streaming segmenter already needs. Fails **open** like the RMS gate. |
 | **Short-clip discard** | `audio.py` — `duration < min_recording_duration` (default 0.3 s) returns `None` | Spends no decoder pass on a misclick. Purely an optimisation now; suppressing non-speech is the RMS gate's job. |
 | **Empty output is not injected** | `AudioEngine.transcribe` returns `None` for empty/whitespace output; `engine.run_transcription` injects only truthy text | Whatever the model returns, nothing empty reaches the injector. |
 | **Failure isolation** | `except Exception → return None` around the model call | An onnxruntime error surfaces as "no text", never as a crash in the trigger path. |
+
+**Why a duration and not a ratio.** The natural reading of "is this speech?" is
+*what fraction of the clip was voiced*, and that metric is wrong here. Holding
+the trigger while you think is normal use, and one word inside a 10-second hold
+is ~6% voiced — indistinguishable from steady noise at ~5%. The same two clips in
+absolute terms are 0.66 s and 0.09 s. Measured across 125 noise realizations
+above the RMS gate the worst carried 0.12 s of voiced frames, against 0.33 s for
+the shortest real one-word dictation ("non", 0.40 s of audio), so 0.20 s sits
+between them with room on both sides. The ratio metric, on the same corpus,
+ordered the two populations by 1.4× on one draw and not at all on another.
+
+**Where the speech gate stops working.** `webrtcvad` has an energy floor, so it
+only tells noise from speech while the noise is quiet. Past roughly 0.04
+normalized RMS it labels steady noise 100% voiced and the gate is inert — every
+noise level from `sox vol=0.2` up reads as fully voiced. That band is the model's
+problem, and the model handled it: an empty string for all 15 such clips. A real
+fix for loud rooms needs a speech-vs-noise classifier, not a higher threshold.
 
 **Why energy and not a phrase list.** The obvious fix is to blocklist `Yeah.`,
 `Okay.`, `Mm-hmm.`, `No.`. It is the wrong fix: `Okay.` and `No.` are legitimate
@@ -60,7 +78,7 @@ What was **deleted** with the backend, and why keeping it would have been worse:
   the architecture rather than a flag the caller must remember to pass.
 - The degenerate-output scrubber (long same-character runs, box-drawing tokens).
 
-Two bugs disappeared with the backend rather than being fixed:
+Three bugs disappeared with the backend rather than being fixed:
 
 - **Forced-language mistranslation.** With `language="fr"` — a supported config
   value — Whisper transcribed English speech *into French*: "the test is done"
@@ -69,6 +87,42 @@ Two bugs disappeared with the backend rather than being fixed:
 - **Silent truncation of long audio.** In the non-streaming path a 22-second
   recording transcribed to a single sentence, dropping ~90% of the audio with no
   error. Parakeet returns the whole thing.
+
+- **Hallucination on room noise.** This one was measured *after* the swap, on
+  100 noise realizations per backend over identical files: `faster-whisper small`
+  answered 52–100% of them with text (`you`, `Thank you.`, depending on noise
+  type), Parakeet 3%. The remaining 3% is what the speech gate above closes.
+
+### The measured comparison
+
+Numbers from `scripts/asr-bench/` on an Apple M1 Pro — that directory holds the
+scripts, so this is re-runnable rather than folklore.
+
+| | faster-whisper `small` int8 | parakeet int8 |
+| --- | --- | --- |
+| WER, pre-migration defaults (forced `en`) | 17.2% | **5.2%** |
+| WER, language detection on | 3.4% | **5.2%** |
+| Latency, 0.5 s clip | 0.575 s | **0.035 s** |
+| Latency, 2.2 s clip | 0.615 s | **0.075 s** |
+| 16.6 s clip | 1 sentence of 8 (~87% dropped) | **all 8** |
+| Noise answered with text | 52–100% | **3%**, 0% with the speech gate |
+
+The WER rows are the honest shape of it: Parakeet beats the *configuration that
+shipped*, and Whisper with language detection left on is a hair better on clean
+TTS phrases. What Parakeet wins on is not per-phrase accuracy — it is the failure
+modes, and a latency proportional to real audio instead of flat at ~0.6 s.
+
+### Two limits that remain
+
+- **A clip cut mid-word** produces a plausible wrong word rather than a truncated
+  one: 0.5 s of "hello" becomes `Help me.` rather than `Hell`. Not a regression
+  (Whisper returned garbage too) and not fixable at this layer — the two
+  candidate levers both fail. Token logprobs, exposed via `with_timestamps()`,
+  score the invented `Hello` at −0.040 mean against −0.399 for a correctly
+  recognized `Oui.`, so a confidence threshold discards real dictation before it
+  catches the invention. Raising `min_recording_duration` past 0.5 s would
+  discard `oui` and `non`, which measure 0.49 s.
+- **Loud rooms**, per the speech-gate ceiling above.
 
 ## Part 2 — Memory: custom vocabulary
 

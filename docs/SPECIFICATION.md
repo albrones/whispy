@@ -12,7 +12,7 @@ By default transcription is **streaming**: while recording, the audio is segment
 |---|---|
 | Language | Python 3.10+ |
 | STT Engine | `nvidia/parakeet-tdt-0.6b-v3` via `onnx-asr`, int8 ONNX, always `CPUExecutionProvider` (639 MB) |
-| Non-speech guard | RMS energy gate before the model (Parakeet emits short fillers on near-silence) |
+| Non-speech guard | Two gates before the model: RMS energy, then `webrtcvad` voiced-duration (Parakeet answers non-speech with short fillers) |
 | UI | macOS: `rumps` (menu bar) · Linux: `pystray` (tray) |
 | Audio Recording | `sounddevice` / PortAudio (`RawInputStream`, 16 kHz mono int16) |
 | Voice-activity segmentation | `webrtcvad` (energy-gate fallback when absent) |
@@ -195,7 +195,7 @@ Valid transitions: `IDLE → RECORDING → TRANSCRIBING → IDLE`. `start_record
 | `start()` | FSM IDLE→RECORDING, open the capture stream, wait until audio actually flows (cold-start), arm the segmenter when streaming. |
 | `stop()` | Stop/close the stream, flush the tail chunk, FSM RECORDING→TRANSCRIBING. |
 | `get_level()` | Live mic level 0.0–1.0 for the waveform UI. |
-| `transcribe(...)` | `model.recognize(audio_path)` behind two gates: min-duration, then an RMS silence gate (`SILENCE_RMS_THRESHOLD = 0.005`) that fails open when RMS is unmeasurable. No decoder arguments: the transducer detects language itself, decodes greedily, and exposes no prompt/hotword channel. |
+| `transcribe(...)` | `model.recognize(audio_path)` behind three gates: min-duration, an RMS silence gate (`SILENCE_RMS_THRESHOLD = 0.005`), then a speech gate (`MIN_SPEECH_DURATION_S = 0.20`) via `_carries_speech`. Both energy gates fail open when their measurement is unavailable. No decoder arguments: the transducer detects language itself, decodes greedily, and exposes no prompt/hotword channel. |
 | `configure_streaming(enabled, on_chunk, *, pause_ms, min_chunk_s, max_chunk_s, aggressiveness)` | Enable/disable live segmentation and register the chunk sink. |
 | `segment_pcm(pcm, ...)` | Replay raw PCM through the live segmenter; returns chunk WAV paths (drives `stream_file`). |
 | `_get_audio_duration` / `cleanup_audio_file` | WAV-header duration; temp-file cleanup. |
@@ -205,6 +205,10 @@ Valid transitions: `IDLE → RECORDING → TRANSCRIBING → IDLE`. `start_record
 ---
 
 ### 3.6 `src/whispy/core/segmentation.py` — Voice-Activity Segmentation
+
+`speech_duration_s(pcm, sample_rate, aggressiveness=2)` (same module) returns the total seconds of PCM that `webrtcvad` classifies as speech, or `None` when VAD is unavailable, the sample rate is unsupported, or the audio is shorter than one 30 ms frame. `AudioEngine._carries_speech` uses it as the second non-speech gate and treats `None` as "transcribe anyway".
+
+Deliberately a duration rather than a voiced/silent ratio: one word inside a 10 s key-hold is ~6% voiced frames, the same as steady room noise, while its voiced duration (0.66 s) is unmistakable. Measured separation across 125 noise realizations above the RMS gate: worst 0.12 s voiced against 0.33 s for the shortest real one-word dictation. Known ceiling — past roughly 0.04 normalized RMS `webrtcvad` labels steady noise fully voiced and the gate stops discriminating; that band is left to the model, which returned an empty string for every such clip measured.
 
 `SpeechSegmenter` decides chunk boundaries frame-by-frame for streaming. It uses `webrtcvad` when available (gain-independent), falling back to a normalized-RMS energy gate. Capture is 16 kHz mono int16; frames are 30 ms (480 samples / 960 bytes). A boundary is emitted when buffered speech is followed by ≥ `pause_ms` of silence (and ≥ `min_chunk_s`), or when the buffer reaches `max_chunk_s` (forced flush). `feed(raw) → bool` (boundary occurred), `flush_tail() → bool` (pending chunk on stop), `reset_chunk()`, `has_pending`. The segmenter never drops audio — it only decides cut points.
 

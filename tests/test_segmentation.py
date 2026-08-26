@@ -12,7 +12,7 @@ _src = Path(__file__).parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
-from whispy.core.segmentation import FRAME_BYTES, SAMPLE_RATE, SpeechSegmenter
+from whispy.core.segmentation import FRAME_BYTES, SAMPLE_RATE, SpeechSegmenter, speech_duration_s
 
 # One 30 ms frame's worth of audio in each class. webrtcvad needs real spectral
 # content for "speech"; a tone/noise reads as speech, zeros read as silence.
@@ -105,3 +105,51 @@ class TestEnergyFallback:
         assert seg.has_pending is True
         emitted = any(seg.feed(_silence_block(1)) for _ in range(20))
         assert emitted is True
+
+
+def _voiced_block(n_frames=1):
+    """A harmonic stack, which webrtcvad reads as speech across every frame.
+
+    `_speech_block` above is enough for the segmenter (one voiced frame opens a
+    chunk), but only ~18% of its frames read as speech, so it cannot be used to
+    assert on a *duration*.
+    """
+    t = np.arange(_FRAME_SAMPLES * n_frames) / SAMPLE_RATE
+    sig = sum(np.sin(2 * np.pi * (120 * h) * t) / h for h in range(1, 12)) * 8000
+    return sig.astype(np.int16).tobytes()
+
+
+class TestSpeechDuration:
+    """`speech_duration_s` — the absolute-duration metric behind the speech gate."""
+
+    def test_speech_measures_roughly_its_own_length(self):
+        got = speech_duration_s(_voiced_block(17))  # 17 frames = 0.51s
+        assert got is not None
+        assert 0.45 <= got <= 0.51
+
+    def test_silence_measures_zero(self):
+        assert speech_duration_s(_silence_block(30)) == 0.0
+
+    def test_one_word_in_a_long_hold_is_not_penalized(self):
+        """The reason the gate measures duration and not a speech/silence ratio.
+
+        A word surrounded by a long key-hold is ~6% voiced frames — the same
+        ratio as steady noise — but its voiced *duration* is unchanged, so the
+        buried word must measure at least as much as the tightly-cropped one.
+        """
+        tight = speech_duration_s(_voiced_block(17))
+        buried = speech_duration_s(_silence_block(100) + _voiced_block(17) + _silence_block(100))
+        assert buried >= tight
+
+    def test_returns_none_without_webrtcvad(self, monkeypatch):
+        """Fails open: an unmeasurable clip must be transcribed, not dropped."""
+        import whispy.core.segmentation as seg_mod
+
+        monkeypatch.setattr(seg_mod, "webrtcvad", None)
+        assert speech_duration_s(_voiced_block(17)) is None
+
+    def test_returns_none_for_an_unsupported_sample_rate(self):
+        assert speech_duration_s(_voiced_block(17), sample_rate=44100) is None
+
+    def test_returns_none_when_shorter_than_one_frame(self):
+        assert speech_duration_s(_voiced_block(1)[:100]) is None

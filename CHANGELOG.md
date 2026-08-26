@@ -60,6 +60,17 @@
   one-word dictations. Every observed false positive measured ≤0.00065
   normalized RMS against ≥0.147 for real speech, so the 0.005 threshold has a
   220× margin, and it fails open — an unmeasurable clip is still transcribed.
+- **Speech gate.** Non-speech that is merely *loud* clears the silence gate — a
+  noisy room, a fan, mains hum all measure 0.010–0.035 normalized RMS against the
+  0.005 threshold — and reached the model, which answered roughly 3% of
+  realizations with a filler (3 of 100 measured). A clip now also needs 0.20 s of
+  WebRTC-VAD voiced frames, which took that to 0 of 100 with no effect on real
+  speech. Reuses the `webrtcvad` dependency the streaming segmenter already
+  pulls, and fails open like the silence gate. Deliberately an absolute duration
+  and not a voiced/silent ratio: one word inside a 10 s key-hold is 6% voiced,
+  the same ratio as steady noise, while its voiced duration (0.66 s) is
+  unmistakable. Known ceiling — past ~0.04 RMS the VAD labels steady noise
+  voiced, so louder rooms are still the model's problem.
 
 ### Removed
 

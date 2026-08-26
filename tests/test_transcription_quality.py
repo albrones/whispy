@@ -31,7 +31,7 @@ pytestmark = pytest.mark.macos
 if shutil.which("say") is None or shutil.which("sox") is None:
     pytest.skip("requires macOS `say` and `sox`", allow_module_level=True)
 
-from whispy.core.audio import AudioEngine  # noqa: E402
+from whispy.core.audio import SILENCE_RMS_THRESHOLD, AudioEngine  # noqa: E402
 from whispy.core.state_machine import StateMachine  # noqa: E402
 from whispy.core.text_cleaner import clean_text  # noqa: E402
 
@@ -45,6 +45,24 @@ def _find_voice(locale_prefix: str) -> str | None:
         if len(parts) >= 2 and parts[1].lower().startswith(locale_prefix.lower()):
             return parts[0]
     return None
+
+
+def _prefer_voice(names: list[str], locale_prefix: str) -> str | None:
+    """Return the first installed voice from `names`, else any voice for the locale.
+
+    `_find_voice` returns the alphabetically first match, which on macOS is a
+    legacy novelty voice ("Albert" for en, "Bells", "Boing"). Those synthesize
+    speech the model legitimately fails on — measured here, "Albert" saying
+    "okay" transcribes to nothing at all. Tests that assert on *recognition*
+    need a modern voice; tests that only assert on the surrounding plumbing do
+    not care and keep using `_find_voice`.
+    """
+    installed = subprocess.run(["say", "-v", "?"], capture_output=True, text=True).stdout
+    available = {line.split()[0] for line in installed.splitlines() if line.split()}
+    for name in names:
+        if name in available:
+            return name
+    return _find_voice(locale_prefix)
 
 
 def _synthesize(phrase: str, wav_path: Path, voice: str | None = None) -> Path:
@@ -249,6 +267,38 @@ class TestSilenceGate:
         )
         assert engine.transcribe(str(wav), model=asr_model) is None
 
+    @pytest.mark.parametrize(
+        "label,synth",
+        [
+            ("whitenoise", ["synth", "2.0", "whitenoise", "vol", "0.05"]),
+            ("brownnoise", ["synth", "2.0", "brownnoise", "vol", "0.03"]),
+            ("mains hum", ["synth", "2.0", "sine", "50", "vol", "0.05"]),
+            ("fan", ["synth", "2.0", "pinknoise", "lowpass", "500", "vol", "0.08"]),
+            # A long hold in a noisy room: more frames, more chances to look voiced.
+            ("long whitenoise", ["synth", "8.0", "whitenoise", "vol", "0.05"]),
+        ],
+    )
+    def test_loud_non_speech_above_the_rms_gate_is_discarded(self, asr_model, engine, tmp_path, label, synth):
+        """Non-speech loud enough to clear the RMS gate must still produce nothing.
+
+        The RMS gate cannot help here — these measure 0.010-0.035 normalized RMS
+        against a 0.005 threshold, so without the VAD gate they reach the model,
+        which answers ~3% of realizations with a filler ("Yeah.", "Ha ha ha.").
+        `sox` draws a fresh noise realization per call unless `-R` is passed, so
+        this uses `-R`: a seeded draw keeps the test from being a 3% coin flip
+        that only fails on someone else's CI run.
+        """
+        wav = tmp_path / f"loud_{label.replace(' ', '_')}.wav"
+        subprocess.run(
+            ["sox", "-R", "-n", "-r", "16000", "-c", "1", "-b", "16", str(wav), *synth],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        rms = engine._get_audio_rms(str(wav))
+        assert rms is not None and rms > SILENCE_RMS_THRESHOLD, f"{label} no longer clears the RMS gate (RMS {rms})"
+        assert engine.transcribe(str(wav), model=asr_model) is None
+
     def test_real_speech_clears_the_gate_by_a_wide_margin(self, asr_model, engine, tmp_path):
         """The gate must not be anywhere near real dictation levels."""
         from whispy.core.audio import SILENCE_RMS_THRESHOLD
@@ -259,6 +309,64 @@ class TestSilenceGate:
         assert rms is not None
         assert rms > SILENCE_RMS_THRESHOLD * 5, f"speech RMS {rms:.6f} is uncomfortably close to the gate"
         assert engine.transcribe(str(wav), model=asr_model) is not None
+
+
+class TestShortDictation:
+    """A sub-second one-word dictation must survive the duration floor and be recognized.
+
+    This is the counterweight to `TestSilenceGate`: every guard that discards
+    near-silence has to leave "oui" alone. It is also why the floor stays at
+    0.3s — these clips measure 0.49-0.78s, so raising it to bound the
+    truncated-word case would discard real dictation.
+    """
+
+    EN_VOICES = ["Samantha", "Daniel", "Alex", "Aman"]
+    FR_VOICES = ["Amélie", "Aurelie", "Jacques"]
+
+    def test_a_word_held_inside_a_long_silence_survives(self, asr_model, engine, tmp_path):
+        """Holding the trigger while thinking must not lose the word.
+
+        This is why the speech gate measures voiced *duration* and not a
+        speech/silence ratio: one word inside a 10s hold is ~6% voiced frames,
+        the same ratio as steady room noise, while its voiced duration (0.66s)
+        stays three times over the gate.
+        """
+        voice = _prefer_voice(self.EN_VOICES, "en")
+        wav = tmp_path / "buried.wav"
+        aiff = wav.with_suffix(".aiff")
+        subprocess.run(["say", "-v", voice, "okay", "-o", str(aiff)], check=True)
+        subprocess.run(
+            ["sox", str(aiff), "-r", "16000", "-c", "1", str(wav), "pad", "4.0", "6.0"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        _assert_recognized(_transcribe(engine, asr_model, wav), ["okay", "ok"])
+
+    @pytest.mark.parametrize(
+        "word,locale,accept",
+        [
+            ("yes", "en", ["yes", "yeah"]),
+            ("okay", "en", ["okay", "ok"]),
+            # Deliberately not "oui": every installed French voice synthesizes it
+            # close enough to English "we" that the model returns "We" on roughly
+            # half of the (byte-varying) `say` renderings. That is a limit of TTS
+            # as a source of one-word audio, not a transcription defect, so
+            # asserting on it would only buy a flaky test.
+            #
+            # One word carries no language context, so "non" legitimately comes
+            # back as its English homophone.
+            ("non", "fr", ["non", "no"]),
+            ("stop", "fr", ["stop"]),
+        ],
+    )
+    def test_a_single_word_is_recognized(self, asr_model, engine, tmp_path, word, locale, accept):
+        voice = _prefer_voice(self.EN_VOICES if locale == "en" else self.FR_VOICES, locale)
+        if voice is None:
+            pytest.skip(f"no {locale} `say` voice installed")
+        wav = _synthesize(word, tmp_path / f"word_{word}.wav", voice=voice)
+        out = _transcribe(engine, asr_model, wav)
+        _assert_recognized(out, accept)
 
 
 class TestLongAudio:

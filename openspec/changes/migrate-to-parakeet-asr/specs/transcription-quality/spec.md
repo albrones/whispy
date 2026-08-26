@@ -37,11 +37,13 @@ _Tier: macos-real — `@pytest.mark.macos`._
 _Tier: unit-pure — `test_text_cleaning.py`. This scenario exists because the previous decoder-prompt mechanism leaked vocabulary terms into transcriptions verbatim._
 
 ### Requirement: Silence and artifacts produce no output
-The system SHALL inject nothing for non-speech input. A sub-`min_recording_duration` clip SHALL be discarded before the model, and a clip whose normalized RMS amplitude is below the silence threshold SHALL also be discarded before the model.
+The system SHALL inject nothing for non-speech input. A sub-`min_recording_duration` clip SHALL be discarded before the model, a clip whose normalized RMS amplitude is below the silence threshold SHALL also be discarded before the model, and a clip carrying less than `MIN_SPEECH_DURATION_S` of voiced audio SHALL be discarded before the model.
 
 The system SHALL NOT rely on the model returning empty text for silence, and SHALL NOT use a phrase blocklist. Measurement disproved the first: Parakeet emits short conversational fillers on near-silent audio — `Yeah.` on pure digital silence at 0.6 s / 1.0 s / 1.5 s, `Thank you.` at 2.0 s, and `Okay.` / `Mm-hmm.` / `No.` on a realistic quiet-room noise floor — non-monotonically in duration. The second is excluded because such a list would have to contain `Okay.` and `No.`, which are legitimate one-word dictations, so filtering by text would delete real speech.
 
 The threshold SHALL be chosen from the measured separation: every observed false positive sat at or below 0.00065 normalized RMS, every real utterance at or above 0.147.
+
+Energy alone SHALL NOT be relied on for non-speech that is merely loud. Measurement disproved that too: room noise, a fan and mains hum measure 0.010–0.035 normalized RMS, clear the silence threshold, and reach the model, which answered 3 of 100 such realizations with a filler. The system SHALL therefore also require a minimum *duration* of voiced audio, measured with voice-activity detection (see the audio-capture spec for the metric and its ceiling).
 
 #### Scenario: Sub-threshold clip yields nothing
 - **WHEN** a clip is run through the transcribe path with a duration below `min_recording_duration`
@@ -66,6 +68,24 @@ _Tier: macos-real — `@pytest.mark.macos::TestSilenceGate`. This is the live ca
 - **THEN** its RMS SHALL exceed the silence threshold several times over, and it SHALL be transcribed
 
 _Tier: macos-real — `@pytest.mark.macos::TestSilenceGate`. Guards against a future threshold change creeping up into real speech._
+
+#### Scenario: Loud non-speech is never transcribed
+- **WHEN** a clip of noise loud enough to clear the silence threshold — white, brown or pink noise, mains hum, or a lowpassed fan-like spectrum — is run through the transcribe path
+- **THEN** the path SHALL return no text, and the model SHALL NOT be called
+
+_Tier: macos-real — `@pytest.mark.macos::TestSilenceGate::test_loud_non_speech_above_the_rms_gate_is_discarded`. Noise is synthesized with a fixed seed: `sox` draws a fresh realization per call, and the model answers only a small fraction of them, so an unseeded draw makes this a coin flip rather than a test._
+
+#### Scenario: A sub-second word is still transcribed
+- **WHEN** a one-word dictation of roughly half a second is run through the transcribe path
+- **THEN** the path SHALL return that word
+
+_Tier: macos-real — `@pytest.mark.macos::TestShortDictation`. This is the counterweight to every non-speech guard: `oui` and `non` measure 0.40–0.50 s of audio, so no guard may be tightened past them._
+
+#### Scenario: A word held inside a long silence is still transcribed
+- **WHEN** a clip containing one word surrounded by several seconds of silence — the user holding the trigger while thinking — is run through the transcribe path
+- **THEN** the path SHALL return that word
+
+_Tier: macos-real — `@pytest.mark.macos::TestShortDictation`. This is why the voiced measurement is a duration and not a voiced/silent ratio: such a clip is ~6% voiced, the same as steady noise._
 
 #### Scenario: An unmeasurable clip is transcribed, not dropped
 - **WHEN** RMS cannot be computed for a clip

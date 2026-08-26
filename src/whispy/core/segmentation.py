@@ -32,6 +32,43 @@ FRAME_BYTES = FRAME_SAMPLES * 2  # int16 -> 960 bytes
 _FALLBACK_SPEECH_LEVEL = 0.04
 
 
+def speech_duration_s(pcm: bytes, sample_rate: int = SAMPLE_RATE, aggressiveness: int = 2) -> float | None:
+    """Total seconds of `pcm` that WebRTC VAD classifies as speech.
+
+    Deliberately an absolute duration, not a speech/silence ratio: a ratio
+    cannot tell one word inside a long key-hold from steady noise. Measured on
+    an M1 Pro at aggressiveness 2, "okay" padded into a 10.6s hold is 6% speech
+    frames and 2s of loud whitenoise is 6% too, while the *durations* are 0.66s
+    against 0.09s. Across 125 noise realizations (white/brown/pink/fan, 2s and
+    8s, all above the RMS gate) the worst was 0.12s; the shortest real word
+    measured 0.33s.
+
+    Returns None when VAD is unavailable or the audio cannot be framed, so an
+    unmeasurable clip is transcribed rather than silently dropped.
+    """
+    if webrtcvad is None or sample_rate not in (8000, 16000, 32000, 48000):
+        return None
+    try:
+        vad = webrtcvad.Vad(max(0, min(3, int(aggressiveness))))
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+    frame_bytes = sample_rate * FRAME_MS // 1000 * 2
+    n_frames = len(pcm) // frame_bytes
+    if n_frames == 0:
+        return None
+
+    speech = 0
+    for i in range(n_frames):
+        frame = pcm[i * frame_bytes : (i + 1) * frame_bytes]
+        try:
+            if vad.is_speech(frame, sample_rate):
+                speech += 1
+        except Exception:  # pragma: no cover - defensive
+            return None
+    return speech * FRAME_MS / 1000.0
+
+
 class SpeechSegmenter:
     """Frame-based VAD segmenter fed raw 16 kHz mono int16 PCM.
 

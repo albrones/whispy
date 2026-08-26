@@ -34,6 +34,8 @@ Tiers are defined in `openspec/specs/TESTING-TIERS.md`.
 | Text cleaning | both | unit-pure | `tests/test_text_cleaning.py` | whitespace normalization, custom-vocabulary near-miss correction |
 | Silence gate (non-speech guard) | both | unit-pure | `tests/test_audio.py::TestAudioRms`, `::TestTranscribe` | RMS below threshold never reaches the model; fails open when unmeasurable |
 | Silence gate against the real model | macOS | live-driven | `tests/test_transcription_quality.py::TestSilenceGate` | pure silence + quiet-room noise across durations; real speech clears by 5x |
+| Speech gate (voiced-duration guard) | both | unit-pure | `tests/test_audio.py::TestSpeechGate`, `tests/test_segmentation.py::TestSpeechDuration` | non-speech above the RMS gate never reaches the model; one word in a long hold is not penalized; fails open without webrtcvad |
+| Speech gate against the real model | macOS | live-driven | `tests/test_transcription_quality.py::TestSilenceGate::test_loud_non_speech_above_the_rms_gate_is_discarded`, `::TestShortDictation` | loud white/brown/pink/hum/fan noise discarded; sub-second words and a word inside a 10s hold still transcribe |
 | Audio duration detection | both | unit-pure | `tests/test_audio.py::TestAudioDurationDetection` | frames/rate; None for unreadable files |
 | Engine + audio + FSM integration | both | unit-mocked | `tests/test_e2e.py::TestFullEngineAudioFSMIntegration` | mocked audio + ASR model |
 | HTTP API endpoints | both | unit-mocked | `tests/test_api/` | status/config/last-transcription/start/stop |

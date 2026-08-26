@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 
-from .segmentation import SpeechSegmenter
+from .segmentation import SpeechSegmenter, speech_duration_s
 from .state_machine import StateMachine
 
 # ``sounddevice`` loads libportaudio at import time, which is absent on headless
@@ -51,6 +51,30 @@ SAMPLE_WIDTH = 2  # int16
 # are legitimate one-word dictations, so filtering by text would delete real
 # speech. Energy never looks at what was said.
 SILENCE_RMS_THRESHOLD = 0.005
+
+# Minimum seconds of VAD-voiced audio required before a clip reaches the model.
+#
+# The RMS gate above only catches *near-silence*. Non-speech that is merely loud
+# -- a noisy room, a fan, 50 Hz mains hum -- clears it (0.010-0.035 measured
+# against the 0.005 threshold) and reaches the model, where roughly 3% of
+# realizations come back as a filler. Voiced-frame duration separates the two
+# populations with a 2.7x margin: across 125 noise realizations the worst
+# carried 0.12s of voiced frames, while the shortest real one-word dictation
+# ("non", 0.40s of audio) carried 0.33s. 0.20s sits between them.
+#
+# A duration and not a speech/silence ratio: a ratio cannot distinguish one word
+# inside a long key-hold (6% voiced at 10.6s) from steady noise (6% voiced), and
+# holding the trigger while thinking is normal use.
+#
+# Known ceiling: webrtcvad has an energy floor, so it only tells noise from
+# speech while the noise is quiet. Past roughly 0.04 normalized RMS it labels
+# steady noise 100% voiced and this gate stops discriminating -- measured across
+# white/pink/lowpassed noise, every level from vol 0.2 up reads as fully voiced.
+# That band is left to the model, which returned "" for all 15 such clips. The
+# gate is aimed at where the leaks actually were (0.010-0.035 RMS, 0.09-0.18s
+# voiced); a real fix for louder rooms would need a speech-vs-noise classifier,
+# not a louder threshold.
+MIN_SPEECH_DURATION_S = 0.20
 
 RECORDING_PATH = os.path.join(tempfile.gettempdir(), "whispy.wav")
 
@@ -488,12 +512,49 @@ class AudioEngine:
             )
             return None
 
+        # Non-speech loud enough to clear the RMS gate -- a noisy room, a fan, a
+        # mains hum -- still reaches the model, and roughly 3% of the time
+        # (3/100 realizations measured) Parakeet answers it with a filler
+        # ("Yeah.", "Ha ha ha."). VAD closes that: the same clips carry at most
+        # 0.12s of speech frames against 0.33s for the shortest real word.
+        if not self._carries_speech(audio_path):
+            return None
+
         try:
             text = (model.recognize(audio_path) or "").strip()
             return text if text else None
         except Exception as exc:
             print(f"[audio] Transcription error: {exc}", file=sys.stderr)
             return None
+
+    def _carries_speech(self, audio_path: str) -> bool:
+        """True when the clip holds enough VAD-detected speech to be worth decoding.
+
+        Fails open: an unreadable file, a non-16-bit clip, or a missing
+        ``webrtcvad`` all return True, so a clip that cannot be measured is
+        transcribed rather than dropped. Losing a real dictation is worse than
+        typing an occasional filler.
+        """
+        try:
+            with wave.open(audio_path, "rb") as wf:
+                if wf.getsampwidth() != 2 or wf.getnchannels() != 1:
+                    return True
+                rate = wf.getframerate()
+                pcm = wf.readframes(wf.getnframes())
+        except (OSError, wave.Error):
+            return True
+
+        speech_s = speech_duration_s(pcm, sample_rate=rate)
+        if speech_s is None:
+            return True
+        if speech_s < MIN_SPEECH_DURATION_S:
+            logger.info(
+                "[audio] No speech detected (%.2fs < %.2fs of voiced frames) — discarding.",
+                speech_s,
+                MIN_SPEECH_DURATION_S,
+            )
+            return False
+        return True
 
     def _get_audio_rms(self, audio_path: str) -> float | None:
         """Root-mean-square amplitude of a WAV, normalized to 0.0-1.0.

@@ -16,7 +16,7 @@ _Tier: unit-pure — `test_audio.py::TestAudioDurationDetection`. Relocated from
 _Tier: unit-pure — `test_audio.py::TestAudioDurationDetection`._
 
 ### Requirement: Short-clip discard guard
-The audio engine SHALL discard a recording whose duration is below the configured `min_recording_duration` before transcription. The guard now exists to avoid spending a decoder pass on a misclick-length clip; suppressing non-speech output is the RMS gate's job, not this one. A discarded clip SHALL yield no transcription output.
+The audio engine SHALL discard a recording whose duration is below the configured `min_recording_duration` before transcription. The guard now exists to avoid spending a decoder pass on a misclick-length clip; suppressing non-speech output is the job of the RMS and speech gates, not this one. A discarded clip SHALL yield no transcription output.
 
 #### Scenario: Misclick-length recording discarded
 - **WHEN** a recording's measured duration is below `min_recording_duration`
@@ -69,6 +69,62 @@ _Tier: unit-mocked — `test_audio.py::TestTranscribe`._
 - **THEN** the engine SHALL proceed to transcription rather than discard the clip
 
 _Tier: unit-mocked — `test_audio.py::TestTranscribe`._
+
+### Requirement: Non-speech above the silence threshold is gated before the model
+The audio engine SHALL measure the duration of voiced audio in a clip and SHALL NOT call the model when it falls below `MIN_SPEECH_DURATION_S`. When that duration cannot be measured the engine SHALL transcribe the clip anyway — this gate fails open exactly as the RMS gate does, because losing real dictation is worse than injecting an occasional filler.
+
+This gate exists because the RMS gate only catches *near-silence*. Non-speech that is merely loud — a noisy room, a fan, 50 Hz mains hum — measures 0.010–0.035 normalized RMS against a 0.005 threshold, so it clears that gate and reaches the model, which answered 3 of 100 such realizations with a filler (`Yeah.`, `Ha ha ha.`). With this gate, 0 of 100.
+
+The metric SHALL be an absolute duration and SHALL NOT be a voiced/silent ratio. A ratio cannot separate the two populations: one word inside a 10 s trigger-hold is ~6% voiced, and steady noise is ~5% — while in absolute terms they are 0.66 s and 0.09 s. Holding the trigger while thinking is ordinary use, so a ratio gate would discard real dictation.
+
+The threshold SHALL be chosen from the measured separation: across 125 noise realizations above the RMS gate the worst carried 0.12 s of voiced audio, and the shortest real one-word dictation carried 0.33 s.
+
+The gate's ceiling SHALL be documented rather than papered over: voice-activity detection has an energy floor, so past roughly 0.04 normalized RMS it labels steady noise fully voiced and this gate stops discriminating. That band is left to the model, which returned empty text for every such clip measured. Raising the threshold SHALL NOT be used to cover it — that would discard real speech before it caught the noise.
+
+#### Scenario: Loud non-speech is discarded without calling the model
+- **WHEN** a clip clears the RMS gate but carries less than `MIN_SPEECH_DURATION_S` of voiced audio
+- **THEN** the engine SHALL return no text and SHALL NOT call the model
+
+_Tier: unit-pure — `test_audio.py::TestSpeechGate`._
+
+#### Scenario: Voiced audio passes the gate
+- **WHEN** a clip carries at least `MIN_SPEECH_DURATION_S` of voiced audio
+- **THEN** the engine SHALL transcribe it normally
+
+_Tier: unit-pure — `test_audio.py::TestSpeechGate`._
+
+#### Scenario: Unmeasurable clip is transcribed
+- **WHEN** voiced duration cannot be measured (unreadable file, unsupported sample width, voice-activity detection unavailable)
+- **THEN** the engine SHALL proceed to transcription rather than discard the clip
+
+_Tier: unit-pure — `test_audio.py::TestSpeechGate`, one scenario per cause._
+
+### Requirement: Voiced-duration measurement
+The segmentation module SHALL expose the total duration of voiced audio in a PCM buffer, computed with the same voice-activity detector the streaming segmenter uses, and SHALL return no value rather than raise when the detector is unavailable, the sample rate is unsupported, or the buffer is shorter than one frame.
+
+#### Scenario: Voiced audio measures its own length
+- **WHEN** a buffer of continuously voiced audio is measured
+- **THEN** the module SHALL return approximately that buffer's duration
+
+_Tier: unit-pure — `test_segmentation.py::TestSpeechDuration`._
+
+#### Scenario: Silence measures zero
+- **WHEN** an all-zero buffer is measured
+- **THEN** the module SHALL return 0.0
+
+_Tier: unit-pure — `test_segmentation.py::TestSpeechDuration`._
+
+#### Scenario: Padding does not reduce the measurement
+- **WHEN** the same voiced audio is measured tightly cropped and again surrounded by seconds of silence
+- **THEN** the padded measurement SHALL be at least the cropped one
+
+_Tier: unit-pure — `test_segmentation.py::TestSpeechDuration`. Pins the property that makes a duration usable where a ratio is not._
+
+#### Scenario: No detector available
+- **WHEN** the voice-activity detector cannot be imported or initialized
+- **THEN** the module SHALL return no value, so callers fail open
+
+_Tier: unit-pure — `test_segmentation.py::TestSpeechDuration`._
 
 ### Requirement: RMS measurement
 The audio engine SHALL compute normalized (0.0–1.0) RMS amplitude from a WAV's samples, handling 8-, 16-, and 32-bit PCM, and SHALL return no value rather than raise when the file cannot be measured.
