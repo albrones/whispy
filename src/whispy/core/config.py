@@ -10,19 +10,37 @@ from pathlib import Path
 from typing import Any
 
 # Curated push-to-talk trigger presets for the menu UI: ordered (label, value)
-# where value is None for the platform default (Fn on macOS) or a macOS keycode.
-# Keycodes are Carbon virtual keycodes (what CGEvent reports). Only keys that
-# work as a *hold* without blocking typing or stealing system shortcuts are
-# listed — letter/space/Esc keys and the Caps Lock toggle are deliberately out.
+# where value is None for the platform default (Fn on macOS), a macOS keycode
+# (int), or a modifier-combo string (see below). Keycodes are Carbon virtual
+# keycodes (what CGEvent reports). Only keys that work as a *hold* without
+# blocking typing or stealing system shortcuts are listed — letter/space/Esc
+# keys and the Caps Lock toggle are deliberately out.
+#
+# The list also carries modifier-combination presets from the Control+Option+
+# Command ("Hyper") tier. That tier is chosen because the macOS event tap is
+# listen-only and cannot consume the event: any combination the focused
+# application also binds would fire that application's own shortcut on both
+# the start and the stop press, and a shortcut that opens a focused panel
+# would redirect the subsequent text injection into it. The Hyper tier is
+# vacated by nearly every app for this reason.
+#
+# These combo presets are labelled by their key combination and must NOT be
+# relabelled with a language (e.g. "English", "French"): the ASR backend is a
+# transducer whose language cannot be forced, so a language label would
+# assert behavior the system does not implement.
+#
 # ponytail: confirm each keycode against a real CGEventTap before trusting it
 # (see tasks 1.2 / 4.2) — the keycode table in event_decode names some of these
 # differently, but matching/decoding is by raw keycode, and the label here is
-# what the menu shows, so a wrong name there does not mislead the UI.
-TRIGGER_PRESETS: list[tuple[str, int | None]] = [
+# what the menu shows, so a wrong name there does not mislead the UI. E=14 and
+# F=3 were verified against Apple's Events.h kVK_ANSI_* values.
+TRIGGER_PRESETS: list[tuple[str, int | str | None]] = [
     ("Fn", None),  # platform default; None keeps "default" semantics (keycode 63)
     ("Right Command", 54),
     ("Right Option", 61),
     ("F13", 105),
+    ("⌃⌥⌘E", "ctrl+alt+cmd+e"),
+    ("⌃⌥⌘F", "ctrl+alt+cmd+f"),
 ]
 
 # Default configuration values
@@ -39,6 +57,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # (Fn / keycode 63 on macOS, Right Ctrl on Linux), resolved at runtime by
     # the engine. May be an int (macOS keycode) or a string (key/combo name).
     "trigger": None,
+    # How the trigger controls recording. "hold" is push-to-talk — the trigger
+    # must be held for the whole dictation (current, default behavior).
+    # "toggle" means a trigger press starts recording and the next trigger
+    # press stops it; the trigger release does not stop recording. This is
+    # deliberately a key of its own rather than a property of each trigger
+    # preset, so any trigger composes with either mode without doubling the
+    # menu's trigger list.
+    "trigger_mode": "hold",
     # --- Streaming / incremental transcription ---
     # When enabled (default), the recording is segmented on silence (and a max
     # length) and each chunk is transcribed during recording, so the assembled
@@ -119,6 +145,15 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
         validated["trigger"] = DEFAULT_CONFIG["trigger"]
     elif isinstance(trigger, str):
         validated["trigger"] = trigger.strip()
+
+    # Validate trigger_mode (must be exactly "hold" or "toggle").
+    trigger_mode = validated.get("trigger_mode")
+    if trigger_mode not in ("hold", "toggle"):
+        print(
+            f"[config] Invalid trigger_mode '{trigger_mode}', defaulting to {DEFAULT_CONFIG['trigger_mode']}",
+            file=sys.stderr,
+        )
+        validated["trigger_mode"] = DEFAULT_CONFIG["trigger_mode"]
 
     # Validate streaming_enabled (must be bool).
     se = validated.get("streaming_enabled")

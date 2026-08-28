@@ -94,6 +94,7 @@ class WhisperMenuBarApp(rumps.App):
         self.engine.on_permission_missing(self._on_permission_missing)
         self.engine.on_model_load_failed(self._on_model_load_failed)
         self.engine.on_capture_failed(self._on_capture_failed)
+        self.engine.on_recording_limit_reached(self._on_recording_limit_reached)
 
         # Audio-reactive waveform visualization shown during recording. The
         # level comes from the engine's single capture stream (engine.get_level)
@@ -146,6 +147,15 @@ class WhisperMenuBarApp(rumps.App):
             self.copy_menu, menu_theme.toggle_title("Copy to clipboard", cfg.get("copy_to_clipboard", False))
         )
 
+        # Toggle mode — press-once-to-start/press-once-to-stop instead of
+        # hold-to-record. Modelled on the clipboard toggle above.
+        self.toggle_mode_menu = rumps.MenuItem("Toggle mode", callback=self._on_toggle_trigger_mode)
+        self.toggle_mode_menu._label = "Toggle mode"
+        menu_theme.apply_title(
+            self.toggle_mode_menu,
+            menu_theme.toggle_title("Toggle mode", cfg.get("trigger_mode", "hold") == "toggle"),
+        )
+
         # Trigger (push-to-talk key) selection — submenu title reflects the
         # current choice, each item shows a check, mirroring Model/Language.
         self.trigger_menu = rumps.MenuItem("Trigger")
@@ -186,6 +196,7 @@ class WhisperMenuBarApp(rumps.App):
             None,
             settings_header,
             self.copy_menu,
+            self.toggle_mode_menu,
             self.trigger_menu,
             *([self.login_item_menu] if self.login_item_menu is not None else []),
             None,
@@ -193,11 +204,12 @@ class WhisperMenuBarApp(rumps.App):
             quit_item,
         ]
 
-    def _trigger_is_active(self, value: int | None) -> bool:
+    def _trigger_is_active(self, value: int | str | None) -> bool:
         """True if the given preset value matches the configured trigger.
 
         Fn (the platform default) is stored as None, so an unset/empty config
-        trigger matches it; other presets match their raw keycode.
+        trigger matches it; other presets match their raw keycode or, for the
+        combination presets, their string value — plain equality covers both.
         """
         cur = self.engine.state.config.get("trigger")
         if value is None:
@@ -206,7 +218,8 @@ class WhisperMenuBarApp(rumps.App):
 
     def _trigger_label(self) -> str:
         """Human label for the active trigger: a preset label if one matches,
-        else the keycode's name (covers a hand-edited config value)."""
+        else the keycode's name for an int (covers a hand-edited config
+        value), or the raw string for a combination that matches no preset."""
         cur = self.engine.state.config.get("trigger")
         for label, value in TRIGGER_PRESETS:
             if self._trigger_is_active(value):
@@ -229,6 +242,10 @@ class WhisperMenuBarApp(rumps.App):
         menu_theme.apply_title(
             self.copy_menu, menu_theme.toggle_title(self.copy_menu._label, cfg.get("copy_to_clipboard", False))
         )
+        menu_theme.apply_title(
+            self.toggle_mode_menu,
+            menu_theme.toggle_title(self.toggle_mode_menu._label, cfg.get("trigger_mode", "hold") == "toggle"),
+        )
         for item in self._trigger_items:
             menu_theme.apply_title(
                 item, menu_theme.check_title(item._label, self._trigger_is_active(item._trigger_value))
@@ -244,10 +261,27 @@ class WhisperMenuBarApp(rumps.App):
             self._visualization.show()
 
     def _on_fn_released(self) -> None:
-        """Hide the waveform when FN is released.
+        """Hide the waveform when the trigger is released.
+
+        A safety net for the hold path only: if the press showed the pill but
+        recording never started (so no recording-stop callback ever fires), this
+        is what puts it away. In toggle mode the engine deliberately does not
+        emit this event -- the key is released long before the dictation ends,
+        and the pill belongs to the recording, not to the key.
+        """
+        self._visualization.hide()
+
+    def _on_recording_start(self) -> None:
+        """Show the recording waveform (level comes from the capture stream)."""
+        self._visualization.show()
+
+    def _on_recording_stop(self) -> None:
+        """Hide the waveform when recording ends.
 
         Also warns when the dictation was pointless: the model is still
-        loading, so run_transcription would have silently produced nothing.
+        loading, so transcription would have silently produced nothing. This
+        lives here rather than on the trigger release so it fires when the
+        *dictation* ends -- in toggle mode that is a separate moment.
         """
         self._visualization.hide()
         if self.engine.state.model is None and self.engine.state.model_loading:
@@ -258,14 +292,6 @@ class WhisperMenuBarApp(rumps.App):
                     None,
                 )
             )
-
-    def _on_recording_start(self) -> None:
-        """Show the recording waveform (level comes from the capture stream)."""
-        self._visualization.show()
-
-    def _on_recording_stop(self) -> None:
-        """Hide the waveform when recording ends."""
-        self._visualization.hide()
 
     # -- Menu bar animation --
 
@@ -327,6 +353,11 @@ class WhisperMenuBarApp(rumps.App):
                 None,
             )
         )
+
+    def _on_recording_limit_reached(self, message: str) -> None:
+        """Engine callback (worker thread): the recording hit its max duration
+        and was force-stopped — queue the warning for the main thread."""
+        self._pending_alerts.append(("Dictation stopped", message, None))
 
     def _set_permission_item_hidden(self, hidden: bool) -> None:
         """Toggle the warning menu item via its underlying NSMenuItem."""
@@ -402,6 +433,12 @@ class WhisperMenuBarApp(rumps.App):
         enabled = not self.engine.state.config.get("copy_to_clipboard", False)
         menu_theme.apply_title(sender, menu_theme.toggle_title(sender._label, enabled))
         self.engine.update_config({"copy_to_clipboard": enabled})
+
+    def _on_toggle_trigger_mode(self, sender: rumps.MenuItem) -> None:
+        current = self.engine.state.config.get("trigger_mode", "hold")
+        new_mode = "hold" if current == "toggle" else "toggle"
+        menu_theme.apply_title(sender, menu_theme.toggle_title(sender._label, new_mode == "toggle"))
+        self.engine.update_config({"trigger_mode": new_mode})
 
     @staticmethod
     def _reconcile_login_item(want_enabled: bool) -> None:

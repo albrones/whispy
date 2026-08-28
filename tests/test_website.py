@@ -181,3 +181,9 @@ def test_site_offers_no_model_choice(html: str):
     lowered = html.lower()
     for claim in ("pick your model", "model size", "tunable models"):
         assert claim not in lowered, f"site still offers a model choice: {claim!r}"
+
+
+def test_mentions_toggle_mode(html: str):
+    """Toggle mode (press once to start, press again to stop) is a real
+    capability and must be documented, not just push-to-talk hold."""
+    assert "toggle mode" in html.lower(), "site must mention toggle mode"

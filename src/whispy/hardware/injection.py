@@ -69,6 +69,20 @@ class TextInjector:
         else:
             self._inject_via_keystrokes(text)
 
+    def copy_only(self, text: str) -> None:
+        """Place text on the clipboard without pasting it anywhere.
+
+        Used when the engine must hand a transcript back to the user but has no
+        business typing it -- the recording-limit stop, where the field that was
+        focused when dictation started may no longer be focused after minutes of
+        speech. Unlike ``_inject_via_clipboard`` this deliberately does NOT
+        snapshot and restore the previous clipboard: the whole point is that the
+        transcript survives on the pasteboard for the user to paste themselves.
+        """
+        if not text:
+            return
+        self._spawn([(["pbcopy"], text.encode("utf-8"))], "copy-only")
+
     def _spawn(
         self,
         steps: list[tuple[list[str], bytes | None] | tuple[list[str], bytes | None, float]],

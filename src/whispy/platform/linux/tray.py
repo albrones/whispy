@@ -12,6 +12,7 @@ requires the Linux GUI stack to be installed.
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 # Tray colours by state: idle (grey), recording (red), busy/loading (amber).
@@ -34,6 +35,13 @@ class PystrayApp:
         engine.on_status_change(self._refresh)
         engine.on_recording_start(self._refresh)
         engine.on_recording_stop(self._refresh)
+        # This file has no toast/notification mechanism (unlike the macOS menu
+        # bar's rumps.notification): the tray only ever reflects status via its
+        # icon/title/menu. Firing from a worker thread with nothing to marshal
+        # onto, the best available surfacing is a stderr line, matching how the
+        # rest of the Linux platform package (see platform/linux/hotkey.py)
+        # degrades to a printed hint when there's no GUI affordance for it.
+        engine.on_recording_limit_reached(self._on_recording_limit_reached)
 
     # -- State → visuals ---------------------------------------------------
 
@@ -76,7 +84,27 @@ class PystrayApp:
         except Exception:
             pass
 
+    def _on_recording_limit_reached(self, message: str) -> None:
+        """Engine callback (worker thread): the recording hit its max duration
+        and was stopped gracefully, its transcript copied to the clipboard.
+
+        No notification path exists in this tray, so this surfaces as a stderr
+        line rather than inventing a popup.
+        """
+        # ponytail: stderr only -- a user not watching the log never learns the
+        # limit was hit. Upgrade path is a desktop notification (notify-send /
+        # the org.freedesktop.Notifications D-Bus interface), which would also
+        # give the Linux tray the capture-failed and permission alerts the macOS
+        # menu bar already posts.
+        print(f"[tray] {message}", file=sys.stderr)
+
     # -- Menu actions ------------------------------------------------------
+
+    def _on_toggle_trigger_mode(self, _icon=None, _item=None) -> None:
+        current = self.engine.state.config.get("trigger_mode", "hold")
+        new_mode = "hold" if current == "toggle" else "toggle"
+        self.engine.update_config({"trigger_mode": new_mode})
+        self._refresh()
 
     def _on_quit(self, _icon=None, _item=None) -> None:
         try:
@@ -104,6 +132,11 @@ class PystrayApp:
         menu = pystray.Menu(
             pystray.MenuItem(lambda _item: self._status_text(), None, enabled=False),
             pystray.MenuItem(f"Settings: {get_default_config_path()}", None, enabled=False),
+            pystray.MenuItem(
+                "Toggle mode",
+                self._on_toggle_trigger_mode,
+                checked=lambda _item: self.engine.state.config.get("trigger_mode", "hold") == "toggle",
+            ),
             pystray.MenuItem("Quit", self._on_quit),
         )
         self._icon = pystray.Icon("whispy", self._make_image(), "Whispy", menu)

@@ -4,11 +4,11 @@
 
 ## 🤖 AI Description / Overview
 
-**Whispy is a powerful, local voice dictation utility for macOS and Linux (X11).** It uses NVIDIA's `parakeet-tdt-0.6b-v3` model to provide real-time, offline transcription of speech input. The application runs as a background daemon, allowing users to initiate recording by holding a configurable push-to-talk key and automatically transcribing and inserting text into any active field (e.g., iTerm, web browser, or editor) upon release. Because all processing is done locally on your machine, **zero data leaves your computer**, ensuring complete privacy.
+**Whispy is a powerful, local voice dictation utility for macOS and Linux (X11).** It uses NVIDIA's `parakeet-tdt-0.6b-v3` model to provide real-time, offline transcription of speech input. The application runs as a background daemon, allowing users to start recording with a configurable trigger key — held for the duration in the default push-to-talk mode, or pressed once to start and once to stop in the optional toggle mode — and automatically transcribing and inserting text into any active field (e.g., iTerm, web browser, or editor) when the recording ends. Because all processing is done locally on your machine, **zero data leaves your computer**, ensuring complete privacy.
 
 ## 📘 Project Description (User Guide)
 
-Whispy is a local voice dictation utility built on top of [NVIDIA Parakeet TDT 0.6b v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), run on CPU through [onnx-asr](https://github.com/istupakov/onnx-asr). Hold the trigger key (the **Fn** key on macOS, **Right Ctrl** by default on Linux) to record, and release it to automatically transcribe the text into the active field.
+Whispy is a local voice dictation utility built on top of [NVIDIA Parakeet TDT 0.6b v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), run on CPU through [onnx-asr](https://github.com/istupakov/onnx-asr). Hold the trigger key (the **Fn** key on macOS, **Right Ctrl** by default on Linux) to record, and release it to automatically transcribe the text into the active field — or, with the **Toggle mode** setting on, press it once to start recording and press it again to stop.
 
 Everything runs locally; no data is sent over the internet. You can bias recognition toward your own names and jargon with the manual custom vocabulary (`custom_vocabulary` in the config); automatic correction learning was removed and its reimplementation is tracked in [issue #8](https://github.com/albrones/whispy/issues/8).
 
@@ -178,6 +178,8 @@ If you changed permissions, restart Whispy so the daemon picks up the new settin
 3. **Speak**.
 4. **Release the trigger key** → a sound indicates transcription and automatic typing/insertion of the text.
 
+> With **Toggle mode** enabled (`trigger_mode: "toggle"`), step 2 is a single press to start recording and step 4 is a second press — instead of a release — to stop it.
+
 ## The Transcription Model
 
 Whispy ships one model: **`nvidia/parakeet-tdt-0.6b-v3`**, int8-quantized to ONNX
@@ -266,8 +268,9 @@ UNVERIFIED** (an unexercisable seam is UNVERIFIED — never a silent pass):
 1. **Preflight** — `doctor`.
 2. **Live-drive** — boots the real daemon and drives a record→transcribe cycle
    over its HTTP API (no mocks).
-3. **Operator** — a guided checklist for the human-only flow (hold the trigger,
-   speak, confirm the text lands in the focused app).
+3. **Operator** — a guided checklist for the human-only flow (hold the trigger
+   — or press it once in toggle mode — speak, confirm the text lands in the
+   focused app).
 
 ```bash
 make validate               # full run (asks you to dictate during the operator layer)
@@ -302,6 +305,7 @@ You can edit `~/.config/whispy/config.json` to change any of the following keys
 | `min_recording_duration` | `0.3` | Recordings shorter than this (seconds) are discarded rather than transcribed. Separately (and not configurable), near-silent audio is discarded on energy before it reaches the model — the model otherwise invents short fillers like "Okay." on a quiet room |
 | `custom_vocabulary` | `[]` | User-curated terms (names, brands, jargon). Applied **after** transcription: an output word is corrected when its spelling *or* its pronunciation matches one of your terms (`wispy` → `Whispy`, `parakite` → `Parakeet`). Weaker than biasing the decoder — a word rendered far from the target on both counts is left alone — but it cannot leak your terms into text you did not say. Add proper nouns and anglicisms here; it is the intended fix for them |
 | `trigger` | `null` | Push-to-talk key/combo. `null` uses the platform default: the **Fn** key on macOS, **Right Ctrl** (`ctrl_r`) on Linux. Set a macOS keycode (integer) or a key/combo name (string) to override |
+| `trigger_mode` | `"hold"` | `"hold"` (push-to-talk: hold the trigger to record, release to stop) or `"toggle"` (press once to start, press again to stop). Composable with any trigger; an invalid value falls back to `"hold"` |
 | `streaming_enabled` | `true` | Transcribe audio in chunks during recording (typed near-instantly on release) instead of the legacy record-then-transcribe path |
 | `pause_ms` | `600` | Minimum trailing silence (milliseconds) that closes a streaming chunk |
 | `min_chunk_s` | `0.4` | A streaming chunk shorter than this (seconds) is discarded rather than transcribed |

@@ -28,11 +28,22 @@ class TestTriggerPresets:
 
     def test_every_preset_keycode_is_known(self):
         # The UI fallback names a configured trigger via keycode_to_name; every
-        # non-default preset keycode must resolve to a real entry (not keyNN).
+        # non-default *keycode* preset must resolve to a real entry (not keyNN).
+        # Modifier-combo presets (e.g. "ctrl+alt+cmd+e") are strings, not
+        # keycodes, and are covered separately below.
         for label, value in TRIGGER_PRESETS:
-            if value is None:
+            if not isinstance(value, int) or isinstance(value, bool):
                 continue
             assert value in _KEYCODE_TO_NAME, f"{label} keycode {value} missing from table"
+
+    def test_every_preset_combo_string_is_canonical(self):
+        # Modifier-combo presets must be non-empty and lowercase-canonical
+        # (matching the form the trigger resolver expects, e.g. "ctrl+alt+cmd+e").
+        for label, value in TRIGGER_PRESETS:
+            if not isinstance(value, str):
+                continue
+            assert value != ""
+            assert value == value.lower(), f"{label} combo {value!r} is not lowercase-canonical"
 
     def test_fn_preset_value_is_none(self):
         # Fn stays None so resolve_trigger maps it to the platform default.
@@ -232,6 +243,51 @@ class TestRestartPath:
 
         old_path = resolve_daemon_script().parent / "whispy.py"
         assert not old_path.exists(), "whispy.py should not exist"
+
+
+# ---------------------------------------------------------------------------
+# trigger_mode validation
+# ---------------------------------------------------------------------------
+
+
+class TestTriggerMode:
+    """Test validation of the trigger_mode config key."""
+
+    def test_default_is_hold(self):
+        assert DEFAULT_CONFIG["trigger_mode"] == "hold"
+
+    def test_hold_passes_through_unchanged(self):
+        validated = _validate_config({"trigger_mode": "hold"})
+        assert validated["trigger_mode"] == "hold"
+
+    def test_toggle_passes_through_unchanged(self):
+        validated = _validate_config({"trigger_mode": "toggle"})
+        assert validated["trigger_mode"] == "toggle"
+
+    def test_invalid_values_reset_to_hold(self):
+        for bad in ("Toggle", "push", "", None, 123, True):
+            validated = _validate_config({"trigger_mode": bad})
+            assert validated["trigger_mode"] == "hold", f"{bad!r} should default to 'hold'"
+
+    def test_missing_key_defaults_to_hold(self):
+        validated = _validate_config({})
+        assert validated["trigger_mode"] == "hold"
+
+    def test_load_config_without_key_defaults_to_hold(self, tmp_path):
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"copy_to_clipboard": True}))
+
+        loaded = load_config(config_file)
+        assert loaded["trigger_mode"] == "hold"
+
+    def test_save_config_round_trips_toggle(self, tmp_path):
+        config = dict(DEFAULT_CONFIG)
+        config["trigger_mode"] = "toggle"
+        config_path = tmp_path / "config.json"
+        save_config(config, config_path)
+
+        saved = json.loads(config_path.read_text())
+        assert saved["trigger_mode"] == "toggle"
 
 
 # ---------------------------------------------------------------------------

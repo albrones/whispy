@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-**Whispy** is a local voice dictation utility that runs as a menu bar / tray daemon on **macOS** and **Linux (X11)**. The user holds a push-to-talk trigger key — the **Fn** key by default on macOS, **Right Ctrl** on Linux, both selectable — to record audio, and releases it to transcribe and inject the text into the active text field. On macOS the trigger is selectable from the menu (Fn, Right Command, Right Option, F13). All processing is local — no audio or text leaves the machine.
+**Whispy** is a local voice dictation utility that runs as a menu bar / tray daemon on **macOS** and **Linux (X11)**. A configurable trigger key — the **Fn** key by default on macOS, **Right Ctrl** on Linux, both selectable — starts and stops recording. By default (`trigger_mode: "hold"`) it is a push-to-talk key: held to record, released to transcribe and inject the text into the active text field. In the optional `trigger_mode: "toggle"`, one press starts recording and the next press stops it. On macOS the trigger is selectable from the menu (Fn, Right Command, Right Option, F13, `⌃⌥⌘E`, `⌃⌥⌘F`). All processing is local — no audio or text leaves the machine.
 
 By default transcription is **streaming**: while recording, the audio is segmented on silence and each chunk is transcribed in the background, so the assembled text is typed near-instantly on release rather than after a single whole-file pass.
 
@@ -75,6 +75,8 @@ whispy_daemon.py                ← Entry point (main / --headless / --doctor)
 
 When `streaming_enabled` is `False`, the legacy record-then-transcribe path runs: `run_transcription()` transcribes the whole WAV once on release.
 
+The diagram above is the `trigger_mode: "hold"` flow. In `trigger_mode: "toggle"`, a trigger *press* while RECORDING runs the `[Trigger released]` half above (stop and transcribe) instead of starting a new recording, and the physical key release only clears the held-modifier bookkeeping — it never stops the recording.
+
 ---
 
 ## 3. Module Specifications
@@ -108,6 +110,7 @@ Owns loading, validation, and migration of the config file (previously inline in
     "min_recording_duration": 0.3,
     "custom_vocabulary": [],          # terms to bias the decoder toward
     "trigger": None,                  # None = platform default; int keycode or key name
+    "trigger_mode": "hold",           # hold = push-to-talk (release stops); toggle = press to start, press again to stop
     # streaming / incremental transcription
     "streaming_enabled": True,
     "pause_ms": 600,                  # trailing silence that closes a chunk
@@ -121,7 +124,7 @@ There is **no** `compute_key` — the model always loads with `device="cpu", com
 
 - **`VALID_MODEL_SIZES`** = `["tiny", "base", "small", "medium", "large-v3"]`
 - **`SUPPORTED_LANGUAGES`** = `{"fr": "French", "en": "English"}` (no `"auto"`)
-- **`TRIGGER_PRESETS`** — ordered `[(label, value)]`: `("Fn", None)`, `("Right Command", 54)`, `("Right Option", 61)`, `("F13", 105)` (macOS keycodes; `None` = platform default)
+- **`TRIGGER_PRESETS`** — ordered `[(label, value)]`: `("Fn", None)`, `("Right Command", 54)`, `("Right Option", 61)`, `("F13", 105)`, `("⌃⌥⌘E", "ctrl+alt+cmd+e")`, `("⌃⌥⌘F", "ctrl+alt+cmd+f")` (macOS keycodes, or a `ctrl+alt+cmd+<key>` combination string for the two Hyper-tier presets; `None` = platform default)
 - **`CONFIG_VERSION`** = `1`
 
 **Functions:**
@@ -246,7 +249,7 @@ Settings                        (section header, disabled)
 Model: <current>                (submenu of MODEL_PRESETS, checkmarked)
 Language: <current>             (French / English, checkmarked)
 Copy to clipboard               (toggle)
-Trigger: <current>              (Fn / Right Command / Right Option / F13, checkmarked)
+Trigger: <current>              (Fn / Right Command / Right Option / F13 / ⌃⌥⌘E / ⌃⌥⌘F, checkmarked)
 Start at login                  (toggle — macOS .app bundle only, when SMAppService available)
 ---
 Restart
@@ -346,7 +349,8 @@ Run via `python whispy_daemon.py --doctor` (or `make doctor`). Each check return
 | `start_at_login` | bool | `False` | macOS `.app` bundle only |
 | `min_recording_duration` | float | `0.3` | ≥ 0 |
 | `custom_vocabulary` | list[str] | `[]` | terms biasing the decoder (`initial_prompt`) |
-| `trigger` | int \| str \| null | `null` | `null` = platform default; macOS keycode or key name |
+| `trigger` | int \| str \| null | `null` | `null` = platform default; macOS keycode, key name, or a `ctrl+alt+cmd+<key>` combination string |
+| `trigger_mode` | str | `"hold"` | `"hold"` (push-to-talk: hold to record, release to stop) or `"toggle"` (press to start, press again to stop); an invalid value falls back to `"hold"` |
 | `streaming_enabled` | bool | `True` | streaming vs. whole-file transcription |
 | `pause_ms` | number | `600` | > 0 |
 | `min_chunk_s` | number | `0.4` | ≥ 0 |

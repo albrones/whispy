@@ -35,6 +35,14 @@
 
 ### Fixed
 
+- **The five-minute recording limit no longer discards your text.** The
+  watchdog that stops a recording at `RECORDING_MAX_S` used to recover by
+  clearing `_chunk_texts`, silently throwing away everything transcribed so
+  far — a backstop written back when "no push-to-talk hold lasts minutes," an
+  assumption toggle mode below breaks. It now stops the recording gracefully,
+  assembles the transcript, copies it to the clipboard, and shows a
+  notification instead of typing into a field that may no longer be focused
+  after five minutes.
 - **Long recordings were silently truncated.** In the non-streaming path a
   22-second recording transcribed to a single sentence, dropping roughly 90% of
   the audio with no error and no log line. If you ever dictated a long passage
@@ -51,6 +59,16 @@
 
 ### Added
 
+- **Toggle trigger mode.** A new `trigger_mode` config key — `"hold"` (default,
+  push-to-talk, unchanged) or `"toggle"` — lets a trigger press start
+  dictation and the next press stop it, so recording can outlive the key
+  press. Exposed as a **Toggle mode** checkbox in the menu bar / tray
+  Settings, and composable with any trigger.
+- **Two new trigger presets**, `⌃⌥⌘E` and `⌃⌥⌘F` (Control+Option+Command plus a
+  letter). They are labelled by their keys, nothing more — the macOS event tap
+  is listen-only and cannot consume the event, so a combination the focused
+  app also binds would fire that app's own shortcut too; the Hyper tier is the
+  only multi-key combination left unbound by convention.
 - **Silence gate.** Near-silent audio is now discarded before it reaches the
   model. Parakeet is far better behaved than Whisper on non-speech — no corpus
   artifacts, no repetition loops — but it does invent short fillers (`Yeah.`,

@@ -46,8 +46,13 @@ logger = logging.getLogger(__name__)
 # On release the worker waits for the chunk queue to drain; a stalled chunk must
 # not wedge the FSM in TRANSCRIBING forever, so the wait is bounded.
 CHUNK_DRAIN_TIMEOUT_S = 30.0
-# Coarse FSM watchdog backstops: no push-to-talk hold lasts minutes, and the
-# bounded drain resolves TRANSCRIBING well before this.
+# Coarse FSM watchdog backstops. RECORDING_MAX_S was originally justified by "no
+# push-to-talk hold lasts minutes" -- an assumption toggle mode invalidates, since
+# a toggled dictation legitimately outlives the key press. The bound is kept (a
+# five-minute toggle recording almost always means the user forgot to stop), but
+# reaching it now stops the recording *gracefully* and preserves the transcript
+# rather than discarding it -- see _handle_recording_limit. The bounded drain
+# resolves TRANSCRIBING well before TRANSCRIBING_MAX_S.
 RECORDING_MAX_S = 300.0
 TRANSCRIBING_MAX_S = 120.0
 WATCHDOG_INTERVAL_S = 1.0
@@ -191,6 +196,17 @@ class Engine:
         self._capture_failed_callbacks: list[Callable] = []
         self._config_path = config_path or (Path.home() / ".config" / "whispy" / "config.json")
         self._fn_pressed = False
+        self._recording_limit_callbacks: list[Callable] = []
+        # Trigger mode: "hold" (push-to-talk) or "toggle" (press to start, press
+        # again to stop). Cached here rather than read per event so the trigger
+        # worker never touches the config dict on its hot path; update_config
+        # refreshes it, so a mode change applies without a restart.
+        self._trigger_mode = str(state.config.get("trigger_mode", "hold"))
+        # One-shot: set by the watchdog when a recording hits RECORDING_MAX_S, so
+        # that cycle's assembled text is copied rather than typed. Cleared by the
+        # transcription worker at the end of every cycle, whether or not any text
+        # was produced, so it can never leak into the next dictation.
+        self._deliver_to_clipboard = False
 
         # Platform adapters bind the OS-coupled seams (hotkey, injection,
         # audio, sounds) at runtime; the engine depends only on the ports.
@@ -434,6 +450,24 @@ class Engine:
             except Exception:
                 logger.exception("[engine] Error in capture-failed callback")
 
+    def on_recording_limit_reached(self, callback: Callable) -> None:
+        """Register a callback fired when a recording hits the maximum duration.
+
+        The callback receives a message (str). Without it the limit would be
+        reached silently: the pill simply disappears and the user has no way to
+        know the dictation was cut short or where its text went.
+        """
+        self._recording_limit_callbacks.append(callback)
+
+    def _notify_recording_limit_reached(self, message: str) -> None:
+        """Fan out a recording-limit stop to registered callbacks."""
+        logger.warning("[engine] recording limit reached: %s", message)
+        for cb in list(self._recording_limit_callbacks):
+            try:
+                cb(message)
+            except Exception:
+                logger.exception("[engine] Error in recording-limit callback")
+
     def on_status_change(self, callback: Callable) -> None:
         """Register a callback to be called when state changes."""
         self._status_callbacks.append(callback)
@@ -484,6 +518,22 @@ class Engine:
         """
         return self._audio_engine.stop()
 
+    def _deliver(self, text: str) -> None:
+        """Hand assembled text to the user: type it, or copy it if this cycle was
+        ended by the recording limit.
+
+        The clipboard branch exists because after a recording long enough to hit
+        the limit there is no basis for assuming the field that was focused when
+        dictation started is still focused; typing a long block into an unknown
+        target is its own failure mode. The flag is read (not cleared) here --
+        the transcription worker clears it once per cycle, so a cycle that
+        produced no text cannot leave it set for the next dictation.
+        """
+        if self._deliver_to_clipboard:
+            self._text_injector.copy_only(text)
+            return
+        self._text_injector.inject(text)
+
     def get_level(self) -> float:
         """Live mic input level (0.0-1.0) from the capture stream, for the UI waveform."""
         return self._audio_engine.get_level()
@@ -516,7 +566,7 @@ class Engine:
                 if cleaned:
                     self.state.last_transcription = cleaned
                     self._wait_trigger_released()
-                    self._text_injector.inject(cleaned)
+                    self._deliver(cleaned)
 
             return text
         finally:
@@ -776,9 +826,69 @@ class Engine:
         transcribes a stale/missing file.
         """
         self._notify_fn_released()
+        self._stop_and_signal()
+
+    def _stop_and_signal(self) -> None:
+        """Stop recording and wake the transcription worker, with no key-state
+        notification.
+
+        Split out of _handle_trigger_release_work so toggle mode can stop a
+        recording without announcing a trigger *release* that has not happened:
+        the stopping press arrives with the keys physically down.
+        """
         transitioned = self.stop_recording()
         if transitioned:
             self.state.stop_event.set()
+
+    def _handle_trigger_press_signal(self) -> None:
+        """Route a press according to the active trigger mode.
+
+        In hold mode a press always starts recording. In toggle mode the press is
+        the only event that carries meaning: it stops an in-progress recording
+        and starts one otherwise, so the dictation outlives the key press. A
+        press arriving while TRANSCRIBING starts a new recording in both modes --
+        StateMachine.start_recording force-resets TRANSCRIBING to IDLE, which is
+        the existing hold-mode behavior and is deliberately unchanged here.
+
+        In toggle mode the physical key state is tracked on *every* press,
+        including the stopping one. Without it the stopping press would leave
+        _fn_pressed clear while the combination is still physically held, and
+        _wait_trigger_released would let injection start with the modifiers
+        down -- turning the paste into modifier-layer keystrokes.
+        """
+        if self._trigger_mode != "toggle":
+            self._handle_trigger_press_work()
+            return
+        self._fn_pressed = True
+        if self._state_machine.is_recording:
+            # Stop without _notify_fn_released: the keys are down, and the
+            # released event is what tells the UI to hide the pill.
+            self._stop_and_signal()
+            return
+        self._handle_trigger_press_work()
+
+    def _handle_trigger_release_signal(self) -> None:
+        """Route a release according to the active trigger mode.
+
+        In toggle mode a release must not stop recording -- but it must still
+        clear the trigger-held flag. `_wait_trigger_released` spins on that flag
+        before every injection, so leaving it set would add the full
+        TRIGGER_RELEASE_INJECT_TIMEOUT_S to every dictation. It is not only a
+        latency bug: streaming injects almost immediately after the stopping
+        press, so a modifier still recorded as held is exactly what mangles the
+        typed characters into their modifier-layer variants.
+
+        The flag is cleared *directly* rather than through _notify_fn_released,
+        because that helper also fans the release out to UI subscribers -- and
+        the menu bar hides the waveform pill on it. In toggle mode the key is
+        released seconds before the dictation ends, so fanning out would hide
+        the pill mid-recording. The pill's lifecycle belongs to the recording
+        (on_recording_start / on_recording_stop), not to the key.
+        """
+        if self._trigger_mode == "toggle":
+            self._fn_pressed = False
+            return
+        self._handle_trigger_release_work()
 
     def _trigger_worker_loop(self) -> None:
         """Single ordered consumer of the trigger queue (FIFO -> in-order press/release)."""
@@ -789,9 +899,9 @@ class Engine:
                 continue
             try:
                 if signal == "press":
-                    self._handle_trigger_press_work()
+                    self._handle_trigger_press_signal()
                 elif signal == "release":
-                    self._handle_trigger_release_work()
+                    self._handle_trigger_release_signal()
             finally:
                 self._trigger_queue.task_done()
 
@@ -860,7 +970,7 @@ class Engine:
                             if assembled:
                                 self.state.last_transcription = assembled
                                 self._wait_trigger_released()
-                                self._text_injector.inject(assembled)
+                                self._deliver(assembled)
                             produced_text = chunk_any_text
                         else:
                             produced_text = bool(self.run_transcription())
@@ -869,6 +979,11 @@ class Engine:
                         # wedge the FSM in TRANSCRIBING — log and recover below.
                         logging.getLogger(__name__).exception("transcription failed")
                     finally:
+                        # Consume the one-shot clipboard-delivery flag here, not
+                        # in _deliver: a cycle that produced no text never
+                        # reaches _deliver, and a flag left set would divert the
+                        # *next* dictation to the clipboard.
+                        self._deliver_to_clipboard = False
                         # Always return the FSM to IDLE, even on empty output
                         # or error. transcription_complete() no-ops if the FSM
                         # is not in TRANSCRIBING, so this is safe.
@@ -946,21 +1061,45 @@ class Engine:
         if state == State.RECORDING:
             since = self._recording_since
             if since is not None and now - since > RECORDING_MAX_S:
-                logger.warning("[engine] watchdog: stuck in RECORDING %.0fs — recovering", now - since)
-                # Last-resort backstop (the event-tap release recovery is the
-                # primary fix): close the still-open capture stream, then force
-                # IDLE. stop() transitions RECORDING -> TRANSCRIBING; _force_recover
-                # then forces TRANSCRIBING -> IDLE.
-                try:
-                    self._audio_engine.stop()
-                except Exception:
-                    logger.exception("[engine] watchdog: audio stop failed")
-                self._force_recover()
+                logger.warning("[engine] watchdog: RECORDING hit the %.0fs limit", now - since)
+                self._handle_recording_limit()
         elif state == State.TRANSCRIBING:
             since = self._transcribing_since
             if since is not None and now - since > TRANSCRIBING_MAX_S:
                 logger.warning("[engine] watchdog: stuck in TRANSCRIBING %.0fs — recovering", now - since)
                 self._force_recover()
+
+    def _handle_recording_limit(self) -> None:
+        """Stop a recording that reached RECORDING_MAX_S without losing its text.
+
+        The previous behavior force-recovered, and `_force_recover` clears
+        `_chunk_texts`. Under push-to-talk that was nearly unreachable -- no hold
+        lasts five minutes -- but a toggle-mode dictation can legitimately run
+        that long, and discarding already-transcribed speech is never the desired
+        outcome. So: mark the cycle for clipboard delivery, run the ordinary stop
+        path so the chunk queue drains and assembles exactly as a user-initiated
+        stop would, and let the transcription worker deliver the result.
+
+        `_force_recover` remains the fallback. If the graceful stop does not
+        actually transition RECORDING -> TRANSCRIBING (or raises outright), the
+        FSM would otherwise stay wedged, which is the very condition the watchdog
+        exists to break.
+        """
+        self._deliver_to_clipboard = True
+        try:
+            transitioned = self.stop_recording()
+        except Exception:
+            logger.exception("[engine] limit: graceful stop failed")
+            transitioned = False
+        if not transitioned:
+            self._deliver_to_clipboard = False
+            self._force_recover()
+            return
+        self.state.stop_event.set()
+        self._notify_recording_limit_reached(
+            f"Dictation stopped after {int(RECORDING_MAX_S // 60)} minutes. "
+            "Any transcribed text was copied to the clipboard."
+        )
 
     def _force_recover(self) -> None:
         """Force the FSM back to IDLE and reset the transient recording state."""
@@ -991,6 +1130,12 @@ class Engine:
 
         if "copy_to_clipboard" in updates:
             self._text_injector.update_config(updates["copy_to_clipboard"])
+
+        # Trigger-mode change: refresh the cached value so the next press follows
+        # the new mode. Unlike a trigger change this needs no listener restart --
+        # the mode is read by the trigger worker, not by the hardware listener.
+        if "trigger_mode" in updates:
+            self._trigger_mode = str(self.state.config.get("trigger_mode", "hold"))
 
         # Trigger change: restart the listener so the new key is live now, not
         # only after a Restart. start_fn_listener re-reads resolve_trigger(), so
