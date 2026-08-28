@@ -156,3 +156,26 @@ def mock_subprocess(mocker):
     popen_mock.return_value = popen_instance
     popen_instance.poll.return_value = None
     return run_mock, popen_mock, popen_instance
+
+
+@pytest.fixture(scope="session")
+def asr_model():
+    """Load the real Parakeet model once per session (int8, CPU).
+
+    Session-scoped and shared here rather than per-module so the two real-model
+    tiers — the macOS-only semantic tests and the platform-neutral non-speech
+    tests — load the 639 MB model once between them instead of once each.
+    Nothing outside those tiers requests it, so the default run never loads it.
+    """
+    from whispy.core.engine import _load_model
+
+    return _load_model({})
+
+
+@pytest.fixture
+def real_audio_engine():
+    """AudioEngine wired to a real StateMachine, for the real `transcribe` path."""
+    from whispy.core.audio import AudioEngine
+    from whispy.core.state_machine import StateMachine
+
+    return AudioEngine(StateMachine())

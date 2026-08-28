@@ -66,6 +66,14 @@ SILENCE_RMS_THRESHOLD = 0.005
 # inside a long key-hold (6% voiced at 10.6s) from steady noise (6% voiced), and
 # holding the trigger while thinking is normal use.
 #
+# Both this threshold and SILENCE_RMS_THRESHOLD were measured on macOS, against
+# `say` synthesis and one microphone. `TestSpeechGateAgainstCommittedAudio` keeps
+# them honest elsewhere: it checks the margin against the committed *recordings*
+# and runs in the default tier, which CI runs on ubuntu as well as macOS. What
+# remains unmeasured is a real Linux microphone at a different capture gain --
+# webrtcvad classifies gain-independently but has an energy floor, so a very
+# quiet input could fall under it.
+#
 # Known ceiling: webrtcvad has an energy floor, so it only tells noise from
 # speech while the noise is quiet. Past roughly 0.04 normalized RMS it labels
 # steady noise 100% voiced and this gate stops discriminating -- measured across

@@ -31,8 +31,6 @@ pytestmark = pytest.mark.macos
 if shutil.which("say") is None or shutil.which("sox") is None:
     pytest.skip("requires macOS `say` and `sox`", allow_module_level=True)
 
-from whispy.core.audio import SILENCE_RMS_THRESHOLD, AudioEngine  # noqa: E402
-from whispy.core.state_machine import StateMachine  # noqa: E402
 from whispy.core.text_cleaner import clean_text  # noqa: E402
 
 
@@ -95,18 +93,10 @@ def _silence(wav_path: Path, seconds: float = 0.5) -> Path:
     return wav_path
 
 
-@pytest.fixture(scope="session")
-def asr_model():
-    """Load the real Parakeet model once per session (int8, CPU)."""
-    from whispy.core.engine import _load_model
-
-    return _load_model({})
-
-
 @pytest.fixture
-def engine():
-    """AudioEngine for the real transcribe path (no recording involved)."""
-    return AudioEngine(StateMachine())
+def engine(real_audio_engine):
+    """Local alias for conftest's shared AudioEngine (`asr_model` is shared too)."""
+    return real_audio_engine
 
 
 def _transcribe(engine, model, wav, vocabulary=None):
@@ -228,76 +218,14 @@ class TestNonSpeech:
 
 
 class TestSilenceGate:
-    """Near-silent audio must never reach the model.
+    """Real speech must clear the gates by a wide margin.
 
-    Parakeet does not hallucinate the way Whisper did, but it *does* invent
-    short conversational fillers on near-silence — "Yeah.", "Okay.", "Mm-hmm.",
-    "No.", "Thank you." — which would otherwise be typed into the active field.
+    The non-speech half of this — pure silence, quiet room noise, and loud noise
+    above the RMS gate — moved to `test_non_speech_real.py`, which runs on both
+    real-seam tiers. It never needed macOS-only synthesis, and leaving it here
+    left Linux with no real-model coverage of the gates at all. What stays is the
+    part that does need `say`.
     """
-
-    @pytest.mark.parametrize("seconds", [0.6, 1.0, 1.5, 2.0])
-    def test_pure_silence_is_never_transcribed(self, asr_model, engine, tmp_path, seconds):
-        wav = _silence(tmp_path / f"sil_{seconds}.wav", seconds=seconds)
-        assert engine.transcribe(str(wav), model=asr_model) is None
-
-    @pytest.mark.parametrize("amplitude", ["0.0005", "0.002"])
-    def test_quiet_room_noise_is_never_transcribed(self, asr_model, engine, tmp_path, amplitude):
-        """A real microphone never reaches digital zero — this is the live case."""
-        wav = tmp_path / f"noise_{amplitude}.wav"
-        subprocess.run(
-            [
-                "sox",
-                "-n",
-                "-r",
-                "16000",
-                "-c",
-                "1",
-                "-b",
-                "16",
-                str(wav),
-                "synth",
-                "1.0",
-                "whitenoise",
-                "vol",
-                amplitude,
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        assert engine.transcribe(str(wav), model=asr_model) is None
-
-    @pytest.mark.parametrize(
-        "label,synth",
-        [
-            ("whitenoise", ["synth", "2.0", "whitenoise", "vol", "0.05"]),
-            ("brownnoise", ["synth", "2.0", "brownnoise", "vol", "0.03"]),
-            ("mains hum", ["synth", "2.0", "sine", "50", "vol", "0.05"]),
-            ("fan", ["synth", "2.0", "pinknoise", "lowpass", "500", "vol", "0.08"]),
-            # A long hold in a noisy room: more frames, more chances to look voiced.
-            ("long whitenoise", ["synth", "8.0", "whitenoise", "vol", "0.05"]),
-        ],
-    )
-    def test_loud_non_speech_above_the_rms_gate_is_discarded(self, asr_model, engine, tmp_path, label, synth):
-        """Non-speech loud enough to clear the RMS gate must still produce nothing.
-
-        The RMS gate cannot help here — these measure 0.010-0.035 normalized RMS
-        against a 0.005 threshold, so without the VAD gate they reach the model,
-        which answers ~3% of realizations with a filler ("Yeah.", "Ha ha ha.").
-        `sox` draws a fresh noise realization per call unless `-R` is passed, so
-        this uses `-R`: a seeded draw keeps the test from being a 3% coin flip
-        that only fails on someone else's CI run.
-        """
-        wav = tmp_path / f"loud_{label.replace(' ', '_')}.wav"
-        subprocess.run(
-            ["sox", "-R", "-n", "-r", "16000", "-c", "1", "-b", "16", str(wav), *synth],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        rms = engine._get_audio_rms(str(wav))
-        assert rms is not None and rms > SILENCE_RMS_THRESHOLD, f"{label} no longer clears the RMS gate (RMS {rms})"
-        assert engine.transcribe(str(wav), model=asr_model) is None
 
     def test_real_speech_clears_the_gate_by_a_wide_margin(self, asr_model, engine, tmp_path):
         """The gate must not be anywhere near real dictation levels."""

@@ -55,25 +55,25 @@ _Tier: macos-real — `@pytest.mark.macos`._
 - **WHEN** a silent clip at or above `min_recording_duration` is run through the transcribe path, at any duration
 - **THEN** the path SHALL return no text, and the model SHALL NOT be called
 
-_Tier: macos-real — `@pytest.mark.macos::TestSilenceGate`, parameterized over 0.6 / 1.0 / 1.5 / 2.0 s because the model's invented output varies non-monotonically with duration._
+_Tier: both real-seam tiers — `test_non_speech_real.py::TestSilenceIsNeverTranscribed`, parameterized over 0.6 / 1.0 / 1.5 / 2.0 s because the model's invented output varies non-monotonically with duration._
 
 #### Scenario: Quiet room noise is never transcribed
 - **WHEN** a clip containing only a low-amplitude noise floor is run through the transcribe path
 - **THEN** the path SHALL return no text, and the model SHALL NOT be called
 
-_Tier: macos-real — `@pytest.mark.macos::TestSilenceGate`. This is the live case: a real microphone never reaches digital zero._
+_Tier: both real-seam tiers — `test_non_speech_real.py::TestSilenceIsNeverTranscribed`. This is the live case: a real microphone never reaches digital zero._
 
 #### Scenario: Real speech clears the gate by a wide margin
 - **WHEN** an ordinary dictation clip is measured
 - **THEN** its RMS SHALL exceed the silence threshold several times over, and it SHALL be transcribed
 
-_Tier: macos-real — `@pytest.mark.macos::TestSilenceGate`. Guards against a future threshold change creeping up into real speech._
+_Tier: macos-real — `@pytest.mark.macos::TestSilenceGate` for synthesized speech, plus `test_audio.py::TestSpeechGateAgainstCommittedAudio` in the default tier for the committed recordings, so the margin is checked on every platform CI runs._
 
 #### Scenario: Loud non-speech is never transcribed
 - **WHEN** a clip of noise loud enough to clear the silence threshold — white, brown or pink noise, mains hum, or a lowpassed fan-like spectrum — is run through the transcribe path
 - **THEN** the path SHALL return no text, and the model SHALL NOT be called
 
-_Tier: macos-real — `@pytest.mark.macos::TestSilenceGate::test_loud_non_speech_above_the_rms_gate_is_discarded`. Noise is synthesized with a fixed seed: `sox` draws a fresh realization per call, and the model answers only a small fraction of them, so an unseeded draw makes this a coin flip rather than a test._
+_Tier: both real-seam tiers — `test_non_speech_real.py::TestLoudNonSpeechIsNeverTranscribed`. Noise is synthesized with a fixed seed: `sox` draws a fresh realization per call, and the model answers only a small fraction of them, so an unseeded draw makes this a coin flip rather than a test._
 
 #### Scenario: A sub-second word is still transcribed
 - **WHEN** a one-word dictation of roughly half a second is run through the transcribe path

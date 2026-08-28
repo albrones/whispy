@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 _project_root = str(Path(__file__).parent.parent)
 if _project_root in sys.path:
@@ -12,7 +13,14 @@ _src = Path(__file__).parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
-from whispy.core.segmentation import FRAME_BYTES, SAMPLE_RATE, SpeechSegmenter, speech_duration_s
+from whispy.core.segmentation import FRAME_BYTES, SAMPLE_RATE, SpeechSegmenter, speech_duration_s, webrtcvad
+
+# `speech_duration_s` returns None without webrtcvad, and every caller treats that
+# as "transcribe anyway". That is a supported configuration -- the segmenter ships
+# an energy fallback for it -- so asserting on real VAD output has to skip there
+# rather than fail. webrtcvad-wheels publishes manylinux x86_64/aarch64 and macOS
+# wheels, so this skip should only ever fire on musl or an unusual architecture.
+requires_vad = pytest.mark.skipif(webrtcvad is None, reason="webrtcvad not installed")
 
 # One 30 ms frame's worth of audio in each class. webrtcvad needs real spectral
 # content for "speech"; a tone/noise reads as speech, zeros read as silence.
@@ -119,6 +127,7 @@ def _voiced_block(n_frames=1):
     return sig.astype(np.int16).tobytes()
 
 
+@requires_vad
 class TestSpeechDuration:
     """`speech_duration_s` — the absolute-duration metric behind the speech gate."""
 

@@ -708,6 +708,22 @@ class TestAudioRms:
         assert audio._get_audio_rms("/nonexistent/file.wav") is None
 
 
+def _requires_vad():
+    """Skip when webrtcvad is absent.
+
+    Its absence is a supported configuration -- `speech_duration_s` returns None
+    and every caller fails open -- so a test asserting that something *is*
+    rejected has to skip rather than fail there. Only the rejection assertions
+    need this; the fail-open ones hold either way.
+    """
+    import whispy.core.segmentation as seg_mod
+
+    return pytest.mark.skipif(seg_mod.webrtcvad is None, reason="webrtcvad not installed")
+
+
+requires_vad = _requires_vad()
+
+
 class TestSpeechGate:
     """`_carries_speech` — the VAD gate for non-speech that clears the RMS gate."""
 
@@ -732,6 +748,7 @@ class TestSpeechGate:
         audio = AudioEngine(MagicMock())
         assert audio._carries_speech(self._wav(tmp_path / "v.wav", self._voiced())) is True
 
+    @requires_vad
     def test_non_speech_above_the_rms_gate_is_rejected(self, tmp_path):
         """Room noise that clears the RMS gate but carries no voiced frames.
 
@@ -749,12 +766,14 @@ class TestSpeechGate:
         assert audio._get_audio_rms(path) > SILENCE_RMS_THRESHOLD
         assert audio._carries_speech(path) is False
 
+    @requires_vad
     def test_digital_silence_is_rejected(self, tmp_path):
         import numpy as np
 
         audio = AudioEngine(MagicMock())
         assert audio._carries_speech(self._wav(tmp_path / "s.wav", np.zeros(16000))) is False
 
+    @requires_vad
     def test_a_rejected_clip_never_reaches_the_model(self, tmp_path, sm, mock_asr_model):
         import numpy as np
 
@@ -793,3 +812,47 @@ class TestSpeechGate:
         monkeypatch.setattr(seg_mod, "webrtcvad", None)
         audio = AudioEngine(MagicMock())
         assert audio._carries_speech(self._wav(tmp_path / "s.wav", np.zeros(16000))) is True
+
+
+@requires_vad
+class TestSpeechGateAgainstCommittedAudio:
+    """The gate thresholds, checked against real recordings on every platform.
+
+    `MIN_SPEECH_DURATION_S` and `SILENCE_RMS_THRESHOLD` were both calibrated on
+    macOS, against `say` synthesis and one microphone. The committed fixtures are
+    real recordings, this runs in the default tier, and CI runs that tier on
+    ubuntu as well as macOS — so a threshold that creeps up into real speech, or
+    a platform where webrtcvad hears less of it, fails here rather than in
+    someone's editor.
+
+    No model involved: this measures what the gates see, not what they produce.
+    """
+
+    FIXTURES = Path(__file__).parent / "fixtures" / "audio"
+
+    @staticmethod
+    def _voiced(path):
+        from whispy.core.segmentation import speech_duration_s
+
+        with wave.open(str(path)) as w:
+            return speech_duration_s(w.readframes(w.getnframes()), sample_rate=w.getframerate())
+
+    @pytest.mark.parametrize("fixture", ["en_speech.wav", "fr_speech.wav"])
+    def test_recorded_speech_clears_both_gates_with_room(self, fixture):
+        from whispy.core.audio import MIN_SPEECH_DURATION_S
+
+        path = self.FIXTURES / fixture
+        audio = AudioEngine(MagicMock())
+
+        rms = audio._get_audio_rms(str(path))
+        assert rms is not None and rms > SILENCE_RMS_THRESHOLD * 5, f"{fixture} RMS {rms} is close to the gate"
+
+        voiced = self._voiced(path)
+        assert voiced is not None
+        assert voiced > MIN_SPEECH_DURATION_S * 3, f"{fixture} carries only {voiced:.2f}s of voiced audio"
+        assert audio._carries_speech(str(path)) is True
+
+    def test_recorded_silence_is_rejected(self):
+        path = self.FIXTURES / "silence.wav"
+        audio = AudioEngine(MagicMock())
+        assert audio._carries_speech(str(path)) is False

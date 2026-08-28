@@ -72,6 +72,12 @@
   unmistakable. Known ceiling — past ~0.04 RMS the VAD labels steady noise
   voiced, so louder rooms are still the model's problem.
 
+  Platform-neutral: `webrtcvad-wheels` carries no platform marker and publishes
+  manylinux x86_64/aarch64 wheels, the gate sits in the shared core, and the
+  capture format is the same 16 kHz mono int16 on both. Wayland is unaffected —
+  the gate runs upstream of text injection, which is where Wayland's existing
+  limitation lives.
+
 ### Removed
 
 - Whisper watermark/credit stripping and the hallucination phrase blocklist in
