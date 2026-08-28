@@ -425,6 +425,6 @@ class TestLaunchRegressions:
         import inspect
 
         src = inspect.getsource(WhisperMenuBarApp.__init__)
-        assert (
-            "_last_dark" in src.split("_anim_timer.start()")[0]
-        ), "_last_dark must be set before the anim timer starts"
+        assert "_last_dark" in src.split("_anim_timer.start()")[0], (
+            "_last_dark must be set before the anim timer starts"
+        )

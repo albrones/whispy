@@ -90,9 +90,9 @@ def test_readme_names_the_model_that_actually_runs(readme: str):
         if "faster-whisper" not in line:
             continue
         # Allowed: the stale-cache path and the sentence retiring it.
-        assert (
-            "no longer used" in line or "models--systran--faster-whisper" in line
-        ), f"README still presents faster-whisper as the engine: {line.strip()!r}"
+        assert "no longer used" in line or "models--systran--faster-whisper" in line, (
+            f"README still presents faster-whisper as the engine: {line.strip()!r}"
+        )
 
 
 # --- Complete config key reference ------------------------------------------

@@ -41,7 +41,10 @@ dev = [
     "pytest-cov>=4.0",
     "pytest-mock>=3.10",
     "pytest-timeout>=2.3",
-    "ruff>=0.6",
+    # Exact, not a floor: CI runs `ruff format --check` and a newer ruff
+    # formats differently, so a floating dev ruff silently reformats the repo
+    # against CI. Bump this, .pre-commit-config.yaml and ci.yml together.
+    "ruff==0.15.21",
     "pre-commit>=3.0",
 ]
 
