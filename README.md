@@ -188,11 +188,17 @@ and run on CPU. There is nothing to choose, so there is no model setting.
 | Download | **639 MB**, automatic on first use |
 | Cached at | `~/.cache/huggingface/hub/models--istupakov--parakeet-tdt-0.6b-v3-onnx` |
 | Resident memory | ~1.4 GB while loaded |
-| Languages | 25 European languages, **detected automatically** — see the [model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) for the list. Speech outside that set will not transcribe |
+| Languages | 25, **detected automatically**. Speech outside this set will not transcribe |
 
-There is no language setting either. The model detects language per utterance
-and handles switching mid-recording; forcing a language was measurably worse
-(English speech came back translated into French).
+The 25, per the [model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3):
+Bulgarian, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French,
+German, Greek, Hungarian, Italian, Latvian, Lithuanian, Maltese, Polish,
+Portuguese, Romanian, Slovak, Slovenian, Spanish, Swedish, Russian, Ukrainian.
+
+There is no language setting, and adding one would make things worse: the model
+detects language per utterance and handles switching mid-recording, while
+forcing a language was measurably wrong (English speech came back translated
+into French).
 
 **Non-speech never reaches it.** Given silence or room noise, the model answers
 with a short filler — `Yeah.`, `Okay.`, `Mm-hmm.` — which would be typed into
@@ -390,8 +396,8 @@ measurement — `Recording too short`, `near-silent (RMS ...)`, or
 `No speech detected (... of voiced frames)`.
 
 **Q: My language isn't transcribing at all.**
-A: Parakeet covers 25 European languages. Anything outside that set will not
-work — check the [model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3).
+A: Parakeet covers 25 languages, listed under "The Transcription Model" above.
+Anything outside that set will not work — there is no setting that changes it.
 
 **Q: How do I know if Whispy is running?**
 A: Check with `curl -H "Authorization: Bearer $(cat ~/.config/whispy/config.token)" http://localhost:9090/status` or look for the process in Activity Monitor.
