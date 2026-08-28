@@ -2,9 +2,12 @@
 and the CI workflow's dependency list.
 
 CI has no clean macOS/Linux box to run the install scripts end to end, so we
-guard the release-critical invariants as text: the scripts (and the CI
-workflow) must not gate on sox (the audio backend is sounddevice/PortAudio
-now), the one-liner must be safe under `curl | bash` (no blocking prompt),
+guard the release-critical invariants as text: nothing may gate on sox and the
+default-tier CI jobs may not install it (the audio backend is
+sounddevice/PortAudio now, so needing sox would mean the project quietly
+reacquired a dependency it removed) -- the real-seam job is exempt, where sox
+synthesizes test fixtures rather than serving the application; the one-liner
+must be safe under `curl | bash` (no blocking prompt),
 uninstall must scope model-cache deletion to Whispy's own snapshot, and
 install.sh must branch per-OS rather than writing a macOS LaunchAgent on
 Linux.
@@ -51,11 +54,46 @@ def test_bootstrap_does_not_gate_on_sox(bootstrap: str):
     assert "brew install sox" not in bootstrap
 
 
-def test_ci_workflow_does_not_install_sox(ci_workflow: str):
-    # The audio backend is sounddevice/PortAudio, not sox; the CI test job
-    # must not install a dependency the project no longer has.
+def _ci_job(workflow: str, name: str) -> str:
+    """Return one job's block from the workflow text (same text-guard style as the rest)."""
+    match = re.search(rf"^  {re.escape(name)}:\n(.*?)(?=^  \w[\w-]*:\n|\Z)", workflow, re.M | re.S)
+    assert match, f"job {name!r} not found in ci.yml"
+    return match.group(1)
+
+
+def test_ci_workflow_does_not_gate_on_sox(ci_workflow: str):
+    # `command -v sox` was the old runtime gate. sox is not a runtime dependency
+    # any more -- the audio backend is sounddevice/PortAudio -- so nothing in CI
+    # may treat its absence as a failure.
     assert "command -v sox" not in ci_workflow
-    assert "brew install sox" not in ci_workflow
+
+
+@pytest.mark.parametrize("job", ["test", "test-linux"])
+def test_default_tier_jobs_do_not_install_sox(ci_workflow: str, job: str):
+    """The tiers that stand in for a user's machine must not need sox.
+
+    This is the guard that matters: if the default suite ever depends on sox,
+    the project has quietly reacquired a dependency it removed. The real-seam
+    job is exempt on purpose (see below) -- sox there synthesizes test fixtures,
+    it is not something the application calls.
+    """
+    assert "brew install sox" not in _ci_job(ci_workflow, job)
+    assert "install sox" not in _ci_job(ci_workflow, job)
+
+
+def test_real_seam_job_installs_sox_and_excludes_the_tts_module(ci_workflow: str):
+    """The real-model tier needs sox, and must skip the `say`-dependent module.
+
+    Without sox both real-model modules skip at import and the job silently
+    passes on a third of its tests. With it, the deterministic half runs. The
+    `say`-based module stays excluded explicitly: its synthesis is not
+    byte-stable between runs, so it flakes.
+    """
+    job = _ci_job(ci_workflow, "test-macos-real-seam")
+    assert "brew install sox" in job, "the real-model tests cannot synthesize clips without sox"
+    assert "--ignore=tests/test_transcription_quality.py" in job, (
+        "the `say`-dependent module must stay out of CI, and explicitly"
+    )
 
 
 def test_bootstrap_has_no_blocking_prompt(bootstrap: str):
