@@ -68,15 +68,8 @@ jobs:
           .venv/bin/pip install --upgrade pip
           .venv/bin/pip install -e ".[dev]"
 
-      # sox is what the real-model tests synthesize their clips with. Without it
-      # the two modules that need it skip at import, and this job was quietly
-      # running 14 of its 44 tests -- every gate and semantic test among the 30
-      # it skipped, which is the tier that caught the silence-hallucination bug
-      # in the first place.
-      - name: Install sox
-        run: brew install sox
-
-      # The model is 639 MB and does not change between runs.
+      # The model is 639 MB and does not change between runs. Measured on this
+      # job: a cache hit restores it in ~10s and downloads nothing.
       - name: Cache the Parakeet weights
         uses: actions/cache@v4
         with:
@@ -86,9 +79,10 @@ jobs:
       # test_transcription_quality.py is deliberately excluded rather than
       # skipped by accident. It asserts on `say`-synthesized speech, whose
       # output is not byte-stable between runs, so individual phrases flip
-      # (measured: "oui" comes back as "We" on roughly half the draws). It stays
-      # a local tool. Everything else here is deterministic -- seeded sox noise
-      # and committed recordings -- and is what CI can hold to.
+      # (measured: "oui" comes back as "We" on roughly half the draws). It is
+      # also the only remaining reason anything here would want sox, which CI
+      # therefore does not install. It stays a local tool. Everything else is
+      # deterministic -- numpy-synthesized noise and committed recordings.
       - name: Run macOS real-seam tests
         run: .venv/bin/pytest -m macos -v --tb=short --timeout=300 --ignore=tests/test_transcription_quality.py
 
