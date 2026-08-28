@@ -6,73 +6,25 @@ TBD - created by archiving change architectural-retrospective-and-stabilization.
 Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
 ## Requirements
 ### Requirement: Configuration Loading
-The engine SHALL load and maintain the application configuration, providing access to model settings and language preferences. The default language SHALL be English (`"en"`) and clipboard copy SHALL be disabled by default (`False`). The engine SHALL also apply text cleaning to strip Whisper watermark credits from transcription output before text injection. The engine SHALL validate configuration keys against `DEFAULT_CONFIG` before persisting to disk. When a configuration update changes the `trigger` key, the engine SHALL restart the key listener so the new trigger takes effect without a manual Restart. Existing installs with a persisted `language` value SHALL keep that value — the default only applies when the key (or the config file) is absent. `save_config` SHALL create the `~/.config/whispy` directory with `0700` permissions and SHALL persist `config.json` with `0600` permissions on every save, including the first save after upgrading from a version that wrote the file without restricting permissions; a failure to set these permissions SHALL be logged but SHALL NOT prevent the config from being saved.
+The engine SHALL load and maintain the application configuration. Clipboard copy SHALL be disabled by default (`False`). The engine SHALL validate configuration keys against `DEFAULT_CONFIG` before persisting to disk; keys absent from `DEFAULT_CONFIG` — including `model_size`, `language`, `beam_size`, `best_of`, and `auto_detect_min_duration` left behind by an earlier version — SHALL be dropped without raising, so an existing config file keeps loading after the upgrade. When a configuration update changes the `trigger` key, the engine SHALL restart the key listener so the new trigger takes effect without a manual Restart. The engine SHALL apply text cleaning to transcription output before text injection. `save_config` SHALL create the `~/.config/whispy` directory with `0700` permissions and SHALL persist `config.json` with `0600` permissions on every save, including the first save after upgrading from a version that wrote the file without restricting permissions; a failure to set these permissions SHALL be logged but SHALL NOT prevent the config from being saved.
 
-#### Scenario: Configuration Update
-- **WHEN** a configuration change (e.g. model size) is detected
-- **THEN** the engine SHALL trigger a reload of the transcription model to reflect the new settings
-
-_Tier: unit-mocked — `test_e2e.py` (model reload flag asserted; WhisperModel mocked)._
-
-#### Scenario: Default language is English
-- **WHEN** the application starts with no saved config
-- **THEN** the engine SHALL use English (`"en"`) as the default language
-
-_Tier: unit-pure — `test_config_validation.py`, `test_engine.py::TestLoadConfig::test_default_language_is_english`._
-
-#### Scenario: Existing persisted language is not overridden
-- **WHEN** a config file already exists on disk with a `language` value (e.g. `"fr"`, set before this change)
-- **THEN** loading the config SHALL return that persisted value, not the new default
-
-_Tier: unit-pure — `test_engine.py::TestLoadConfig`._
-
-#### Scenario: Default copy to clipboard is disabled
-- **WHEN** the application starts with no saved config
-- **THEN** the engine SHALL use `copy_to_clipboard: False` as the default
+#### Scenario: Legacy keys are dropped, not fatal
+- **WHEN** a config file written by a pre-Parakeet version is loaded, carrying `model_size` and `language`
+- **THEN** loading SHALL succeed, those keys SHALL NOT appear in the validated config, and the next save SHALL persist the file without them
 
 _Tier: unit-pure — `test_config_validation.py`._
 
-#### Scenario: Whisper credit is stripped from output
-- **WHEN** transcription produces text starting with a known Whisper credit phrase
-- **THEN** the credit prefix is removed before the text is injected into the active field
-
-_Tier: unit-mocked — `test_e2e.py` (injection path with subprocess mocked)._
-
-#### Scenario: Config validation filters unknown keys
-- **WHEN** `save_config` is called with keys not in `DEFAULT_CONFIG`
-- **THEN** only known keys are saved and a warning is logged to stderr
+#### Scenario: Default copy to clipboard is disabled
+- **WHEN** the application starts with no saved config
+- **THEN** the engine SHALL use `False` for `copy_to_clipboard`
 
 _Tier: unit-pure — `test_config_validation.py`._
 
 #### Scenario: Trigger change restarts the listener
-- **WHEN** `update_config` is called with a new `trigger` value while the key listener is active
-- **THEN** the engine SHALL stop and restart the listener with the resolved trigger, so the new key is live without a manual Restart
+- **WHEN** a configuration update changes the `trigger` key
+- **THEN** the engine SHALL restart the key listener without requiring a manual Restart
 
-_Tier: unit-mocked — listener stop/start asserted with the hotkey adapter mocked._
-
-#### Scenario: Config file is owner-only readable
-- **WHEN** `save_config` writes `config.json`
-- **THEN** the resulting file on disk SHALL have `0600` permissions
-
-_Tier: unit-pure — `test_config_validation.py`._
-
-#### Scenario: Pre-existing world-readable config is tightened on next save
-- **WHEN** `config.json` already exists with `0644` permissions from a prior version and `save_config` is called
-- **THEN** the resulting file SHALL have `0600` permissions (no separate migration step required)
-
-_Tier: unit-pure — `test_config_validation.py`._
-
-#### Scenario: Config directory is owner-only
-- **WHEN** `save_config` runs and `~/.config/whispy` does not yet have `0700` permissions
-- **THEN** the directory SHALL be set to `0700` as part of the save
-
-_Tier: unit-pure — `test_config_validation.py`._
-
-#### Scenario: Permission failure does not block the save
-- **WHEN** setting `0600`/`0700` permissions raises `OSError` (e.g. an unusual filesystem)
-- **THEN** `save_config` SHALL log the failure and still complete the write to `config.json`
-
-_Tier: unit-pure — `test_config_validation.py`._
+_Tier: unit-mocked — `test_engine.py`._
 
 ### Requirement: Restart uses correct entry point
 The menu bar "Restart" item SHALL launch the application using the correct entry point file `whispy_daemon.py` located at the project root. The resolution of that path and the check for its existence SHALL be performed by a pure, unit-tested helper independent of the menu bar UI; the menu callback SHALL delegate path resolution to that helper and only then perform the relaunch and quit.
@@ -126,17 +78,17 @@ _Tier: unit-mocked — `test_engine.py`._
 - **THEN** the worker SHALL transcribe/inject the tail chunk (if any usable text) and return the FSM to `IDLE`
 
 ### Requirement: Custom vocabulary biases transcription
-The engine SHALL support an optional `custom_vocabulary` configuration value (a list of words or phrases). When the list is non-empty, the engine SHALL pass it to the transcription call as an `initial_prompt` so that recognition is biased toward the user's habitual terms. When the list is empty or absent, transcription SHALL behave exactly as before (no prompt passed).
+The engine SHALL support an optional `custom_vocabulary` configuration value (a list of words or phrases). Because the transducer backend exposes no decoder-biasing channel, the vocabulary SHALL be applied **after** transcription as near-miss correction during text cleaning, not passed to the transcription call. The engine SHALL NOT pass any prompt, hotword, or vocabulary argument to the transcription call. When the list is empty or absent, cleaning SHALL leave transcription output unchanged.
 
-#### Scenario: Vocabulary present biases the decoder
+#### Scenario: Vocabulary reaches cleaning, not the model
 - **WHEN** `custom_vocabulary` contains one or more terms and a recording is transcribed
-- **THEN** the engine SHALL pass an `initial_prompt` built from those terms to the Whisper transcription call
+- **THEN** the transcription call SHALL receive no vocabulary argument, and the configured terms SHALL be supplied to the text-cleaning step
 
-_Tier: unit-mocked — `test_engine.py` (initial_prompt asserted; WhisperModel mocked). Whether the prompt actually improves recognition is a `macos-real` concern → step B._
+_Tier: unit-mocked — `test_engine.py`._
 
 #### Scenario: Empty vocabulary changes nothing
 - **WHEN** `custom_vocabulary` is empty or absent
-- **THEN** the engine SHALL NOT pass an `initial_prompt` (transcription behaves as before)
+- **THEN** cleaning SHALL return the transcription output with only normal whitespace normalization applied
 
 _Tier: unit-mocked — `test_engine.py`._
 
@@ -168,17 +120,17 @@ endpoint) — is a no-op that starts no transcription of a stale or missing file
 _Tier: unit-mocked — `test_engine.py`._
 
 ### Requirement: Model-load failure is surfaced
-When the transcription model fails to load, the engine SHALL report the failure through the status/notifier callback rather than leaving the model silently unloaded, and the failure SHALL reach an actual UI consumer rather than only being logged.
+When the transcription model fails to load, the engine SHALL report the failure through the status/notifier callback rather than leaving the model silently unloaded, and the failure SHALL reach an actual UI consumer rather than only being logged. The loader's own contract — one retry, then report — is specified in `asr-backend`.
 
 #### Scenario: Model fails to load
-- **WHEN** asynchronous model loading raises (download, SSL, or backend error)
+- **WHEN** asynchronous model loading raises (download, SSL, or onnxruntime session error)
 - **THEN** the engine SHALL invoke the status/notifier callback with a failure signal so the user is informed, instead of silently returning no text on every subsequent dictation
 
 #### Scenario: Menu bar consumes the model-load-failure callback
 - **WHEN** the menu bar application initializes
 - **THEN** it SHALL register a handler for `on_model_load_failed` and, when it fires, SHALL post a user-visible notification with actionable guidance (check connectivity, then Restart) — the hook SHALL NOT exist without a UI consumer
 
-_Tier: unit-pure — `test_menu_bar.py::TestAlertWiring::test_init_registers_alert_callbacks` (asserts the registration call is present in `__init__`)._
+_Tier: unit-pure — `test_menu_bar.py::TestAlertWiring::test_init_registers_alert_callbacks`._
 
 ### Requirement: Chunk pipeline runs during RECORDING without a composite FSM state
 When streaming is enabled, the engine SHALL run chunk transcription and injection

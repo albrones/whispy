@@ -15,13 +15,15 @@ The system SHALL provide a static, dependency-free promotional website under `we
 - **THEN** core layout, branding, and logo render correctly because all required assets are local
 
 ### Requirement: Value proposition and content sections
-The promotional page SHALL communicate Whispy's purpose as a cross-platform
-(macOS and Linux/X11) local voice-dictation tool and route visitors to install
-and source.
+The promotional page SHALL communicate Whispy's purpose as a cross-platform (macOS and Linux/X11) local voice-dictation tool and route visitors to install and source. Where the page names the transcription engine, it SHALL name Parakeet, not faster-whisper.
 
 #### Scenario: Hero communicates the product
 - **WHEN** a visitor views the page
 - **THEN** the hero presents the product name "Whispy" and a concise tagline describing local, cross-platform (macOS and Linux/X11) voice dictation — not macOS-only
+
+#### Scenario: Privacy copy names the current model
+- **WHEN** a visitor reads the privacy / local-processing statement
+- **THEN** it SHALL attribute local transcription to `nvidia/parakeet-tdt-0.6b-v3` and SHALL NOT mention faster-whisper or Whisper
 
 #### Scenario: Trigger described as configurable
 - **WHEN** the page references the push-to-talk key
@@ -69,13 +71,19 @@ The site SHALL provide an Open Graph / Twitter card image in a format social pla
 - **THEN** the referenced image SHALL be a PNG/JPG that renders (not an SVG that shows blank)
 
 ### Requirement: Site copy and demo match the app's default language
-The promotional site's copy and animated menu-bar demo SHALL present English as the default dictation language, consistent with the app's `DEFAULT_CONFIG`, while noting that other languages (e.g. French) remain available from the menu.
+The site SHALL depict only menus and settings that exist in the shipped app. The animated menu-bar demo SHALL NOT show a Model submenu or a Language submenu, because neither exists after the backend swap.
 
-#### Scenario: Feature copy states the default language
-- **WHEN** a visitor reads the "Multilingual" feature card
-- **THEN** it SHALL state that Whispy defaults to English, with other languages (e.g. French) available from the menu bar
+#### Scenario: Demo dropdown shows no removed settings
+- **WHEN** the animated menu-bar demo is rendered
+- **THEN** its dropdown SHALL contain no "Model" row and no "Language" row
 
-#### Scenario: Animated demo opens in English
-- **WHEN** the animated menu-bar demo plays its dictation loop
-- **THEN** it SHALL start in English and demonstrate switching to another language from the tray, matching the app's actual default rather than starting in French
+#### Scenario: No copy implies a choice of model size
+- **WHEN** feature cards and body copy are read
+- **THEN** none SHALL offer a choice between transcription models, model sizes, or quality tiers
 
+### Requirement: Site carries model attribution
+Because the transcription model is CC-BY-4.0, the page SHALL credit NVIDIA for `parakeet-tdt-0.6b-v3` alongside its existing licence statement.
+
+#### Scenario: Attribution appears near the licence statement
+- **WHEN** a visitor reads the page's licence information
+- **THEN** it SHALL state that Whispy is GPL-3.0 and credit the model to NVIDIA under CC-BY-4.0
