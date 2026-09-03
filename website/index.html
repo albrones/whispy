@@ -5,17 +5,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Whispy — Private voice dictation for macOS &amp; Linux</title>
   <meta name="description" content="Whispy is a fast, fully local voice dictation utility for macOS and Linux (X11). Hold your push-to-talk key, speak, release — your words appear in any app. Nothing ever leaves your computer." />
+  <!-- swap this host when a custom domain is attached in Vercel -->
+  <link rel="canonical" href="https://whispy-dun.vercel.app/" />
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
+  <link rel="icon" type="image/png" href="assets/favicon.png" sizes="512x512" />
 
   <!-- Open Graph / social -->
   <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://whispy-dun.vercel.app/" />
   <meta property="og:title" content="Whispy — Private voice dictation for macOS &amp; Linux" />
-  <meta property="og:description" content="Hold your key, speak, release. Local Whisper transcription that types into any app. Zero data leaves your computer." />
-  <meta property="og:image" content="assets/og-image.png" />
+  <meta property="og:description" content="Hold your key, speak, release. Local Parakeet transcription that types into any app. Zero data leaves your computer." />
+  <meta property="og:image" content="https://whispy-dun.vercel.app/assets/og-image.png" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:image" content="assets/og-image.png" />
+  <meta name="twitter:image" content="https://whispy-dun.vercel.app/assets/og-image.png" />
   <meta name="twitter:title" content="Whispy — Private voice dictation for macOS &amp; Linux" />
-  <meta name="twitter:description" content="Hold your key, speak, release. Local Whisper transcription that types into any app." />
+  <meta name="twitter:description" content="Hold your key, speak, release. Local Parakeet transcription that types into any app." />
+
+  <!-- Structured data for app discovery (Google rich results) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Whispy",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "macOS, Linux",
+    "url": "https://whispy-dun.vercel.app/",
+    "description": "Fast, fully local voice dictation for macOS and Linux (X11). Hold a key, speak, release — your words type into any app. Nothing leaves your computer.",
+    "screenshot": "https://whispy-dun.vercel.app/assets/og-image.png",
+    "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "isAccessibleForFree": true,
+    "codeRepository": "https://github.com/albrones/whispy"
+  }
+  </script>
 
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -43,8 +69,8 @@
         <p class="lede">
           Whispy is a private voice-dictation utility for macOS and Linux. Hold
           your push-to-talk key, talk, and release — your words land in whatever
-          app you're using. All transcription runs locally with
-          <code>faster-whisper</code>. No cloud, no account, no telemetry.
+          app you're using. All transcription runs locally with NVIDIA's
+          <code>parakeet-tdt-0.6b-v3</code>. No cloud, no account, no telemetry.
         </p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="#install">Install Whispy</a>
@@ -104,15 +130,10 @@
           <div class="dd-item dd-status"><span class="dd-dot"></span>Ready</div>
           <div class="dd-sep"></div>
           <div class="dd-section">Settings</div>
-          <div class="dd-item dd-sub"><span>Model</span><span class="dd-val">Normal (small) ›</span></div>
-          <div class="dd-item dd-sub is-langrow" data-demo-lang-row>
-            <span>Language</span><span class="dd-val"><span data-demo-lang>English</span> ›</span>
-            <div class="dd-submenu" data-demo-submenu role="menu">
-              <div class="dd-item dd-check" data-demo-sub="fr"><span class="dd-tick">✓</span>French</div>
-              <div class="dd-item dd-check is-checked" data-demo-sub="en"><span class="dd-tick">✓</span>English</div>
-            </div>
+          <div class="dd-item dd-toggle is-checked" data-demo-clip-row>
+            <span>Copy to clipboard</span><span class="dd-tick">✓</span>
           </div>
-          <div class="dd-item dd-toggle is-checked"><span>Copy to clipboard</span><span class="dd-tick">✓</span></div>
+          <div class="dd-item dd-sub"><span>Trigger</span><span class="dd-val">Fn ›</span></div>
           <div class="dd-item dd-toggle"><span>Start at login</span><span class="dd-tick">✓</span></div>
           <div class="dd-sep"></div>
           <div class="dd-item dd-hint">Hold your key to dictate</div>
@@ -158,7 +179,7 @@
       <div class="grid">
         <article class="card">
           <h3>100% local</h3>
-          <p>Audio is transcribed on-device with Whisper. Your voice never touches a server.</p>
+          <p>Audio is transcribed on-device with Parakeet. Your voice never touches a server.</p>
         </article>
         <article class="card">
           <h3>One key, anywhere</h3>
@@ -169,20 +190,20 @@
           <p>Native on macOS and Linux (X11). OS-specific seams sit behind a ports-and-adapters layer bound at runtime.</p>
         </article>
         <article class="card">
-          <h3>Multilingual</h3>
-          <p>Defaults to English, with French available from the menu bar.</p>
+          <h3>Knows what you're speaking</h3>
+          <p>25 European languages, detected automatically — even when you switch mid-sentence. Nothing to configure.</p>
         </article>
         <article class="card">
           <h3>Lives in the tray</h3>
           <p>Runs quietly as a background daemon in the menu bar (macOS) or system tray (Linux). No window to manage — flip <em>Start at login</em> and it's there every boot.</p>
         </article>
         <article class="card">
-          <h3>Tunable models</h3>
-          <p>Trade speed for accuracy by picking a Whisper model size that fits your machine.</p>
+          <h3>Fast enough to forget</h3>
+          <p>A two-second phrase transcribes in about 75&nbsp;ms on an M1 Pro. Text lands as you release the key.</p>
         </article>
         <article class="card">
-          <h3>Learns your words</h3>
-          <p>Whispy detects when you correct a transcription and remembers it. Names, jargon, and brand terms get more accurate over time — no setup required.</p>
+          <h3>Quiet when you are</h3>
+          <p>Tap the key by accident, or hold it in a noisy room, and nothing gets typed. Two gates — loudness, then voice detection — keep non-speech away from the model instead of letting it answer with a stray <em>“Yeah.”</em></p>
         </article>
       </div>
     </section>
@@ -230,7 +251,7 @@
           <article class="pillar">
             <span class="pillar-ico" data-braille-drift="shimmer">⣿</span>
             <h3>Runs on your machine</h3>
-            <p>Self-hosted by default on macOS or Linux — local Whisper inference, nothing to upload, nothing to trust.</p>
+            <p>Self-hosted by default on macOS or Linux — local inference, nothing to upload, nothing to trust.</p>
           </article>
         </div>
       </div>
@@ -238,22 +259,22 @@
 
     <!-- Models -->
     <section id="models" class="section">
-      <h2>Pick your model</h2>
-      <p class="section-lede">Models download automatically on first use. Bigger means more accurate but slower.</p>
+      <h2>One model, no choices</h2>
+      <p class="section-lede">Whispy ships a single model and downloads it on first use. There is no size to pick and no language to set.</p>
       <div class="table-wrap">
         <table class="models">
-          <thead>
-            <tr><th>Model</th><th>Size</th><th>Speed</th><th>FR quality</th></tr>
-          </thead>
           <tbody>
-            <tr><td>tiny</td><td>75 MB</td><td>++++</td><td>--</td></tr>
-            <tr><td>base</td><td>142 MB</td><td>+++</td><td>-</td></tr>
-            <tr class="is-default"><td>small <span class="tag">default</span></td><td>466 MB</td><td>++</td><td>++</td></tr>
-            <tr><td>medium</td><td>1.5 GB</td><td>+</td><td>+++</td></tr>
-            <tr><td>large-v3</td><td>2.9 GB</td><td>-</td><td>++++</td></tr>
+            <tr><td>Model</td><td><code>nvidia/parakeet-tdt-0.6b-v3</code>, int8 ONNX, CPU</td></tr>
+            <tr><td>Download</td><td>639 MB, automatic on first run</td></tr>
+            <tr><td>Speed</td><td>~75 ms for a 2-second phrase (Apple M1 Pro)</td></tr>
+            <tr><td>Memory</td><td>~1.4 GB resident while loaded</td></tr>
+            <tr><td>Languages</td><td>25, detected automatically — Bulgarian, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French, German, Greek, Hungarian, Italian, Latvian, Lithuanian, Maltese, Polish, Portuguese, Romanian, Slovak, Slovenian, Spanish, Swedish, Russian, Ukrainian</td></tr>
+            <tr><td>Non-speech</td><td>Discarded before the model — needs both loudness and detected voice</td></tr>
           </tbody>
         </table>
       </div>
+      <p class="section-lede">Speech outside those 25 languages will not transcribe. The list comes from the
+        <a href="https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3">model card</a>.</p>
     </section>
 
     <!-- Install -->
@@ -293,6 +314,14 @@ curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootst
     </div>
     <p>Private, local voice dictation for macOS &amp; Linux.</p>
     <a href="https://github.com/albrones/whispy">github.com/albrones/whispy</a>
+    <p class="footer-attribution">
+      Whispy is GPLv3. Speech recognition uses
+      <a href="https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3">Parakeet TDT 0.6B v3</a>,
+      © NVIDIA Corporation, licensed
+      <a href="https://creativecommons.org/licenses/by/4.0/">CC-BY-4.0</a>.
+      The model is downloaded to your machine on first run — it is never
+      redistributed with Whispy.
+    </p>
   </footer>
 
   <script src="script.js" defer></script>

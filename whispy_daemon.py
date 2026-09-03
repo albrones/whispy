@@ -56,7 +56,7 @@ if str(_SCRIPT_DIR / "src") not in sys.path:
 # Config path
 # ---------------------------------------------------------------------------
 # Honor WHISPY_CONFIG so the validation harness can drive a throwaway config
-# (changing language/model over the API) without mutating the user's real file.
+# (changing settings over the API) without mutating the user's real file.
 CONFIG_DIR = Path.home() / ".config" / "whispy"
 CONFIG_PATH = Path(os.environ["WHISPY_CONFIG"]) if os.environ.get("WHISPY_CONFIG") else CONFIG_DIR / "config.json"
 

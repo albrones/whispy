@@ -11,7 +11,8 @@ By default transcription is **streaming**: while recording, the audio is segment
 | Component | Technology |
 |---|---|
 | Language | Python 3.10+ |
-| STT Engine | `faster-whisper` (Whisper models 75 MB → 2.9 GB), always CPU int8 |
+| STT Engine | `nvidia/parakeet-tdt-0.6b-v3` via `onnx-asr`, int8 ONNX, always `CPUExecutionProvider` (639 MB) |
+| Non-speech guard | Two gates before the model: RMS energy, then `webrtcvad` voiced-duration (Parakeet answers non-speech with short fillers) |
 | UI | macOS: `rumps` (menu bar) · Linux: `pystray` (tray) |
 | Audio Recording | `sounddevice` / PortAudio (`RawInputStream`, 16 kHz mono int16) |
 | Voice-activity segmentation | `webrtcvad` (energy-gate fallback when absent) |
@@ -101,13 +102,9 @@ Owns loading, validation, and migration of the config file (previously inline in
 **`DEFAULT_CONFIG`:**
 ```python
 {
-    "model_size": "small",            # tiny, base, small, medium, large-v3
-    "language": "fr",                 # fr, en
-    "beam_size": 1,
-    "best_of": 2,
+
     "copy_to_clipboard": False,
     "start_at_login": False,          # macOS .app bundle only
-    "auto_detect_min_duration": 0.5,
     "min_recording_duration": 0.3,
     "custom_vocabulary": [],          # terms to bias the decoder toward
     "trigger": None,                  # None = platform default; int keycode or key name
@@ -124,7 +121,6 @@ There is **no** `compute_key` — the model always loads with `device="cpu", com
 
 - **`VALID_MODEL_SIZES`** = `["tiny", "base", "small", "medium", "large-v3"]`
 - **`SUPPORTED_LANGUAGES`** = `{"fr": "French", "en": "English"}` (no `"auto"`)
-- **`MODEL_PRESETS`** — `model_size → {label, description}` for the UI
 - **`TRIGGER_PRESETS`** — ordered `[(label, value)]`: `("Fn", None)`, `("Right Command", 54)`, `("Right Option", 61)`, `("F13", 105)` (macOS keycodes; `None` = platform default)
 - **`CONFIG_VERSION`** = `1`
 
@@ -149,7 +145,7 @@ There is **no** `compute_key` — the model always loads with `device="cpu", com
 | Attribute | Type | Description |
 |---|---|---|
 | `is_recording` / `is_transcribing` | bool | Lifecycle flags |
-| `model` | WhisperModel \| None | Loaded model |
+| `model` | onnx-asr model \| None | Loaded model (exposes `recognize(audio)`) |
 | `model_loading` | bool | Load in progress |
 | `last_transcription` | str \| None | Last transcribed text |
 | `fn_listener_active` | bool | Trigger listener active |
@@ -176,7 +172,7 @@ There is **no** `compute_key` — the model always loads with `device="cpu", com
 | `get_status()` | `{is_recording, is_transcribing, fn_pressed, fn_listener_active, model_loaded, model_loading, fsm}`. |
 | Callback registries | `on_status_change`, `on_recording_start/stop`, `on_fn_pressed/released`, `on_injection_permission_denied`, `on_model_load_failed`. |
 
-**Model loading:** `_load_model(config)` builds `WhisperModel(model_size, device="cpu", compute_type="int8", cpu_threads=…)`, trying the local HF cache first (`local_files_only=True`) and falling back to an online download. `load_model_async(engine)` runs it in a daemon thread with one retry, surfacing failure via the model-load-failed callback.
+**Model loading:** `_load_model(config)` calls `onnx_asr.load_model("nemo-parakeet-tdt-0.6b-v3", quantization="int8", providers=["CPUExecutionProvider"])`. The provider list is pinned rather than inherited: onnxruntime's macOS default enrols CoreML, measured on an M1 Pro at ~2× the per-chunk latency and 6070 MB peak RSS against 1366 MB CPU-only. `load_model_async(engine)` runs it in a daemon thread with one retry, surfacing failure via the model-load-failed callback.
 
 **`RECORDING_PATH`** lives in `core/audio.py` (`<tempdir>/whispy.wav`); each recording actually uses a unique temp path.
 
@@ -199,7 +195,7 @@ Valid transitions: `IDLE → RECORDING → TRANSCRIBING → IDLE`. `start_record
 | `start()` | FSM IDLE→RECORDING, open the capture stream, wait until audio actually flows (cold-start), arm the segmenter when streaming. |
 | `stop()` | Stop/close the stream, flush the tail chunk, FSM RECORDING→TRANSCRIBING. |
 | `get_level()` | Live mic level 0.0–1.0 for the waveform UI. |
-| `transcribe(...)` | `WhisperModel.transcribe` with beam/best-of, VAD filter, optional `initial_prompt` (custom vocabulary), min-duration gating. |
+| `transcribe(...)` | `model.recognize(audio_path)` behind three gates: min-duration, an RMS silence gate (`SILENCE_RMS_THRESHOLD = 0.005`), then a speech gate (`MIN_SPEECH_DURATION_S = 0.20`) via `_carries_speech`. Both energy gates fail open when their measurement is unavailable. No decoder arguments: the transducer detects language itself, decodes greedily, and exposes no prompt/hotword channel. |
 | `configure_streaming(enabled, on_chunk, *, pause_ms, min_chunk_s, max_chunk_s, aggressiveness)` | Enable/disable live segmentation and register the chunk sink. |
 | `segment_pcm(pcm, ...)` | Replay raw PCM through the live segmenter; returns chunk WAV paths (drives `stream_file`). |
 | `_get_audio_duration` / `cleanup_audio_file` | WAV-header duration; temp-file cleanup. |
@@ -210,13 +206,17 @@ Valid transitions: `IDLE → RECORDING → TRANSCRIBING → IDLE`. `start_record
 
 ### 3.6 `src/whispy/core/segmentation.py` — Voice-Activity Segmentation
 
+`speech_duration_s(pcm, sample_rate, aggressiveness=2)` (same module) returns the total seconds of PCM that `webrtcvad` classifies as speech, or `None` when VAD is unavailable, the sample rate is unsupported, or the audio is shorter than one 30 ms frame. `AudioEngine._carries_speech` uses it as the second non-speech gate and treats `None` as "transcribe anyway".
+
+Deliberately a duration rather than a voiced/silent ratio: one word inside a 10 s key-hold is ~6% voiced frames, the same as steady room noise, while its voiced duration (0.66 s) is unmistakable. Measured separation across 125 noise realizations above the RMS gate: worst 0.12 s voiced against 0.33 s for the shortest real one-word dictation. Known ceiling — past roughly 0.04 normalized RMS `webrtcvad` labels steady noise fully voiced and the gate stops discriminating; that band is left to the model, which returned an empty string for every such clip measured.
+
 `SpeechSegmenter` decides chunk boundaries frame-by-frame for streaming. It uses `webrtcvad` when available (gain-independent), falling back to a normalized-RMS energy gate. Capture is 16 kHz mono int16; frames are 30 ms (480 samples / 960 bytes). A boundary is emitted when buffered speech is followed by ≥ `pause_ms` of silence (and ≥ `min_chunk_s`), or when the buffer reaches `max_chunk_s` (forced flush). `feed(raw) → bool` (boundary occurred), `flush_tail() → bool` (pending chunk on stop), `reset_chunk()`, `has_pending`. The segmenter never drops audio — it only decides cut points.
 
 ---
 
 ### 3.7 `src/whispy/core/text_cleaner.py` — Output Cleaning
 
-`clean_text(text)` strips Whisper watermark credit phrases (French/English, prefix-anchored) and known hallucination phrases (anywhere), then collapses whitespace. Returns `None` for `None`, `""` when nothing meaningful remains. Applied to every transcription before injection.
+`clean_text(text, vocabulary=None)` collapses whitespace, then corrects near misses toward the configured `custom_vocabulary` using stdlib `difflib` (cutoff 0.80, tokens shorter than 4 characters skipped). Returns `None` for `None`. Applied to every transcription before injection. The Whisper-era credit and hallucination phrase lists are gone: Parakeet returns an empty string for silence rather than training-corpus artifacts.
 
 ---
 
@@ -253,7 +253,7 @@ Restart
 Quit (⌘Q)
 ```
 
-There is **no** Compute submenu and **no** "Fn: ✓ active" line. Streaming is always on (no toggle). Selecting a model/language/trigger/clipboard option calls `engine.update_config(...)` and applies live (model reload, listener restart). **Restart** spawns a detached waiter (`_RELAUNCH_WAITER`) that polls the `:9090` single-instance lock until this instance releases it, then relaunches — so the new daemon never races the old one onto a fallback port. A `WaveformWindow` shows an audio-reactive visualization during recording, driven by `engine.get_level()` (never a second mic stream).
+There is **no** Compute submenu, **no** Model or Language submenu (one model, language auto-detected), and **no** "Fn: ✓ active" line. Streaming is always on (no toggle). Selecting a trigger/clipboard option calls `engine.update_config(...)` and applies live (listener restart). **Restart** spawns a detached waiter (`_RELAUNCH_WAITER`) that polls the `:9090` single-instance lock until this instance releases it, then relaunches — so the new daemon never races the old one onto a fallback port. A `WaveformWindow` shows an audio-reactive visualization during recording, driven by `engine.get_level()` (never a second mic stream).
 
 ---
 
@@ -332,7 +332,7 @@ System Events is Apple-signed, so it can post synthetic keystrokes even though W
 
 ### 3.16 `src/whispy/doctor.py` — Environment Diagnostic
 
-Run via `python whispy_daemon.py --doctor` (or `make doctor`). Each check returns a `CheckResult(name, status, detail)` with status `ok`/`warn`/`fail`; `run_doctor()` prints a report and returns `1` if any check failed. Checks: audio backend (`sounddevice`), `xdotool` (Linux only), Whisper model presence in the HF cache, Input Monitoring, Accessibility, Microphone (macOS), and whether the daemon answers on `:9090` (authenticated with the per-install token).
+Run via `python whispy_daemon.py --doctor` (or `make doctor`). Each check returns a `CheckResult(name, status, detail)` with status `ok`/`warn`/`fail`; `run_doctor()` prints a report and returns `1` if any check failed. Checks: audio backend (`sounddevice`), `xdotool` (Linux only), Parakeet model presence in the HF cache, Input Monitoring, Accessibility, Microphone (macOS), and whether the daemon answers on `:9090` (authenticated with the per-install token).
 
 ---
 
@@ -342,13 +342,8 @@ Run via `python whispy_daemon.py --doctor` (or `make doctor`). Each check return
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
-| `model_size` | str | `"small"` | tiny, base, small, medium, large-v3 |
-| `language` | str | `"fr"` | fr, en (no auto) |
-| `beam_size` | int | `1` | ≥ 1 |
-| `best_of` | int | `2` | ≥ 1 |
 | `copy_to_clipboard` | bool | `False` | clipboard-paste vs. direct keystroke |
 | `start_at_login` | bool | `False` | macOS `.app` bundle only |
-| `auto_detect_min_duration` | float | `0.5` | ≥ 0 |
 | `min_recording_duration` | float | `0.3` | ≥ 0 |
 | `custom_vocabulary` | list[str] | `[]` | terms biasing the decoder (`initial_prompt`) |
 | `trigger` | int \| str \| null | `null` | `null` = platform default; macOS keycode or key name |
@@ -370,7 +365,7 @@ A hidden `_version` key tracks migrations (`CONFIG_VERSION = 1`). There is **no*
 
 **Test files** (`tests/`):
 
-`test_state_machine.py`, `test_engine.py`, `test_audio.py`, `test_injection.py`, `test_integration.py`, `test_e2e.py`, `test_e2e_smoke.py`, `test_e2e_smoke_linux.py`, `test_event_tap_e2e.py`, `test_event_decode.py`, `test_language_detection.py`, `test_transcription_quality.py`, `test_segmentation.py`, `test_text_cleaning.py`, `test_config_validation.py`, `test_simplify_config_ui.py`, `test_menu_bar.py`, `test_menu_theme.py`, `test_waveform.py`, `test_anim_frames.py`, `test_auth.py`, `test_paths.py`, `test_permissions.py`, `test_platform_detect.py`, `test_linux_adapters.py`, `test_doctor.py`, `test_error_handling.py`, `test_install_scripts.py`, `test_validation_core.py`, `test_website.py`, plus `tests/test_api/test_server.py`.
+`test_state_machine.py`, `test_engine.py`, `test_audio.py`, `test_injection.py`, `test_integration.py`, `test_e2e.py`, `test_e2e_smoke.py`, `test_e2e_smoke_linux.py`, `test_event_tap_e2e.py`, `test_event_decode.py`, `test_transcription_quality.py`, `test_segmentation.py`, `test_text_cleaning.py`, `test_config_validation.py`, `test_simplify_config_ui.py`, `test_menu_bar.py`, `test_menu_theme.py`, `test_waveform.py`, `test_anim_frames.py`, `test_auth.py`, `test_paths.py`, `test_permissions.py`, `test_platform_detect.py`, `test_linux_adapters.py`, `test_doctor.py`, `test_error_handling.py`, `test_install_scripts.py`, `test_validation_core.py`, `test_website.py`, plus `tests/test_api/test_server.py`.
 
 ---
 
@@ -378,7 +373,7 @@ A hidden `_version` key tracks migrations (`CONFIG_VERSION = 1`). There is **no*
 
 **`install.sh`:**
 1. Checks for python3
-2. Creates `.venv` if needed → installs `faster-whisper`, `pyobjc-framework-Quartz`, `rumps`, `Pillow`
+2. Creates `.venv` if needed → installs `onnx-asr`, `pyobjc-framework-Quartz`, `rumps`, `Pillow`
 3. Generates icons via `generate_icons.py` if missing
 4. **macOS:** provisions the venv only — `make app` then builds `Whispy.app` (py2app). Autostart is the in-app "Start at login" toggle (`SMAppService`); **no LaunchAgent is created**.
 5. **Linux:** installs and enables a `systemd --user` unit (`whispy.service`).

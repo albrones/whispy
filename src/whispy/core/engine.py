@@ -14,24 +14,16 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-from faster_whisper import WhisperModel
-
-if TYPE_CHECKING:
-    from ..hardware.ax_reader import InjectionSnapshot
+from typing import Any
 
 from ..hardware.event_decode import DEFAULT_TRIGGER_KEYCODE
 from ..platform import PlatformAdapters, detect
 from .config import (
     DEFAULT_CONFIG,
-    MODEL_PRESETS,
-    SUPPORTED_LANGUAGES,
     TRIGGER_PRESETS,
     load_config,
     save_config,
 )
-from .corrections import ADAPTIVE_LEARNING_ENABLED, CorrectionStore, extract_corrections
 from .state_machine import State, StateMachine
 from .text_cleaner import clean_text
 
@@ -42,8 +34,6 @@ __all__ = [
     "DictationState",
     "load_model_async",
     "DEFAULT_CONFIG",
-    "MODEL_PRESETS",
-    "SUPPORTED_LANGUAGES",
     "TRIGGER_PRESETS",
     "load_config",
     "save_config",
@@ -80,42 +70,44 @@ TRIGGER_RELEASE_INJECT_TIMEOUT_S = 10.0
 # Config loading/saving are now in config.py with validation and migration.
 # Model loading
 # ---------------------------------------------------------------------------
-def _load_model(config: dict[str, Any]) -> WhisperModel:
-    """Instantiate WhisperModel from config dict. Always uses CPU int8.
+# The transcription model: NVIDIA Parakeet TDT 0.6b v3, int8 ONNX. One size,
+# one variant — there is nothing here for the user to choose.
+MODEL_NAME = "nemo-parakeet-tdt-0.6b-v3"
 
-    Tries the local HuggingFace cache first (``local_files_only=True``): this
-    avoids any network/SSL at startup, which matters inside the .app bundle
-    where ``ssl.create_default_context`` otherwise fails on the missing CA file.
-    Falls back to an online download only when the model isn't cached yet.
+# Explicit provider list, deliberately not onnxruntime's platform default. On
+# macOS that default enrols CoreML, measured on an Apple M1 Pro at roughly twice
+# the per-chunk latency (0.081s vs 0.037s on a 0.5s chunk) and a 6070 MB peak RSS
+# against 1366 MB for CPU-only. The CPU path already transcribes a 2s chunk in
+# ~75ms, so a faster provider would buy headroom nobody is asking for; anyone
+# changing this needs a workload the CPU path fails, not a newer machine.
+MODEL_PROVIDERS = ["CPUExecutionProvider"]
+
+
+def _load_model(config: dict[str, Any]) -> Any:
+    """Load the Parakeet model. Weights are int8 ONNX, fetched via the HF cache.
+
+    ``config`` is unused today — kept in the signature because model loading is
+    the natural place for any future per-install override, and the caller passes
+    it either way.
+
+    ``onnx_asr.load_model`` also accepts a local model directory in place of the
+    hub name, which is the fallback if the upstream ONNX conversion
+    (``istupakov/parakeet-tdt-0.6b-v3-onnx``) ever becomes unavailable.
     """
-    cpu_threads = 0
-    try:
-        cpu_threads = max(2, os.cpu_count() // 2)
-    except (TypeError, AttributeError):
-        cpu_threads = 4
+    import onnx_asr
 
-    def _make(local_only: bool) -> WhisperModel:
-        return WhisperModel(
-            config["model_size"],
-            device="cpu",
-            compute_type="int8",
-            cpu_threads=cpu_threads,
-            local_files_only=local_only,
-        )
-
-    try:
-        return _make(local_only=True)
-    except Exception:
-        # Not cached — fall back to an online download (needs SSL certs; the
-        # daemon sets SSL_CERT_FILE from certifi at startup).
-        return _make(local_only=False)
+    return onnx_asr.load_model(
+        MODEL_NAME,
+        quantization="int8",
+        providers=MODEL_PROVIDERS,
+    )
 
 
 _MODEL_LOAD_RETRY_DELAY = 2.0  # seconds between the initial attempt and one retry
 
 
 def load_model_async(engine: Engine) -> None:
-    """Load the whisper model in a background thread.
+    """Load the transcription model in a background thread.
 
     Retries once on failure (transient download/SSL hiccups), then — instead of
     leaving the model silently unloaded forever — surfaces the failure through
@@ -125,11 +117,10 @@ def load_model_async(engine: Engine) -> None:
     def _worker():
         engine.state.model_loading = True
         engine._notify_status_change()
-        model_name = engine.state.config["model_size"]
         last_exc: Exception | None = None
         for attempt in range(2):  # initial attempt + one retry
             try:
-                print(f"[model] Loading '{model_name}' with CPU int8...")
+                print(f"[model] Loading '{MODEL_NAME}' (int8, CPU)...")
                 engine.state.model = _load_model(engine.state.config)
                 last_exc = None
                 print("[model] Loaded successfully")
@@ -162,7 +153,7 @@ class DictationState:
         self.stop_event = threading.Event()
         self.fn_listener_active = False
         self.last_transcription: str | None = None
-        self.model: WhisperModel | None = None
+        self.model: Any | None = None
         self.model_loading = False
         self.config: dict[str, Any] = dict(DEFAULT_CONFIG)
         self.app: Any = None
@@ -256,11 +247,6 @@ class Engine:
         # Chunk texts accumulate here during recording and are typed once on
         # release (avoids mid-recording focus disruption in full-screen apps).
         self._chunk_texts: list[str] = []
-
-        # --- Correction detection (adaptive transcription memory) ---
-        corrections_dir = self._config_path.parent
-        self._correction_store = CorrectionStore(corrections_dir / "corrections.json")
-        self._last_injection: InjectionSnapshot | None = None
 
         # --- Hang-recovery watchdog ---
         # Monotonic timestamps of when the FSM entered a non-idle state (None when
@@ -460,11 +446,6 @@ class Engine:
             except Exception:
                 logger.exception("[engine] Error in status-change callback")
 
-    @property
-    def correction_store(self) -> CorrectionStore:
-        """Expose the correction store for the UI layer."""
-        return self._correction_store
-
     def get_status(self) -> dict[str, Any]:
         """Return current engine status as a dict."""
         return {
@@ -524,32 +505,18 @@ class Engine:
                 print("[transcribe] Model not loaded, skipping", file=sys.stderr)
                 return None
 
-            # Bias the decoder toward the user's habitual terms, if any.
-            vocab = self.state.config.get("custom_vocabulary") or []
-            initial_prompt = ", ".join(vocab) if vocab else None
-
             text = self._audio_engine.transcribe(
                 audio_path=path,
                 model=self.state.model,
-                language=self.state.config.get("language", "en"),
-                beam_size=self.state.config.get("beam_size", 1),
-                best_of=self.state.config.get("best_of", 2),
-                auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
                 min_recording_duration=self.state.config.get("min_recording_duration", 0.3),
-                initial_prompt=initial_prompt,
-                hotwords=self._build_hotwords(),
             )
 
             if text:
-                # Strip Whisper watermark credits before injection
-                cleaned = clean_text(text)
+                cleaned = clean_text(text, self.state.config.get("custom_vocabulary"))
                 if cleaned:
-                    self._correction_store.track_occurrences(cleaned)
-                    cleaned = self._correction_store.apply_corrections(cleaned)
                     self.state.last_transcription = cleaned
                     self._wait_trigger_released()
                     self._text_injector.inject(cleaned)
-                    self._snapshot_injection(cleaned)
 
             return text
         finally:
@@ -558,43 +525,6 @@ class Engine:
             # exception. Only the "nothing recorded" early return above (no
             # file to begin with) skips this.
             self._audio_engine.cleanup_audio_file(path)
-
-    # -- Correction detection --
-
-    def _snapshot_injection(self, text: str) -> None:
-        """Record what was injected for correction detection on next trigger."""
-        from ..hardware.ax_reader import InjectionSnapshot, get_frontmost_pid
-
-        pid = get_frontmost_pid()
-        if pid is not None:
-            self._last_injection = InjectionSnapshot(app_pid=pid, injected_text=text)
-
-    def _detect_corrections(self) -> None:
-        """Compare the current field against the last injection snapshot."""
-        if not ADAPTIVE_LEARNING_ENABLED:
-            return
-        snap = self._last_injection
-        if snap is None:
-            return
-        self._last_injection = None
-
-        from ..hardware.ax_reader import get_frontmost_pid, read_focused_field
-
-        pid = get_frontmost_pid()
-        if pid is None or pid != snap.app_pid:
-            return
-        field = read_focused_field()
-        if field is None:
-            return
-        corrections = extract_corrections(snap.injected_text, field)
-        for wrong, right in corrections.items():
-            logger.debug("[corrections] learned: %s → %s", wrong, right)
-            self._correction_store.add_correction(wrong, right)
-
-    def _build_hotwords(self) -> str | None:
-        """Hotwords string from the correction store, or None."""
-        hw = self._correction_store.hotwords()
-        return hw if hw else None
 
     # -- Streaming chunk pipeline (FSM-1: runs during RECORDING) --
 
@@ -627,33 +557,23 @@ class Engine:
     def _transcribe_and_inject_chunk(self, path: str) -> None:
         """Transcribe one chunk and inject its text in order, append-only.
 
-        Reuses the same decoder params, custom-vocabulary prompt, and cleaning as
-        the whole-recording path; chunks stay independent (no previous-text
-        feedback). Always removes the chunk file when done.
+        Reuses the same cleaning as the whole-recording path. Chunks stay
+        independent because the transducer carries no cross-call decoder context,
+        not because a flag says so. Always removes the chunk file when done.
         """
         try:
             if self.state.model is None or not os.path.exists(path):
                 return
-            vocab = self.state.config.get("custom_vocabulary") or []
-            initial_prompt = ", ".join(vocab) if vocab else None
             text = self._audio_engine.transcribe(
                 audio_path=path,
                 model=self.state.model,
-                language=self.state.config.get("language", "en"),
-                beam_size=self.state.config.get("beam_size", 1),
-                best_of=self.state.config.get("best_of", 2),
-                auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
                 min_recording_duration=self.state.config.get("min_chunk_s", 0.4),
-                initial_prompt=initial_prompt,
-                hotwords=self._build_hotwords(),
             )
             if not text:
                 return
-            cleaned = clean_text(text)
+            cleaned = clean_text(text, self.state.config.get("custom_vocabulary"))
             if not cleaned:
                 return
-            self._correction_store.track_occurrences(cleaned)
-            cleaned = self._correction_store.apply_corrections(cleaned)
             self.state.last_transcription = cleaned
             with self.state.lock:
                 self._chunk_any_text = True
@@ -730,26 +650,14 @@ class Engine:
         if not os.path.exists(audio_path):
             return None
 
-        vocab = self.state.config.get("custom_vocabulary") or []
-        initial_prompt = ", ".join(vocab) if vocab else None
-
         text = self._audio_engine.transcribe(
             audio_path=audio_path,
             model=self.state.model,
-            language=self.state.config.get("language", "en"),
-            beam_size=self.state.config.get("beam_size", 1),
-            best_of=self.state.config.get("best_of", 2),
-            auto_detect_min_duration=self.state.config.get("auto_detect_min_duration", 0.5),
             min_recording_duration=self.state.config.get("min_recording_duration", 0.3),
-            initial_prompt=initial_prompt,
-            hotwords=self._build_hotwords(),
         )
         if not text:
             return ""
-        cleaned = clean_text(text)
-        if cleaned:
-            cleaned = self._correction_store.apply_corrections(cleaned)
-        return cleaned or ""
+        return clean_text(text, self.state.config.get("custom_vocabulary")) or ""
 
     def stream_file(self, audio_path: str) -> list[str] | None:
         """Deterministic streaming seam: replay a WAV through live segmentation.
@@ -784,27 +692,18 @@ class Engine:
             aggressiveness=cfg.get("vad_aggressiveness", 2),
         )
 
-        vocab = cfg.get("custom_vocabulary") or []
-        initial_prompt = ", ".join(vocab) if vocab else None
-        hotwords = self._build_hotwords()
+        vocabulary = cfg.get("custom_vocabulary")
         texts: list[str] = []
         for path in paths:
             try:
                 text = self._audio_engine.transcribe(
                     audio_path=path,
                     model=self.state.model,
-                    language=cfg.get("language", "en"),
-                    beam_size=cfg.get("beam_size", 1),
-                    best_of=cfg.get("best_of", 2),
-                    auto_detect_min_duration=cfg.get("auto_detect_min_duration", 0.5),
                     min_recording_duration=min_chunk_s,
-                    initial_prompt=initial_prompt,
-                    hotwords=hotwords,
                 )
                 if text:
-                    cleaned = clean_text(text)
+                    cleaned = clean_text(text, vocabulary)
                     if cleaned:
-                        cleaned = self._correction_store.apply_corrections(cleaned)
                         texts.append(cleaned)
             finally:
                 self._audio_engine.cleanup_audio_file(path)
@@ -856,14 +755,13 @@ class Engine:
         self.state.fn_listener_active = self._fn_listener.active
 
     def _handle_trigger_press_work(self) -> None:
-        """Perform the press-side work: correction detection, then notify,
-        then the recording-started cue, then start recording, in that order.
+        """Perform the press-side work: notify, then the recording-started
+        cue, then start recording, in that order.
 
         Runs on the trigger-worker thread — never on the hardware listener
         thread — so this is where all the blocking calls the old inline
         callback used to run directly now live.
         """
-        self._detect_corrections()
         self._notify_fn_pressed()
         self._notifier.recording_started()
         self.start_recording()
@@ -963,7 +861,6 @@ class Engine:
                                 self.state.last_transcription = assembled
                                 self._wait_trigger_released()
                                 self._text_injector.inject(assembled)
-                                self._snapshot_injection(assembled)
                             produced_text = chunk_any_text
                         else:
                             produced_text = bool(self.run_transcription())
@@ -1080,9 +977,13 @@ class Engine:
 
     # -- Config --
 
-    def update_config(self, updates: dict[str, Any]) -> bool:
-        """Apply config updates. Returns True if model reload was triggered."""
-        needs_reload = False
+    def update_config(self, updates: dict[str, Any]) -> None:
+        """Apply config updates.
+
+        No update can require a model reload any more: there is one model, and
+        nothing in the config selects it. The old boolean return said "reload
+        the model now", which only `model_size` ever triggered.
+        """
         for key, value in updates.items():
             if key in DEFAULT_CONFIG:
                 self.state.config[key] = value
@@ -1090,8 +991,6 @@ class Engine:
 
         if "copy_to_clipboard" in updates:
             self._text_injector.update_config(updates["copy_to_clipboard"])
-        if "model_size" in updates:
-            needs_reload = True
 
         # Trigger change: restart the listener so the new key is live now, not
         # only after a Restart. start_fn_listener re-reads resolve_trigger(), so
@@ -1118,7 +1017,6 @@ class Engine:
                     self.start_chunk_worker()
                 else:
                     self.stop_chunk_worker()
-        return needs_reload
 
     # -- Lifecycle --
 

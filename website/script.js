@@ -160,9 +160,7 @@ class WaveformPill {
   const brailleEl = el("[data-demo-braille]");
   const trigger = el("[data-demo-trigger]");
   const dropdown = el("[data-demo-dropdown]");
-  const submenu = el("[data-demo-submenu]");
-  const langValue = el("[data-demo-lang]");
-  const langRow = el("[data-demo-lang-row]");
+  const clipRow = el("[data-demo-clip-row]");
   const output = el("[data-demo-output]");
   const editor = el("[data-demo-editor]");
   const caption = el("[data-demo-caption]");
@@ -177,12 +175,9 @@ class WaveformPill {
     en: "Hello, welcome to Whispy.",
   };
   const LANG_LABEL = { fr: "French", en: "English" };
-  const SUB_ITEMS = {
-    fr: el('[data-demo-sub="fr"]'),
-    en: el('[data-demo-sub="en"]'),
-  };
 
   let lang = "en";
+  let clipboard = true;
 
   function setCaption(text, mode) {
     caption.textContent = text;
@@ -257,31 +252,30 @@ class WaveformPill {
 
   function closeMenu() {
     dropdown.classList.remove("is-open");
-    submenu.classList.remove("is-open");
-    langRow.classList.remove("is-active");
     trigger.classList.remove("is-active");
   }
 
-  // Open the menu, switch the dictation language, close it.
-  async function switchLanguage(to) {
+  // Open the menu, flip a setting, close it. There is no language setting to
+  // show: the model detects the language itself.
+  async function toggleClipboard() {
     await openMenu();
 
-    langRow.classList.add("is-active");
-    await moveCursorTo(langRow, { settle: 520 });
-    submenu.classList.add("is-open");
-    await sleep(450);
-
-    await moveCursorTo(SUB_ITEMS[to], { settle: 560 });
+    await moveCursorTo(clipRow, { settle: 560 });
     await clickPulse();
-    SUB_ITEMS.fr.classList.toggle("is-checked", to === "fr");
-    SUB_ITEMS.en.classList.toggle("is-checked", to === "en");
-    langValue.textContent = LANG_LABEL[to];
-    lang = to;
-    setCaption(`Language → ${LANG_LABEL[to]}`, "done");
+    clipboard = !clipboard;
+    clipRow.classList.toggle("is-checked", clipboard);
+    setCaption(`Copy to clipboard → ${clipboard ? "on" : "off"}`, "done");
     await sleep(750);
 
     closeMenu();
     await sleep(550);
+  }
+
+  // No menu interaction: the language is detected from the audio.
+  async function switchSpokenLanguage(to) {
+    lang = to;
+    setCaption(`Now speaking ${LANG_LABEL[to]} — no setting to change`, "idle");
+    await sleep(1200);
   }
 
   // Render the calm end-state for users who prefer reduced motion.
@@ -298,9 +292,11 @@ class WaveformPill {
     started = true;
     while (true) {
       await dictate(); // English
-      await switchLanguage("fr"); // change language from the tray
-      await dictate(); // French
-      await switchLanguage("en"); // back to English, loop
+      await switchSpokenLanguage("fr"); // the speaker switches; nothing is configured
+      await dictate(); // French, detected automatically
+      await toggleClipboard(); // the menu still has settings worth showing
+      await switchSpokenLanguage("en"); // back to English, loop
+      await toggleClipboard();
     }
   }
 

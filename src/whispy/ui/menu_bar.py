@@ -9,8 +9,6 @@ from AppKit import NSThread
 from PyObjCTools import AppHelper
 
 from ..core.engine import (
-    MODEL_PRESETS,
-    SUPPORTED_LANGUAGES,
     TRIGGER_PRESETS,
     Engine,
 )
@@ -136,34 +134,12 @@ class WhisperMenuBarApp(rumps.App):
         self._settings_header = settings_header
         menu_theme.apply_title(settings_header, menu_theme.section_title("Settings"))
 
-        # Model selection — submenu title reflects the current choice; each item
-        # shows its description (size / quality) alongside the label.
-        self.model_menu = rumps.MenuItem("Model")
-        self._model_items: dict[str, rumps.MenuItem] = {}
-        for key, preset in MODEL_PRESETS.items():
-            label = f"{preset['label']} — {preset['description']}"
-            item = rumps.MenuItem(label, callback=self._on_model_select)
-            item._model_key = key
-            item._label = label
-            menu_theme.apply_title(item, menu_theme.check_title(label, key == cfg["model_size"]))
-            self._model_items[key] = item
-            self.model_menu.add(item)
-        self._update_model_title()
-
-        # Language selection — submenu title reflects the current choice.
-        self.language_menu = rumps.MenuItem("Language")
-        self._lang_items: dict[str, rumps.MenuItem] = {}
-        for code, label in SUPPORTED_LANGUAGES.items():
-            item = rumps.MenuItem(label, callback=self._on_language_select)
-            item._lang_code = code
-            item._label = label
-            menu_theme.apply_title(item, menu_theme.check_title(label, code == cfg["language"]))
-            self._lang_items[code] = item
-            self.language_menu.add(item)
-        self._update_language_title()
+        # Model and Language submenus are gone with the Whisper backend:
+        # Parakeet ships in one size and detects language itself, so neither
+        # would configure anything.
 
         # Clipboard toggle — trailing check so the title aligns left with the
-        # Model/Language rows. (Streaming is always on; no toggle.)
+        # Trigger row. (Streaming is always on; no toggle.)
         self.copy_menu = rumps.MenuItem("Copy to clipboard", callback=self._on_toggle_copy)
         self.copy_menu._label = "Copy to clipboard"
         menu_theme.apply_title(
@@ -199,10 +175,6 @@ class WhisperMenuBarApp(rumps.App):
                 menu_theme.toggle_title("Start at login", cfg.get("start_at_login", False)),
             )
 
-        # Learned words (adaptive transcription memory)
-        self.learned_menu = rumps.MenuItem("Learned Words")
-        self._rebuild_learned_menu()
-
         # Reload and quit
         self.reload_item = rumps.MenuItem("Restart", callback=self._on_reload)
         quit_item = rumps.MenuItem("Quit", callback=self._on_quit, key="q")
@@ -213,25 +185,13 @@ class WhisperMenuBarApp(rumps.App):
             self.permission_item,
             None,
             settings_header,
-            self.model_menu,
-            self.language_menu,
             self.copy_menu,
             self.trigger_menu,
             *([self.login_item_menu] if self.login_item_menu is not None else []),
-            self.learned_menu,
             None,
             self.reload_item,
             quit_item,
         ]
-
-    def _update_model_title(self) -> None:
-        cur = self.engine.state.config["model_size"]
-        label = MODEL_PRESETS.get(cur, {}).get("label", cur)
-        self.model_menu.title = f"Model: {label}"
-
-    def _update_language_title(self) -> None:
-        cur = self.engine.state.config["language"]
-        self.language_menu.title = f"Language: {SUPPORTED_LANGUAGES.get(cur, cur)}"
 
     def _trigger_is_active(self, value: int | None) -> bool:
         """True if the given preset value matches the configured trigger.
@@ -266,10 +226,6 @@ class WhisperMenuBarApp(rumps.App):
         """
         cfg = self.engine.state.config
         menu_theme.apply_title(self._settings_header, menu_theme.section_title("Settings"))
-        for key, item in self._model_items.items():
-            menu_theme.apply_title(item, menu_theme.check_title(item._label, key == cfg["model_size"]))
-        for code, item in self._lang_items.items():
-            menu_theme.apply_title(item, menu_theme.check_title(item._label, code == cfg["language"]))
         menu_theme.apply_title(
             self.copy_menu, menu_theme.toggle_title(self.copy_menu._label, cfg.get("copy_to_clipboard", False))
         )
@@ -415,8 +371,7 @@ class WhisperMenuBarApp(rumps.App):
         if self.engine._fn_pressed and not state.is_recording:
             text = "Listening\u2026"
         elif state.model_loading:
-            model_name = state.config["model_size"]
-            text = f"Loading model ({model_name})\u2026"
+            text = "Loading model\u2026"
         elif state.model is None:
             text = "\u26a0 Model not loaded"
         elif state.is_recording:
@@ -430,30 +385,6 @@ class WhisperMenuBarApp(rumps.App):
 
     # -- Menu callbacks --
 
-    def _on_model_select(self, sender: rumps.MenuItem) -> None:
-        new_key = sender._model_key
-        if new_key == self.engine.state.config["model_size"]:
-            return
-        for key, item in self._model_items.items():
-            menu_theme.apply_title(item, menu_theme.check_title(item._label, key == new_key))
-        # Persist and apply live: a model change needs the new model loaded now,
-        # not only on next restart (mirrors the HTTP /config path).
-        needs_reload = self.engine.update_config({"model_size": new_key})
-        if needs_reload:
-            from ..core.engine import load_model_async
-
-            load_model_async(self.engine)
-        self._update_model_title()
-
-    def _on_language_select(self, sender: rumps.MenuItem) -> None:
-        new_code = sender._lang_code
-        if new_code == self.engine.state.config["language"]:
-            return
-        for code, item in self._lang_items.items():
-            menu_theme.apply_title(item, menu_theme.check_title(item._label, code == new_code))
-        self.engine.update_config({"language": new_code})
-        self._update_language_title()
-
     def _on_trigger_select(self, sender: rumps.MenuItem) -> None:
         new_value = sender._trigger_value
         if self._trigger_is_active(new_value):
@@ -466,33 +397,6 @@ class WhisperMenuBarApp(rumps.App):
                 item, menu_theme.check_title(item._label, self._trigger_is_active(item._trigger_value))
             )
         self._update_trigger_title()
-
-    def _rebuild_learned_menu(self) -> None:
-        """Rebuild the Learned Words submenu from the correction store."""
-        # rumps creates the backing NSMenu lazily: on a fresh MenuItem,
-        # _menu is None and clear() would crash (NoneType.removeAllItems).
-        if getattr(self.learned_menu, "_menu", None) is not None:
-            self.learned_menu.clear()
-        entries = self.engine.correction_store.all_entries()
-        if not entries:
-            empty = rumps.MenuItem("No learned words yet")
-            empty.set_callback(None)
-            self.learned_menu.add(empty)
-            return
-        from ..core.corrections import AUTO_REPLACE_THRESHOLD
-
-        for key, entry in entries.items():
-            count = entry.get("corrections_count", 0)
-            status = "active" if count >= AUTO_REPLACE_THRESHOLD else f"learning ({count}/{AUTO_REPLACE_THRESHOLD})"
-            label = f"{key} → {entry['replacement']}  [{status}]"
-            item = rumps.MenuItem(label, callback=self._on_remove_learned)
-            item._correction_key = key
-            self.learned_menu.add(item)
-
-    def _on_remove_learned(self, sender: rumps.MenuItem) -> None:
-        """Remove a learned word correction."""
-        self.engine.correction_store.remove(sender._correction_key)
-        self._rebuild_learned_menu()
 
     def _on_toggle_copy(self, sender: rumps.MenuItem) -> None:
         enabled = not self.engine.state.config.get("copy_to_clipboard", False)

@@ -1,5 +1,101 @@
 # Changelog V1 — Whispy
 
+## [2.0.0]
+
+### Changed
+
+- **BREAKING — transcription now runs on NVIDIA Parakeet TDT 0.6b v3.**
+  `faster-whisper` is removed, not kept behind a flag. The model is loaded as
+  int8 ONNX through `onnx-asr`, pinned to `CPUExecutionProvider`. Measured on an
+  Apple M1 Pro against the committed fixtures: a 0.5 s chunk goes from 0.529 s to
+  0.037 s, a 2.2 s clip from 0.628 s to 0.075 s, and a 6–8 s dictation split into
+  1.5 s chunks from 2.5–7.9 s to 0.26–0.36 s. Costs: resident memory rises from
+  ~923 MB to ~1366 MB, the download from 466 MB to 639 MB, and language coverage
+  drops from 99 languages to 25 European ones.
+- **BREAKING — five config keys are gone**: `model_size`, `language`,
+  `beam_size`, `best_of`, `auto_detect_min_duration`. Parakeet ships in one size,
+  decodes greedily, and detects language itself, so none of them configured
+  anything any more. Existing config files keep loading — unknown keys were
+  already dropped by validation — and lose the stale keys on the next save.
+- **BREAKING — the Model and Language submenus are gone** from the macOS menu bar
+  and the Linux tray, along with the `WHISPER_MODEL` environment variable in
+  `install.sh` / `scripts/bootstrap.sh`.
+- `custom_vocabulary` now corrects near misses *after* transcription instead of
+  biasing the decoder through `initial_prompt`. A word is corrected when its
+  **spelling** or its **pronunciation** matches one of your terms — so `wispy`
+  becomes `Whispy` and `parakite` becomes `Parakeet`, the latter being a case
+  spelling similarity alone scores too low to catch. Stdlib only (character
+  cutoff 0.80, phonetic cutoff 0.90, tokens under 4 characters skipped).
+  Measured false-correction rate: 139 of 234 335 dictionary words (0.059%).
+  Weaker than decoder biasing on distant misrenderings, but it can no longer
+  leak vocabulary terms into text you did not say — which the prompt
+  demonstrably did. **Put proper nouns, brand names and anglicisms here**; it is
+  the intended fix for them.
+- `POST /config` no longer triggers a model reload; no setting selects a model.
+
+### Fixed
+
+- **Long recordings were silently truncated.** In the non-streaming path a
+  22-second recording transcribed to a single sentence, dropping roughly 90% of
+  the audio with no error and no log line. If you ever dictated a long passage
+  and found most of it missing, this was why.
+- **A configured language could mistranslate.** With `language="fr"` set — a
+  supported value — English speech was transcribed *into French* rather than
+  recognized ("the test is done" → "le test est fait").
+- **Short chunks could produce runaway repetition.** Streaming chunks of ~1.5 s
+  could make the decoder loop, injecting text like `"grand"` repeated a hundred
+  times into the active field. The transducer architecture cannot fail this way.
+- `AudioEngine.transcribe` had a `language="auto"` default that raised
+  `ValueError`, unreachable only because config validation restricted the value
+  to `fr`/`en`.
+
+### Added
+
+- **Silence gate.** Near-silent audio is now discarded before it reaches the
+  model. Parakeet is far better behaved than Whisper on non-speech — no corpus
+  artifacts, no repetition loops — but it does invent short fillers (`Yeah.`,
+  `Okay.`, `Mm-hmm.`, `No.`, `Thank you.`) on silence and on a realistic
+  quiet-room noise floor, which would otherwise be typed into the active field.
+  The gate measures energy, not text, because `Okay.` and `No.` are legitimate
+  one-word dictations. Every observed false positive measured ≤0.00065
+  normalized RMS against ≥0.147 for real speech, so the 0.005 threshold has a
+  220× margin, and it fails open — an unmeasurable clip is still transcribed.
+- **Speech gate.** Non-speech that is merely *loud* clears the silence gate — a
+  noisy room, a fan, mains hum all measure 0.010–0.035 normalized RMS against the
+  0.005 threshold — and reached the model, which answered roughly 3% of
+  realizations with a filler (3 of 100 measured). A clip now also needs 0.20 s of
+  WebRTC-VAD voiced frames, which took that to 0 of 100 with no effect on real
+  speech. Reuses the `webrtcvad` dependency the streaming segmenter already
+  pulls, and fails open like the silence gate. Deliberately an absolute duration
+  and not a voiced/silent ratio: one word inside a 10 s key-hold is 6% voiced,
+  the same ratio as steady noise, while its voiced duration (0.66 s) is
+  unmistakable. Known ceiling — past ~0.04 RMS the VAD labels steady noise
+  voiced, so louder rooms are still the model's problem.
+
+  Platform-neutral: `webrtcvad-wheels` carries no platform marker and publishes
+  manylinux x86_64/aarch64 wheels, the gate sits in the shared core, and the
+  capture format is the same 16 kHz mono int16 on both. Wayland is unaffected —
+  the gate runs upstream of text injection, which is where Wayland's existing
+  limitation lives.
+
+### Removed
+
+- Whisper watermark/credit stripping and the hallucination phrase blocklist in
+  `text_cleaner.py`. Those phrases had a single emitter and it is gone; the
+  replacement failure mode is handled by the silence gate above instead.
+- Dependencies `faster-whisper`, `ctranslate2`, `tokenizers`, and `av`, including
+  from the macOS `.app` bundle. `onnx-asr` replaces them and adds no native
+  dependency the bundle did not already carry.
+
+### Notes for upgraders
+
+- First run after upgrading downloads the new model (639 MB).
+- The old cache at `~/.cache/huggingface/hub/models--Systran--faster-whisper-*`
+  is no longer used. `./install.sh --uninstall` points at it but will not delete
+  another era's data — remove it by hand to reclaim the space.
+- The model is licensed CC-BY-4.0 (© NVIDIA); Whispy stays GPLv3. Weights are
+  fetched at runtime and never redistributed. See `NOTICE`.
+
 ## [Unreleased]
 
 ### Added
@@ -7,11 +103,11 @@
   menu lets you pick the push-to-talk key from presets (Fn, Right Command,
   Right Option, F13); the change applies live, with no restart.
 - Module `src/whispy/core/config.py`: config validation and migration.
-- Module `src/whispy/core/text_cleaner.py`: stripping of Whisper credits.
+- Module `src/whispy/core/text_cleaner.py`: text cleaning.
 - Error-handling tests (`test_error_handling.py`): missing sox, unavailable
   microphone, engine without a model.
 - Automatic config migration (versioning via `_version`).
-- Validation of config values (`model_size`, `language`, `beam_size`, etc.).
+- Validation of config values.
 
 ### Changed
 - **macOS install consolidated on `Whispy.app`.** A single command

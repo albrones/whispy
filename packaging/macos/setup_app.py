@@ -14,7 +14,7 @@ Or via packaging/macos/build_app.sh (which also ad-hoc code-signs the result).
 from setuptools import setup
 
 # Version mirrors pyproject.toml [project].version.
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 
 APP = ["whispy_daemon.py"]
 
@@ -50,11 +50,10 @@ OPTIONS = {
     # py2app's static scan misses them) are all present in the bundle.
     "packages": [
         "whispy",
-        "faster_whisper",
-        "ctranslate2",
-        "tokenizers",
+        # Transcription: onnx_asr is pure Python but drives onnxruntime's
+        # native libs, which py2app's static scan cannot follow.
+        "onnx_asr",
         "onnxruntime",
-        "av",
         "sounddevice",
         # The PyPI sounddevice wheel loads its PortAudio dylib at runtime from
         # this data package (_sounddevice_data/portaudio-binaries/

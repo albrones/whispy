@@ -138,8 +138,8 @@ class TestGetConfig:
         _, port, engine = test_server
         status, body = _get(port, "/config")
         assert status == 200
-        assert body["model_size"] == "small"
-        assert body["language"] == "en"
+        assert body["copy_to_clipboard"] is False
+        assert body["streaming_enabled"] is True
 
 
 class TestGetLastTranscription:
@@ -170,16 +170,16 @@ class TestPostConfig:
 
     def test_updates_config(self, test_server):
         _, port, engine = test_server
-        status, body = _post(port, "/config", {"model_size": "base"})
+        status, body = _post(port, "/config", {"pause_ms": 800})
         assert status == 200
         assert body["status"] == "ok"
-        assert engine.state.config["model_size"] == "base"
+        assert engine.state.config["pause_ms"] == 800
 
     def test_returns_new_config(self, test_server):
         _, port, engine = test_server
-        status, body = _post(port, "/config", {"language": "fr"})
+        status, body = _post(port, "/config", {"copy_to_clipboard": True})
         assert status == 200
-        assert body["config"]["language"] == "fr"
+        assert body["config"]["copy_to_clipboard"] is True
 
     def test_invalid_json_returns_400(self, test_server):
         _, port, _ = test_server

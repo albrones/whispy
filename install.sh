@@ -8,9 +8,8 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WHISPER_MODEL_NAME="${WHISPER_MODEL:-small}"
 
-echo -e "${YELLOW}=== Whispy Setup (faster-whisper) ===${NC}"
+echo -e "${YELLOW}=== Whispy Setup (Parakeet TDT 0.6b v3) ===${NC}"
 echo ""
 
 # Check for python3
@@ -55,30 +54,41 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     rm -rf "$VENV_DIR"
 
     # -------------------------------------------------------------------
-    # User data (config incl. API token, logs, downloaded Whisper model) is
-    # kept by default -- a reinstall would otherwise re-download the model
-    # (0.5-3 GB). Only offer to remove it when there's an actual person at
-    # the prompt (a TTY); non-interactive runs (e.g. bootstrap.sh piped via
-    # `curl | bash`) always keep the data instead of blocking.
+    # User data (config incl. API token, logs, downloaded model) is kept by
+    # default -- a reinstall would otherwise re-download the model (639 MB).
+    # Only offer to remove it when there's an actual person at the prompt (a
+    # TTY); non-interactive runs (e.g. bootstrap.sh piped via `curl | bash`)
+    # always keep the data instead of blocking.
     # -------------------------------------------------------------------
     CONFIG_DIR="$HOME/.config/whispy"
-    # faster-whisper caches models in the HuggingFace hub cache, which is
-    # SHARED with any other tool that uses huggingface_hub -- never delete
-    # the whole hub directory, only the faster-whisper model snapshots
-    # (named "models--Systran--faster-whisper-<size>") inside it.
-    MODEL_CACHE_GLOB="$HOME/.cache/huggingface/hub/models--Systran--faster-whisper-*"
+    # The model is cached in the HuggingFace hub cache, which is SHARED with
+    # any other tool that uses huggingface_hub -- never delete the whole hub
+    # directory, only Whispy's own snapshot inside it.
+    MODEL_CACHE_GLOB="$HOME/.cache/huggingface/hub/models--istupakov--parakeet-tdt-0.6b-v3-onnx"
+    # Installs upgraded from the Whisper era leave these behind. They are no
+    # longer used, but deleting another era's data on the user's behalf is not
+    # this script's call -- point at them instead.
+    STALE_WHISPER_GLOB="$HOME/.cache/huggingface/hub/models--Systran--faster-whisper-*"
 
     REMOVE_DATA="n"
     if [ -t 0 ]; then
-        read -r -p "Also remove config ($CONFIG_DIR, includes the API token), logs, and the downloaded Whisper model cache? [y/N] " REMOVE_DATA || true
+        read -r -p "Also remove config ($CONFIG_DIR, includes the API token), logs, and the downloaded model cache? [y/N] " REMOVE_DATA || true
     fi
     if [[ "$REMOVE_DATA" =~ ^[Yy]$ ]]; then
         rm -rf "$CONFIG_DIR"
         rm -f "$HOME"/.whispy.log "$HOME"/.whispy.log.* "$HOME"/.whispy-error.log "$HOME"/.whispy-error.log.*
         rm -rf $MODEL_CACHE_GLOB
-        echo -e "${GREEN}Removed config, logs, and the Whisper model cache.${NC}"
+        echo -e "${GREEN}Removed config, logs, and the model cache.${NC}"
     else
-        echo -e "${YELLOW}Keeping config, logs, and the Whisper model cache (rerun ./install.sh --uninstall to remove them later).${NC}"
+        echo -e "${YELLOW}Keeping config, logs, and the model cache (rerun ./install.sh --uninstall to remove them later).${NC}"
+    fi
+
+    # shellcheck disable=SC2086
+    if compgen -G "$STALE_WHISPER_GLOB" > /dev/null 2>&1; then
+        echo -e "${YELLOW}Note: a faster-whisper model cache from an older Whispy is still present and no longer used:${NC}"
+        # shellcheck disable=SC2086
+        du -sh $STALE_WHISPER_GLOB 2>/dev/null || true
+        echo -e "${YELLOW}Delete it manually if you want the space back.${NC}"
     fi
 
     echo -e "${GREEN}Uninstallation complete.${NC}"
@@ -107,33 +117,6 @@ else
 fi
 echo -e "${GREEN}[OK] Dependencies installed${NC}"
 
-# Persist the chosen model into the config so the daemon actually uses it.
-# The daemon runs detached (systemd --user on Linux; SMAppService login item
-# or a plain background launch on macOS — no LaunchAgent) and does NOT
-# inherit this shell's WHISPER_MODEL env, so honoring it means writing it to
-# config.json.
-# Only write when explicitly set, to avoid clobbering a user's chosen model
-# with the default on every reinstall.
-if [ -n "${WHISPER_MODEL:-}" ]; then
-    "$VENV_DIR/bin/python" - "$WHISPER_MODEL_NAME" << 'PYEOF'
-import json, sys
-from pathlib import Path
-
-model = sys.argv[1]
-cfg_path = Path.home() / ".config" / "whispy" / "config.json"
-cfg_path.parent.mkdir(parents=True, exist_ok=True)
-cfg = {}
-if cfg_path.exists():
-    try:
-        cfg = json.loads(cfg_path.read_text())
-    except Exception:
-        cfg = {}
-cfg["model_size"] = model
-cfg_path.write_text(json.dumps(cfg, indent=2))
-print(f"[OK] model_size set to '{model}' in {cfg_path}")
-PYEOF
-fi
-
 
 PYTHON_BIN="$VENV_DIR/bin/python3"
 DAEMON_PATH="$SCRIPT_DIR/whispy_daemon.py"
@@ -147,7 +130,7 @@ if [ "$OS" = "Linux" ]; then
         echo -e "${YELLOW}systemd not found. Start Whispy manually (X11 session):${NC}"
         echo "  $PYTHON_BIN $DAEMON_PATH"
         echo ""
-        echo "The model downloads automatically on first run (model: $WHISPER_MODEL_NAME)"
+        echo "The model downloads automatically on first run (~639 MB)"
         exit 0
     fi
     UNIT_DIR="$HOME/.config/systemd/user"
@@ -177,11 +160,12 @@ UNITEOF
     echo ""
     echo -e "${YELLOW}=== Linux notes ===${NC}"
     echo "Whispy v1 requires an X11 session (global hotkeys/text injection do not"
-    echo "work under Wayland). Install xdotool + xclip for text injection:"
-    echo "  Debian/Ubuntu: sudo apt install xdotool xclip"
-    echo "  Fedora:        sudo dnf install xdotool xclip"
+    echo "work under Wayland). Install xdotool + xclip for text injection and the"
+    echo "PortAudio runtime for audio capture:"
+    echo "  Debian/Ubuntu: sudo apt install xdotool xclip libportaudio2"
+    echo "  Fedora:        sudo dnf install xdotool xclip portaudio"
     echo ""
-    echo "The model downloads automatically on first run (model: $WHISPER_MODEL_NAME)"
+    echo "The model downloads automatically on first run (~639 MB)"
     echo "Logs: journalctl --user -u whispy -f"
     echo "Test: curl -H \"Authorization: Bearer \$(cat ~/.config/whispy/config.token)\" http://localhost:9090/status"
     echo ""
@@ -205,7 +189,7 @@ echo "  make app                          # builds & signs dist/Whispy.app"
 echo "  cp -R dist/Whispy.app /Applications/"
 echo "  open /Applications/Whispy.app"
 echo ""
-echo "The model downloads automatically on first run (model: $WHISPER_MODEL_NAME)."
+echo "The model downloads automatically on first run (~639 MB)."
 echo "Grant the Whispy microphone prompt on first launch; enable autostart with"
 echo "the in-app \"Start at login\" toggle."
 echo ""

@@ -7,6 +7,7 @@ repository, and that every locally-referenced asset actually exists on disk
 (the most common static-site breakage when files are renamed or moved).
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -16,6 +17,9 @@ WEBSITE_DIR = Path(__file__).resolve().parent.parent / "website"
 INDEX = WEBSITE_DIR / "index.html"
 BRAND_GREEN = "#24bf9e"
 REPO_URL = "https://github.com/albrones/whispy"
+# Canonical host the site declares. Update alongside index.html when a custom
+# domain is attached in Vercel.
+CANONICAL_HOST = "whispy-dun.vercel.app"
 
 
 @pytest.fixture(scope="module")
@@ -78,6 +82,53 @@ def test_og_image_is_not_svg(html: str):
     assert og.group(1).lower().endswith((".png", ".jpg", ".jpeg")), "og:image must be PNG/JPG, not SVG"
 
 
+def test_has_canonical_link(html: str):
+    """A single canonical URL on the declared host, so crawlers index one origin."""
+    m = re.search(r'<link\s+rel="canonical"\s+href="([^"]+)"', html)
+    assert m is not None, 'missing <link rel="canonical">'
+    assert CANONICAL_HOST in m.group(1), "canonical href must point at the canonical host"
+
+
+def test_og_image_is_absolute(html: str):
+    """Social crawlers do not resolve relative paths — og/twitter images must be
+    absolute URLs on the canonical host."""
+    for prop in (r'property="og:image"', r'name="twitter:image"'):
+        m = re.search(prop + r'\s+content="([^"]+)"', html)
+        assert m is not None, f"missing {prop} tag"
+        url = m.group(1)
+        assert url.startswith(("http://", "https://")), f"{prop} must be an absolute URL"
+        assert CANONICAL_HOST in url, f"{prop} must be on the canonical host"
+
+
+def test_softwareapplication_jsonld(html: str):
+    """A parseable SoftwareApplication JSON-LD block powers Google app rich results."""
+    blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
+    assert blocks, "missing JSON-LD structured data"
+    apps = []
+    for raw in blocks:
+        data = json.loads(raw)  # must parse — invalid JSON fails the test
+        if data.get("@type") == "SoftwareApplication":
+            apps.append(data)
+    assert apps, "no SoftwareApplication JSON-LD block found"
+    app = apps[0]
+    assert app.get("name")
+    assert app.get("operatingSystem")
+    assert str(app.get("offers", {}).get("price")) == "0", "free app must declare price 0"
+    assert app.get("license"), "SoftwareApplication should declare a license"
+
+
+def test_crawler_files_present():
+    """robots.txt + sitemap.xml must exist and reference the canonical host."""
+    robots = WEBSITE_DIR / "robots.txt"
+    sitemap = WEBSITE_DIR / "sitemap.xml"
+    assert robots.is_file(), "website/robots.txt is missing"
+    assert sitemap.is_file(), "website/sitemap.xml is missing"
+    robots_txt = robots.read_text(encoding="utf-8")
+    assert "Sitemap:" in robots_txt, "robots.txt must declare a Sitemap"
+    assert CANONICAL_HOST in robots_txt, "robots.txt sitemap must use the canonical host"
+    assert CANONICAL_HOST in sitemap.read_text(encoding="utf-8"), "sitemap.xml must list the canonical host"
+
+
 def test_all_local_assets_exist(html: str):
     """Every relative href/src in the page must resolve to a file on disk."""
     refs = re.findall(r'(?:href|src)="([^"]+)"', html)
@@ -90,3 +141,43 @@ def test_all_local_assets_exist(html: str):
         if not target.is_file():
             missing.append(ref)
     assert not missing, f"referenced local assets do not exist: {missing}"
+
+
+def test_no_adaptive_learning_claim(html: str):
+    """Adaptive correction learning was removed (tracked in issue #8); the
+    site must not claim it, and the demo menu must not depict it."""
+    lowered = html.lower()
+    assert "learns your words" not in lowered
+    assert "remembers it" not in lowered
+    assert "learned words" not in lowered
+
+
+def test_demo_menu_mirrors_the_real_menu(html: str):
+    """The animated menu-bar demo may only depict settings that exist.
+
+    Model and Language went away with the Whisper backend: Parakeet ships in
+    one size and detects language itself.
+    """
+    dropdown = html.split("data-demo-dropdown", 1)[1].split("</div>\n\n", 1)[0]
+    assert "<span>Trigger</span>" in dropdown, "demo dropdown missing Trigger entry"
+    for gone in ("Model", "Language"):
+        assert f"<span>{gone}</span>" not in dropdown, f"demo dropdown still shows a {gone} row"
+
+
+def test_site_names_the_model_that_actually_runs(html: str):
+    """The page must not present faster-whisper as the engine."""
+    assert "parakeet" in html.lower()
+    assert "faster-whisper" not in html.lower()
+
+
+def test_site_attributes_the_model(html: str):
+    """The model is CC-BY-4.0, so attribution is owed on the page."""
+    assert "CC-BY-4.0" in html, "site must credit the model licence"
+    assert "NVIDIA" in html, "site must credit NVIDIA for the model"
+
+
+def test_site_offers_no_model_choice(html: str):
+    """No copy may imply a choice of model size or quality tier."""
+    lowered = html.lower()
+    for claim in ("pick your model", "model size", "tunable models"):
+        assert claim not in lowered, f"site still offers a model choice: {claim!r}"

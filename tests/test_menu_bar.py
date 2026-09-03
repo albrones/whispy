@@ -1,9 +1,13 @@
 """Tests for menu-bar settings callbacks.
 
-Focus: selecting a model in the menu must both persist the choice and apply it
-live (reload the model), mirroring the HTTP /config path. The callbacks are
-exercised as unbound methods against a lightweight fake ``self`` so the test
-never constructs the real rumps.App / AppKit run loop.
+Focus: selecting a setting in the menu must both persist the choice and apply
+it live, mirroring the HTTP /config path. The callbacks are exercised as
+unbound methods against a lightweight fake ``self`` so the test never
+constructs the real rumps.App / AppKit run loop.
+
+The Model and Language submenus are gone with the Whisper backend — Parakeet
+ships in one size and detects language itself — so Trigger is the remaining
+selection group.
 """
 
 import sys
@@ -54,50 +58,50 @@ from whispy.ui import menu_theme
 from whispy.ui.menu_bar import WhisperMenuBarApp
 
 
-def _fake_app(current_model="small", needs_reload=True):
-    """A minimal stand-in exposing only what _on_model_select touches."""
+def _fake_trigger_app(current_trigger=None, items=None, persist=False):
+    """A minimal stand-in exposing only what _on_trigger_select touches.
+
+    ``persist=True`` makes update_config actually mutate the config, as the real
+    one does, so the checkmark invariant is checked against the post-update
+    state instead of the stale one.
+    """
     engine = MagicMock()
-    engine.state.config = {"model_size": current_model}
-    engine.update_config.return_value = needs_reload
-    return SimpleNamespace(
+    engine.state.config = {"trigger": current_trigger}
+    if persist:
+        engine.update_config.side_effect = engine.state.config.update
+    app = SimpleNamespace(
         engine=engine,
-        _model_items={"small": MagicMock(), "base": MagicMock()},
-        _update_model_title=MagicMock(),
+        _trigger_items=items if items is not None else [],
+        _update_trigger_title=MagicMock(),
     )
+    app._trigger_is_active = lambda value: value == engine.state.config["trigger"]
+    return app
 
 
-class TestModelSelectAppliesLive:
-    def test_changing_model_persists_and_reloads(self, mocker):
-        reload_mock = mocker.patch("whispy.core.engine.load_model_async")
-        app = _fake_app(current_model="small", needs_reload=True)
-        sender = SimpleNamespace(_model_key="base")
+class TestNoModelOrLanguageMenu:
+    """Neither submenu may come back: nothing in the config would receive it."""
 
-        WhisperMenuBarApp._on_model_select(app, sender)
+    def test_model_select_callback_is_gone(self):
+        assert not hasattr(WhisperMenuBarApp, "_on_model_select")
 
-        # Persisted via update_config...
-        app.engine.update_config.assert_called_once_with({"model_size": "base"})
-        # ...and applied live by reloading the model.
-        reload_mock.assert_called_once_with(app.engine)
+    def test_language_select_callback_is_gone(self):
+        assert not hasattr(WhisperMenuBarApp, "_on_language_select")
 
-    def test_no_reload_when_update_reports_no_change(self, mocker):
-        reload_mock = mocker.patch("whispy.core.engine.load_model_async")
-        app = _fake_app(current_model="small", needs_reload=False)
-        sender = SimpleNamespace(_model_key="base")
 
-        WhisperMenuBarApp._on_model_select(app, sender)
+class TestTriggerSelectAppliesLive:
+    def test_changing_trigger_persists(self):
+        app = _fake_trigger_app(current_trigger=None)
+        WhisperMenuBarApp._on_trigger_select(app, SimpleNamespace(_trigger_value=54))
 
-        app.engine.update_config.assert_called_once()
-        reload_mock.assert_not_called()
+        app.engine.update_config.assert_called_once_with({"trigger": 54})
+        app._update_trigger_title.assert_called_once()
 
-    def test_selecting_current_model_is_noop(self, mocker):
-        reload_mock = mocker.patch("whispy.core.engine.load_model_async")
-        app = _fake_app(current_model="base")
-        sender = SimpleNamespace(_model_key="base")
-
-        WhisperMenuBarApp._on_model_select(app, sender)
+    def test_selecting_current_trigger_is_noop(self):
+        app = _fake_trigger_app(current_trigger=54)
+        WhisperMenuBarApp._on_trigger_select(app, SimpleNamespace(_trigger_value=54))
 
         app.engine.update_config.assert_not_called()
-        reload_mock.assert_not_called()
+        app._update_trigger_title.assert_not_called()
 
 
 class TestCheckmarkInvariant:
@@ -107,21 +111,22 @@ class TestCheckmarkInvariant:
         # _menuitem=None forces apply_title's plain-string path (sets .title).
         return SimpleNamespace(_label=label, _menuitem=None, title=label)
 
-    def test_single_check_after_model_select(self, mocker, monkeypatch):
+    def _trigger_item(self, label, value):
+        item = self._item(label)
+        item._trigger_value = value
+        return item
+
+    def test_single_check_after_trigger_select(self, monkeypatch):
         # Force menu_theme into plain-string mode so titles are inspectable.
         monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
-        mocker.patch("whispy.core.engine.load_model_async")
 
-        items = {"small": self._item("Small"), "base": self._item("Base")}
-        engine = MagicMock()
-        engine.state.config = {"model_size": "small"}
-        engine.update_config.return_value = False
-        app = SimpleNamespace(engine=engine, _model_items=items, _update_model_title=MagicMock())
+        items = [self._trigger_item("Fn", None), self._trigger_item("Right Command", 54)]
+        app = _fake_trigger_app(current_trigger=None, items=items, persist=True)
 
-        WhisperMenuBarApp._on_model_select(app, SimpleNamespace(_model_key="base"))
+        WhisperMenuBarApp._on_trigger_select(app, SimpleNamespace(_trigger_value=54))
 
-        checked = [k for k, it in items.items() if it.title.startswith(menu_theme.CHECK)]
-        assert checked == ["base"]
+        checked = [it._label for it in items if it.title.startswith(menu_theme.CHECK)]
+        assert checked == ["Right Command"]
 
 
 class TestLoginItemToggle:
@@ -414,20 +419,12 @@ class TestLaunchRegressions:
     """Startup crashes only reproducible under real rumps (mocked in this
     tier), guarded by source inspection — same pattern as TestAlertWiring."""
 
-    def test_rebuild_learned_menu_guards_lazy_nsmenu(self):
-        """rumps creates the backing NSMenu lazily: clear() on a fresh
-        MenuItem crashes (NoneType.removeAllItems) and aborts app launch."""
-        import inspect
-
-        src = inspect.getsource(WhisperMenuBarApp._rebuild_learned_menu)
-        assert "_menu" in src and "is not None" in src, "clear() must be guarded for a fresh MenuItem"
-
     def test_last_dark_assigned_before_anim_timer_starts(self):
         """_tick_anim reads _last_dark on its first tick; the attribute must
         exist before the timer is armed or a mid-init failure crashes ticks."""
         import inspect
 
         src = inspect.getsource(WhisperMenuBarApp.__init__)
-        assert (
-            "_last_dark" in src.split("_anim_timer.start()")[0]
-        ), "_last_dark must be set before the anim timer starts"
+        assert "_last_dark" in src.split("_anim_timer.start()")[0], (
+            "_last_dark must be set before the anim timer starts"
+        )

@@ -84,25 +84,25 @@ space-separated so words from adjacent chunks are not concatenated.
 - **THEN** their recognized text SHALL be assembled in the order the chunks were emitted, space-separated
 
 ### Requirement: Per-chunk transcription guards
-Each chunk SHALL be transcribed with the same safeguards as the whole-recording
-path: chunks shorter than the minimum duration (`min_chunk_s` /
-`min_recording_duration`) SHALL be discarded, the VAD filter and
-`temperature=0` SHALL be applied, credit/watermark text SHALL be stripped, and
-chunks SHALL be transcribed independently (`condition_on_previous_text=False`,
-with no feedback of the previous chunk's text as context). The custom-vocabulary
-`initial_prompt` SHALL apply to each chunk.
+Each chunk SHALL be transcribed with the same safeguards as the whole-recording path: chunks shorter than the minimum duration (`min_chunk_s` / `min_recording_duration`) SHALL be discarded, and each chunk SHALL be transcribed independently of the others. Independence is now a property of the backend — the transducer carries no cross-call decoder context — rather than a flag the caller must pass, so the system SHALL NOT pass `condition_on_previous_text`, `temperature`, `vad_filter`, or any vocabulary prompt. Custom vocabulary is applied once during text cleaning, not per chunk.
 
 #### Scenario: Sub-minimum chunk discarded
 - **WHEN** an emitted chunk's duration is below the minimum duration
 - **THEN** the system SHALL discard it without injecting any text
 
-#### Scenario: Chunks are transcribed independently
-- **WHEN** a chunk is transcribed
-- **THEN** the previous chunk's recognized text SHALL NOT be supplied as decoder context
+_Tier: unit-mocked — `test_engine.py`._
 
-#### Scenario: Custom vocabulary biases each chunk
-- **WHEN** a custom vocabulary is configured and a chunk is transcribed
-- **THEN** the vocabulary SHALL be supplied as the chunk's `initial_prompt`
+#### Scenario: Chunks carry no decoder context between them
+- **WHEN** consecutive chunks are transcribed
+- **THEN** no chunk's recognized text SHALL influence another's transcription, and no conditioning argument SHALL be passed to achieve this
+
+_Tier: unit-mocked — `test_engine.py`._
+
+#### Scenario: Vocabulary is not applied per chunk
+- **WHEN** a custom vocabulary is configured and chunks are transcribed
+- **THEN** the transcription call for each chunk SHALL receive no vocabulary argument; correction SHALL happen once on the assembled text during cleaning
+
+_Tier: unit-mocked — `test_engine.py`._
 
 ### Requirement: Streaming is always on; no menu toggle
 Streaming is enabled by default and SHALL NOT have a menu toggle (it is always
@@ -146,3 +146,11 @@ return to the idle state after the tail chunk is handled.
 - **WHEN** the user releases the trigger key with un-emitted speech in the current chunk
 - **THEN** the system SHALL transcribe and inject that final chunk before returning to idle
 
+### Requirement: Per-chunk latency is proportional to chunk length
+Chunk transcription SHALL cost time proportional to the chunk's audio duration rather than paying a fixed per-call floor. The previous backend padded every input to a 30-second window, so a 0.5-second chunk cost the same ~0.5 s as a 2-second one and streaming assembly was bounded by the decoder instead of by the speaker.
+
+#### Scenario: A short chunk is cheaper than a long one
+- **WHEN** a 0.5-second chunk and a 2.5-second chunk are transcribed through the real model
+- **THEN** the shorter chunk SHALL complete measurably faster, and neither SHALL take longer than its own audio duration
+
+_Tier: macos-real — `@pytest.mark.macos`._

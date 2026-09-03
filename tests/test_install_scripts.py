@@ -3,11 +3,12 @@ and the CI workflow's dependency list.
 
 CI has no clean macOS/Linux box to run the install scripts end to end, so we
 guard the release-critical invariants as text: the scripts (and the CI
-workflow) must not gate on sox (the audio backend is sounddevice/PortAudio
-now), the one-liner must be safe under `curl | bash` (no blocking prompt), the
-chosen WHISPER_MODEL must be persisted so the detached daemon actually uses
-it, and install.sh must branch per-OS rather than writing a macOS LaunchAgent
-on Linux.
+workflow) must not gate on or install sox (the audio backend is
+sounddevice/PortAudio now), the one-liner must be safe under `curl | bash`
+(no blocking prompt),
+uninstall must scope model-cache deletion to Whispy's own snapshot, and
+install.sh must branch per-OS rather than writing a macOS LaunchAgent on
+Linux.
 """
 
 import re
@@ -51,11 +52,31 @@ def test_bootstrap_does_not_gate_on_sox(bootstrap: str):
     assert "brew install sox" not in bootstrap
 
 
+def _ci_job(workflow: str, name: str) -> str:
+    """Return one job's block from the workflow text (same text-guard style as the rest)."""
+    match = re.search(rf"^  {re.escape(name)}:\n(.*?)(?=^  \w[\w-]*:\n|\Z)", workflow, re.M | re.S)
+    assert match, f"job {name!r} not found in ci.yml"
+    return match.group(1)
+
+
 def test_ci_workflow_does_not_install_sox(ci_workflow: str):
-    # The audio backend is sounddevice/PortAudio, not sox; the CI test job
-    # must not install a dependency the project no longer has.
+    # The audio backend is sounddevice/PortAudio, not sox; no CI job may install
+    # a dependency the project does not have. The real-model tests synthesize
+    # their clips with numpy for exactly this reason.
     assert "command -v sox" not in ci_workflow
     assert "brew install sox" not in ci_workflow
+    assert "apt-get install" not in ci_workflow or "sox" not in ci_workflow
+
+
+def test_real_seam_job_excludes_the_tts_module(ci_workflow: str):
+    """The `say`-dependent module must stay out of CI, and explicitly.
+
+    Its synthesis is not byte-stable between runs, so it flakes; it earns its
+    keep locally. Pinning the exclusion keeps it from silently coming back in,
+    and keeps the reason attached to it.
+    """
+    job = _ci_job(ci_workflow, "test-macos-real-seam")
+    assert "--ignore=tests/test_transcription_quality.py" in job
 
 
 def test_bootstrap_has_no_blocking_prompt(bootstrap: str):
@@ -64,12 +85,16 @@ def test_bootstrap_has_no_blocking_prompt(bootstrap: str):
     assert "read -p" not in bootstrap
 
 
-def test_install_persists_whisper_model(install: str):
-    # The daemon runs detached and won't inherit WHISPER_MODEL from the shell,
-    # so the installer must write it into config.json.
-    assert 'if [ -n "${WHISPER_MODEL:-}" ]' in install
-    assert '"model_size"' in install
-    assert "config.json" in install
+def test_install_has_no_model_selection(install: str):
+    # There is one model. WHISPER_MODEL selected among Whisper's five size
+    # presets; with a single-size backend it selects nothing, so it must not
+    # linger as dead surface in the installer.
+    assert "WHISPER_MODEL" not in install
+    assert "model_size" not in install
+
+
+def test_bootstrap_has_no_model_selection(bootstrap: str):
+    assert "WHISPER_MODEL" not in bootstrap
 
 
 def test_install_branches_per_os(install: str):
@@ -82,11 +107,25 @@ def test_install_branches_per_os(install: str):
 
 def test_install_uninstall_offers_user_data_removal(install: str):
     # The venv/LaunchAgent/systemd-unit removal leaves behind the config
-    # (has the API token), the logs, and the downloaded Whisper model cache
-    # (0.5-3 GB) -- uninstall must at least offer to clean those up too.
+    # (has the API token), the logs, and the downloaded model cache (639 MB)
+    # -- uninstall must at least offer to clean those up too.
     assert ".config/whispy" in install
     assert ".whispy.log" in install
-    assert "models--Systran--faster-whisper-" in install
+    assert "models--istupakov--parakeet-tdt-0.6b-v3-onnx" in install
+
+
+def test_uninstall_never_deletes_the_shared_hub_cache(install: str):
+    # The hub cache holds other tools' models; only Whispy's snapshot may go.
+    assert "rm -rf $MODEL_CACHE_GLOB" in install
+    assert 'rm -rf "$HOME/.cache/huggingface/hub"' not in install
+    assert "rm -rf $HOME/.cache/huggingface/hub\n" not in install
+
+
+def test_uninstall_reports_the_stale_whisper_cache_without_deleting_it(install: str):
+    # Upgraders keep a 466 MB orphan; name it, do not delete another era's data.
+    assert "STALE_WHISPER_GLOB" in install
+    assert "models--Systran--faster-whisper-*" in install
+    assert "rm -rf $STALE_WHISPER_GLOB" not in install
 
 
 def test_install_uninstall_scopes_model_cache_deletion(install: str):

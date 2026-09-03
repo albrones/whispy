@@ -4,11 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "whispy"
-version = "1.0.0"
+version = "2.0.0"
 description = "Cross-platform (macOS / Linux-X11) speech-to-text daemon"
 requires-python = ">=3.10"
 dependencies = [
-    "faster-whisper",
+    # Transcription: NVIDIA Parakeet TDT 0.6b v3 as int8 ONNX, run through
+    # onnxruntime. Pulls only numpy + onnxruntime (the NeMo toolkit would drag
+    # in PyTorch, ~2.5 GB, for a menu-bar daemon). `hub` adds huggingface_hub
+    # for the weight download.
+    "onnx-asr[cpu,hub]",
     # Cross-platform audio capture (PortAudio). Hard runtime dependency.
     "sounddevice",
     # Voice-activity detection for streaming segmentation. The maintained
@@ -37,7 +41,10 @@ dev = [
     "pytest-cov>=4.0",
     "pytest-mock>=3.10",
     "pytest-timeout>=2.3",
-    "ruff>=0.6",
+    # Exact, not a floor: CI runs `ruff format --check` and a newer ruff
+    # formats differently, so a floating dev ruff silently reformats the repo
+    # against CI. Bump this, .pre-commit-config.yaml and ci.yml together.
+    "ruff==0.15.21",
     "pre-commit>=3.0",
 ]
 

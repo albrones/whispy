@@ -91,12 +91,21 @@ class TestCheckModel:
         assert "not downloaded" in result.detail
 
     def test_cached(self, tmp_path, monkeypatch):
+        from whispy.doctor import MODEL_CACHE_GLOB
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        cache = tmp_path / ".cache" / "huggingface" / "hub"
+        (cache / MODEL_CACHE_GLOB).mkdir(parents=True)
+        result = check_model()
+        assert result.status == OK
+        assert "parakeet" in result.detail.lower()
+
+    def test_stale_whisper_cache_does_not_count_as_cached(self, tmp_path, monkeypatch):
+        """A leftover Whisper snapshot is not the model we now need."""
         monkeypatch.setenv("HOME", str(tmp_path))
         cache = tmp_path / ".cache" / "huggingface" / "hub"
         (cache / "models--Systran--faster-whisper-small").mkdir(parents=True)
-        result = check_model()
-        assert result.status == OK
-        assert "small" in result.detail
+        assert check_model().status == WARN
 
 
 class TestRunDoctor:

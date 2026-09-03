@@ -24,11 +24,11 @@ class TestLoadConfig:
         config_dir = tmp_dir / ".config" / "whispy"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.json"
-        config_file.write_text(json.dumps({"model_size": "base", "language": "fr"}))
+        config_file.write_text(json.dumps({"copy_to_clipboard": True, "pause_ms": 800}))
 
         loaded = load_config(config_file)
-        assert loaded["model_size"] == "base"
-        assert loaded["language"] == "fr"
+        assert loaded["copy_to_clipboard"] is True
+        assert loaded["pause_ms"] == 800
 
     def test_missing_config_file_falls_back_to_defaults(self, tmp_dir):
         config_file = tmp_dir / "nonexistent" / "config.json"
@@ -48,20 +48,20 @@ class TestLoadConfig:
         config_dir = tmp_dir / ".config" / "whispy"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.json"
-        config_file.write_text(json.dumps({"model_size": "medium"}))
+        config_file.write_text(json.dumps({"pause_ms": 800}))
 
         loaded = load_config(config_file)
-        assert loaded["model_size"] == "medium"
-        assert loaded["language"] == "en"
+        assert loaded["pause_ms"] == 800
+        assert loaded["copy_to_clipboard"] == DEFAULT_CONFIG["copy_to_clipboard"]
 
     def test_unknown_keys_in_config_are_ignored(self, tmp_dir):
         config_dir = tmp_dir / ".config" / "whispy"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.json"
-        config_file.write_text(json.dumps({"model_size": "tiny", "unknown_key": 42}))
+        config_file.write_text(json.dumps({"pause_ms": 800, "unknown_key": 42}))
 
         loaded = load_config(config_file)
-        assert loaded["model_size"] == "tiny"
+        assert loaded["pause_ms"] == 800
         assert "unknown_key" not in loaded
 
     def test_all_default_keys_present(self, tmp_dir):
@@ -70,11 +70,17 @@ class TestLoadConfig:
         for key in DEFAULT_CONFIG:
             assert key in loaded
 
-    def test_default_language_is_english(self, tmp_dir):
-        config_file = tmp_dir / "nonexistent" / "config.json"
+    def test_legacy_whisper_keys_load_and_are_dropped(self, tmp_dir):
+        """A config from before the Parakeet swap still loads."""
+        config_dir = tmp_dir / ".config" / "whispy"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_file = config_dir / "config.json"
+        config_file.write_text(json.dumps({"model_size": "small", "language": "fr", "copy_to_clipboard": True}))
+
         loaded = load_config(config_file)
-        assert loaded["language"] == "en"
-        assert DEFAULT_CONFIG["language"] == "en"
+        assert "model_size" not in loaded
+        assert "language" not in loaded
+        assert loaded["copy_to_clipboard"] is True
 
     def test_default_copy_to_clipboard_is_false(self, tmp_dir):
         config_file = tmp_dir / "nonexistent" / "config.json"
@@ -93,13 +99,13 @@ class TestSaveConfig:
 
     def test_saves_correct_json(self, tmp_path):
         config = dict(DEFAULT_CONFIG)
-        config["model_size"] = "base"
+        config["pause_ms"] = 800
         config_path = tmp_path / "config.json"
         save_config(config, config_path)
 
         assert config_path.exists()
         saved = json.loads(config_path.read_text())
-        assert saved["model_size"] == "base"
+        assert saved["pause_ms"] == 800
 
     def test_creates_directory_if_missing(self, tmp_path):
         config = dict(DEFAULT_CONFIG)
@@ -109,23 +115,23 @@ class TestSaveConfig:
 
     def test_writes_json_to_disk(self, tmp_path):
         config = dict(DEFAULT_CONFIG)
-        config["model_size"] = "base"
+        config["pause_ms"] = 800
         config_path = tmp_path / "config.json"
         save_config(config, config_path)
 
         content = config_path.read_text()
-        assert '"model_size": "base"' in content
+        assert '"pause_ms": 800' in content
 
     def test_overwrites_existing_config(self, tmp_path):
         """Test that save_config overwrites the config at the given path."""
         config_path = tmp_path / "config.json"
         # Write a known config first
-        config_path.write_text(json.dumps({"model_size": "tiny", "language": "fr"}))
+        config_path.write_text(json.dumps({"pause_ms": 999, "copy_to_clipboard": True}))
 
         save_config(dict(DEFAULT_CONFIG), config_path)
         saved = json.loads(config_path.read_text())
-        assert saved["model_size"] == "small"
-        assert saved["language"] == "en"
+        assert saved["pause_ms"] == DEFAULT_CONFIG["pause_ms"]
+        assert saved["copy_to_clipboard"] == DEFAULT_CONFIG["copy_to_clipboard"]
 
 
 # ---------------------------------------------------------------------------
@@ -196,34 +202,33 @@ class TestEngineConfigUpdate:
     """Test Engine.update_config behavior."""
 
     def test_update_applies_changes(self, engine):
-        engine.update_config({"model_size": "base"})
-        assert engine.state.config["model_size"] == "base"
+        engine.update_config({"pause_ms": 800})
+        assert engine.state.config["pause_ms"] == 800
 
     def test_update_saves_to_disk(self, engine, config_path):
         # Verify save_config writes to the exact path passed to Engine
         assert engine._config_path == config_path
-        engine.update_config({"model_size": "base"})
+        engine.update_config({"pause_ms": 800})
         assert config_path.exists()
         saved = json.loads(config_path.read_text())
-        assert saved["model_size"] == "base"
+        assert saved["pause_ms"] == 800
 
-    def test_update_returns_true_on_model_size_change(self, engine):
-        result = engine.update_config({"model_size": "base"})
-        assert result is True
+    def test_update_never_requests_a_model_reload(self, engine):
+        """There is one model; no config key can select a different one.
 
-    def test_update_returns_false_on_only_copy_to_clipboard_change(self, engine):
-        result = engine.update_config({"copy_to_clipboard": False})
-        assert result is False
+        The old boolean return meant "reload the model now" and only
+        model_size ever set it.
+        """
+        assert engine.update_config({"copy_to_clipboard": False}) is None
 
     def test_update_updates_injector(self, engine):
         engine.update_config({"copy_to_clipboard": False})
         assert engine._text_injector._copy_to_clipboard is False
 
     def test_update_with_multiple_keys(self, engine):
-        result = engine.update_config({"model_size": "base", "language": "fr"})
-        assert result is True
-        assert engine.state.config["model_size"] == "base"
-        assert engine.state.config["language"] == "fr"
+        engine.update_config({"pause_ms": 800, "copy_to_clipboard": True})
+        assert engine.state.config["pause_ms"] == 800
+        assert engine.state.config["copy_to_clipboard"] is True
 
     def test_trigger_change_restarts_listener_when_active(self, engine, mocker):
         stop = mocker.patch.object(engine, "stop_fn_listener")
@@ -259,16 +264,16 @@ class TestEngineConfigUpdate:
         Guards the persistence path end-to-end: update_config -> save_config ->
         load_config returns the chosen values, not the defaults.
         """
-        engine.update_config({"model_size": "base", "language": "fr", "copy_to_clipboard": True})
+        engine.update_config({"pause_ms": 800, "min_chunk_s": 0.6, "copy_to_clipboard": True})
 
         # Simulate a fresh process start: read the same file from scratch.
         reloaded = load_config(config_path)
 
-        assert reloaded["model_size"] == "base"
-        assert reloaded["language"] == "fr"
+        assert reloaded["pause_ms"] == 800
+        assert reloaded["min_chunk_s"] == 0.6
         assert reloaded["copy_to_clipboard"] is True
         # And they differ from the shipped defaults, so this isn't a false pass.
-        assert reloaded["language"] != DEFAULT_CONFIG["language"]
+        assert reloaded["pause_ms"] != DEFAULT_CONFIG["pause_ms"]
 
 
 # ---------------------------------------------------------------------------
@@ -355,12 +360,12 @@ class TestTranscriptionWorkerFsm:
 
 
 # ---------------------------------------------------------------------------
-# custom_vocabulary -> initial_prompt wiring
+# custom_vocabulary -> text-cleaning wiring
 # ---------------------------------------------------------------------------
 
 
 class TestCustomVocabularyWiring:
-    """run_transcription builds an initial_prompt from custom_vocabulary."""
+    """run_transcription hands the vocabulary to cleaning, never to the model."""
 
     def _prep(self, engine, mocker, tmp_path):
         """Point the recording path at a real file and stub the I/O side effects."""
@@ -373,21 +378,34 @@ class TestCustomVocabularyWiring:
         mocker.patch.object(engine._audio_engine, "cleanup_audio_file")
         return transcribe
 
-    def test_vocabulary_builds_initial_prompt(self, engine, mocker, tmp_path):
+    def test_vocabulary_never_reaches_the_transcription_call(self, engine, mocker, tmp_path):
+        """The transducer has no biasing channel; sending one would be a bug."""
         transcribe = self._prep(engine, mocker, tmp_path)
-        engine.state.config["custom_vocabulary"] = ["Whispy", "ctranslate2"]
+        engine.state.config["custom_vocabulary"] = ["Whispy", "Parakeet"]
 
         engine.run_transcription()
 
-        assert transcribe.call_args[1]["initial_prompt"] == "Whispy, ctranslate2"
+        kwargs = transcribe.call_args[1]
+        for forbidden in ("initial_prompt", "hotwords", "vocabulary", "language"):
+            assert forbidden not in kwargs, f"{forbidden} was forwarded to the model"
 
-    def test_empty_vocabulary_passes_none(self, engine, mocker, tmp_path):
+    def test_vocabulary_is_applied_during_cleaning(self, engine, mocker, tmp_path):
         transcribe = self._prep(engine, mocker, tmp_path)
+        transcribe.return_value = "wispy is great"
+        engine.state.config["custom_vocabulary"] = ["Whispy"]
+
+        engine.run_transcription()
+
+        assert engine.state.last_transcription == "Whispy is great"
+
+    def test_empty_vocabulary_leaves_text_alone(self, engine, mocker, tmp_path):
+        transcribe = self._prep(engine, mocker, tmp_path)
+        transcribe.return_value = "wispy is great"
         engine.state.config["custom_vocabulary"] = []
 
         engine.run_transcription()
 
-        assert transcribe.call_args[1]["initial_prompt"] is None
+        assert engine.state.last_transcription == "wispy is great"
 
 
 # ---------------------------------------------------------------------------
@@ -457,13 +475,11 @@ class TestTriggerCallbackHandoff:
 
     def test_press_callback_returns_without_blocking(self, engine, mocker):
         # A mock that would block forever if the callback called it directly.
-        detect = mocker.patch.object(engine, "_detect_corrections", side_effect=AssertionError("must not be called"))
         start_recording = mocker.patch.object(engine, "start_recording")
         press_cb, _ = self._capture_callbacks(engine, mocker)
 
         press_cb()  # the trigger worker is not running: this must not block or dispatch
 
-        detect.assert_not_called()
         start_recording.assert_not_called()
         assert engine._trigger_queue.get(timeout=1.0) == "press"
 
@@ -478,7 +494,6 @@ class TestTriggerCallbackHandoff:
 
     def test_press_then_release_processed_in_order(self, engine, mocker):
         order = []
-        mocker.patch.object(engine, "_detect_corrections")
         mocker.patch.object(engine, "_notify_fn_pressed")
         mocker.patch.object(engine._notifier, "recording_started")
         mocker.patch.object(engine, "_notify_fn_released")
@@ -497,14 +512,13 @@ class TestTriggerCallbackHandoff:
 
     def test_worker_preserves_press_call_order(self, engine, mocker):
         order = []
-        mocker.patch.object(engine, "_detect_corrections", side_effect=lambda: order.append("detect"))
         mocker.patch.object(engine, "_notify_fn_pressed", side_effect=lambda: order.append("notify_pressed"))
         mocker.patch.object(engine._notifier, "recording_started", side_effect=lambda: order.append("sound"))
         mocker.patch.object(engine, "start_recording", side_effect=lambda: order.append("start") or True)
 
         engine._handle_trigger_press_work()
 
-        assert order == ["detect", "notify_pressed", "sound", "start"]
+        assert order == ["notify_pressed", "sound", "start"]
 
     def test_worker_preserves_release_call_order(self, engine, mocker):
         order = []
@@ -746,8 +760,9 @@ class TestStreamingChunkPipeline:
         assert eng._chunk_texts == ["alpha", "beta"]
 
     def test_chunks_transcribed_independently(self, config_path, mocker, tmp_path):
-        # The previous chunk's text is never fed back as decoder context: each
-        # call's initial_prompt depends only on the custom vocabulary.
+        # No conditioning argument is passed to achieve independence: the
+        # transducer carries no cross-call decoder context by construction.
+        # Each call therefore differs only in the audio path.
         eng = _make_streaming_engine(config_path, mocker)
         eng.state.config["custom_vocabulary"] = ["Whispy"]
         transcribe = mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["one", "two"])
@@ -756,8 +771,13 @@ class TestStreamingChunkPipeline:
         eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
         eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"))
 
-        prompts = [c.kwargs["initial_prompt"] for c in transcribe.call_args_list]
-        assert prompts == ["Whispy", "Whispy"]
+        assert len(transcribe.call_args_list) == 2
+        for call in transcribe.call_args_list:
+            for forbidden in ("initial_prompt", "condition_on_previous_text", "hotwords", "language"):
+                assert forbidden not in call.kwargs
+        # The only difference between the two calls is which chunk they read.
+        paths = [c.kwargs["audio_path"] for c in transcribe.call_args_list]
+        assert paths[0] != paths[1]
 
     def test_empty_chunk_injects_nothing(self, config_path, mocker, tmp_path):
         eng = _make_streaming_engine(config_path, mocker)
@@ -1136,216 +1156,6 @@ class TestWatchdogRecovery:
         assert engine._state_machine.is_recording
 
 
-# ---------------------------------------------------------------------------
-# Correction detection (snapshot-diff learning)
-# ---------------------------------------------------------------------------
-
-
-class TestCorrectionDetection:
-    """Tests for the snapshot-diff correction detection in Engine."""
-
-    @pytest.fixture(autouse=True)
-    def _enable_learning(self, monkeypatch):
-        # Adaptive learning is gated off by default; enable it (in both the
-        # store module and engine's imported copy) to exercise the wiring.
-        monkeypatch.setattr("whispy.core.corrections.ADAPTIVE_LEARNING_ENABLED", True)
-        monkeypatch.setattr("whispy.core.engine.ADAPTIVE_LEARNING_ENABLED", True)
-
-    def test_snapshot_stored_after_injection(self, engine, mocker, tmp_path):
-        """After run_transcription injects text, _last_injection is set."""
-        # Setup: model loaded, recording path exists
-        wav = tmp_path / "test.wav"
-        wav.write_bytes(b"fake")
-        engine._audio_engine._recording_path = str(wav)
-        engine.state.model = mocker.MagicMock()
-
-        # Mock transcription to return text
-        mocker.patch.object(engine._audio_engine, "transcribe", return_value="hello world")
-        mocker.patch.object(engine._text_injector, "inject")
-        # Mock AX reader
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-
-        engine.run_transcription()
-
-        assert engine._last_injection is not None
-        assert engine._last_injection.injected_text == "hello world"
-        assert engine._last_injection.app_pid == 42
-
-    def test_detect_corrections_extracts_diff(self, engine, mocker):
-        """_detect_corrections finds word changes and stores them."""
-        from whispy.hardware.ax_reader import InjectionSnapshot
-
-        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="wispy is great")
-
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="Hello Whispy is great")
-
-        engine._detect_corrections()
-
-        entries = engine._correction_store.all_entries()
-        assert "wispy" in entries
-        assert entries["wispy"]["replacement"] == "Whispy"
-
-    def test_detect_corrections_skips_different_app(self, engine, mocker):
-        """_detect_corrections skips when PID doesn't match."""
-        from whispy.hardware.ax_reader import InjectionSnapshot
-
-        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="wispy is great")
-
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=99)
-        read_mock = mocker.patch("whispy.hardware.ax_reader.read_focused_field")
-
-        engine._detect_corrections()
-
-        read_mock.assert_not_called()
-        assert engine._correction_store.all_entries() == {}
-
-    def test_detect_corrections_clears_snapshot(self, engine, mocker):
-        """_detect_corrections clears _last_injection after processing."""
-        from whispy.hardware.ax_reader import InjectionSnapshot
-
-        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="hello")
-
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="hello")
-
-        engine._detect_corrections()
-
-        assert engine._last_injection is None
-
-    def test_learned_correction_not_logged_at_info(self, engine, mocker, caplog):
-        """The learned-correction pair SHALL NOT appear at INFO (default) verbosity."""
-        import logging
-
-        from whispy.hardware.ax_reader import InjectionSnapshot
-
-        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="wispy is great")
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="Hello Whispy is great")
-
-        with caplog.at_level(logging.INFO):
-            engine._detect_corrections()
-
-        assert not any("[corrections] learned" in record.getMessage() for record in caplog.records)
-
-    def test_learned_correction_logged_at_debug(self, engine, mocker, caplog):
-        """The learned-correction pair SHALL be emitted at DEBUG with the wrong/right values."""
-        import logging
-
-        from whispy.hardware.ax_reader import InjectionSnapshot
-
-        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="wispy is great")
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="Hello Whispy is great")
-
-        with caplog.at_level(logging.DEBUG):
-            engine._detect_corrections()
-
-        matching = [r for r in caplog.records if "[corrections] learned" in r.getMessage()]
-        assert len(matching) == 1
-        assert matching[0].getMessage() == "[corrections] learned: wispy → Whispy"
-
-
-class TestHotwordsWiring:
-    """Tests for hotwords integration with the correction store."""
-
-    @pytest.fixture(autouse=True)
-    def _enable_learning(self, monkeypatch):
-        monkeypatch.setattr("whispy.core.corrections.ADAPTIVE_LEARNING_ENABLED", True)
-        monkeypatch.setattr("whispy.core.engine.ADAPTIVE_LEARNING_ENABLED", True)
-
-    def test_build_hotwords_from_corrections(self, engine):
-        """_build_hotwords returns correction store entries."""
-        engine._correction_store.add_correction("wispy", "Whispy")
-
-        hw = engine._build_hotwords()
-        assert hw == "Whispy"
-
-    def test_build_hotwords_empty_store(self, engine):
-        """_build_hotwords returns None when store is empty."""
-        assert engine._build_hotwords() is None
-
-    def test_hotwords_passed_to_transcribe(self, engine, mocker, tmp_path):
-        """run_transcription passes hotwords to audio engine."""
-        wav = tmp_path / "test.wav"
-        wav.write_bytes(b"fake")
-        engine._audio_engine._recording_path = str(wav)
-        engine.state.model = mocker.MagicMock()
-        engine._correction_store.add_correction("wispy", "Whispy")
-
-        transcribe_mock = mocker.patch.object(engine._audio_engine, "transcribe", return_value=None)
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-
-        engine.run_transcription()
-
-        transcribe_mock.assert_called_once()
-        assert transcribe_mock.call_args.kwargs.get("hotwords") == "Whispy"
-
-
-class TestPostTranscriptionCorrection:
-    """Tests for apply_corrections in the transcription pipeline."""
-
-    @pytest.fixture(autouse=True)
-    def _enable_learning(self, monkeypatch):
-        monkeypatch.setattr("whispy.core.corrections.ADAPTIVE_LEARNING_ENABLED", True)
-        monkeypatch.setattr("whispy.core.engine.ADAPTIVE_LEARNING_ENABLED", True)
-
-    def test_corrections_applied_before_injection(self, engine, mocker, tmp_path):
-        """High-confidence corrections are applied to transcribed text."""
-        wav = tmp_path / "test.wav"
-        wav.write_bytes(b"fake")
-        engine._audio_engine._recording_path = str(wav)
-        engine.state.model = mocker.MagicMock()
-
-        # Add correction above threshold
-        for _ in range(3):
-            engine._correction_store.add_correction("wispy", "Whispy")
-
-        mocker.patch.object(engine._audio_engine, "transcribe", return_value="wispy is great")
-        inject_mock = mocker.patch.object(engine._text_injector, "inject")
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-
-        engine.run_transcription()
-
-        inject_mock.assert_called_once_with("Whispy is great")
-
-
-class TestAdaptiveLearningDisabledByDefault:
-    """With the default gate (ADAPTIVE_LEARNING_ENABLED=False) the whole
-    feedback loop is inert: nothing is learned, no learned words reach Whisper
-    as hotwords, and transcribed text is injected verbatim (no auto-replace)."""
-
-    def test_hotwords_not_fed_when_disabled(self, engine):
-        engine._correction_store.add_correction("wispy", "Whispy")
-        assert engine._build_hotwords() is None
-
-    def test_transcription_injected_verbatim_when_disabled(self, engine, mocker, tmp_path):
-        wav = tmp_path / "test.wav"
-        wav.write_bytes(b"fake")
-        engine._audio_engine._recording_path = str(wav)
-        engine.state.model = mocker.MagicMock()
-        for _ in range(3):
-            engine._correction_store.add_correction("wispy", "Whispy")
-        mocker.patch.object(engine._audio_engine, "transcribe", return_value="wispy is great")
-        inject_mock = mocker.patch.object(engine._text_injector, "inject")
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-
-        engine.run_transcription()
-
-        inject_mock.assert_called_once_with("wispy is great")
-
-    def test_detect_corrections_learns_nothing_when_disabled(self, engine, mocker):
-        from whispy.hardware.ax_reader import InjectionSnapshot
-
-        engine._last_injection = InjectionSnapshot(app_pid=42, injected_text="the cat")
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
-        mocker.patch("whispy.hardware.ax_reader.read_focused_field", return_value="the dog")
-
-        engine._detect_corrections()
-
-        assert engine._correction_store.all_entries() == {}
-
-
 class TestInjectWaitsForTriggerRelease:
     """Typing while the push-to-talk key is held merges the held modifier
     into every injected character (e.g. Right Option -> Option-layer glyphs).
@@ -1377,7 +1187,6 @@ class TestInjectWaitsForTriggerRelease:
         engine._audio_engine._recording_path = str(wav)
         engine.state.model = mocker.MagicMock()
         mocker.patch.object(engine._audio_engine, "transcribe", return_value="hello")
-        mocker.patch("whispy.hardware.ax_reader.get_frontmost_pid", return_value=42)
         inject_mock = mocker.patch.object(engine._text_injector, "inject")
         wait_mock = mocker.patch.object(engine, "_wait_trigger_released")
 

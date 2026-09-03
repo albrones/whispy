@@ -1,16 +1,16 @@
 # Whispy (Voice Dictation for macOS & Linux)
 
+[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE) [![Platform: macOS | Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20(X11)-lightgrey.svg)](#) &nbsp;·&nbsp; **[whispy-dun.vercel.app](https://whispy-dun.vercel.app)**
+
 ## 🤖 AI Description / Overview
 
-**Whispy is a powerful, local voice dictation utility for macOS and Linux (X11).** It uses the `faster-whisper` model to provide real-time, offline transcription of speech input. The application runs as a background daemon, allowing users to initiate recording by holding a configurable push-to-talk key and automatically transcribing and inserting text into any active field (e.g., iTerm, web browser, or editor) upon release. Because all processing is done locally on your machine, **zero data leaves your computer**, ensuring complete privacy.
+**Whispy is a powerful, local voice dictation utility for macOS and Linux (X11).** It uses NVIDIA's `parakeet-tdt-0.6b-v3` model to provide real-time, offline transcription of speech input. The application runs as a background daemon, allowing users to initiate recording by holding a configurable push-to-talk key and automatically transcribing and inserting text into any active field (e.g., iTerm, web browser, or editor) upon release. Because all processing is done locally on your machine, **zero data leaves your computer**, ensuring complete privacy.
 
 ## 📘 Project Description (User Guide)
 
-Whispy is a local voice dictation utility built on top of [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Hold the trigger key (the **Fn** key on macOS, **Right Ctrl** by default on Linux) to record, and release it to automatically transcribe the text into the active field.
+Whispy is a local voice dictation utility built on top of [NVIDIA Parakeet TDT 0.6b v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), run on CPU through [onnx-asr](https://github.com/istupakov/onnx-asr). Hold the trigger key (the **Fn** key on macOS, **Right Ctrl** by default on Linux) to record, and release it to automatically transcribe the text into the active field.
 
-**Learns your words.** On macOS, Whispy detects when you correct a transcription in the active field and remembers it (`~/.config/whispy/corrections.json`): names, jargon, and brand terms get more accurate over time, with no setup required. _(Automatic learning is temporarily disabled while its word-matching is reworked — it mislearned from ordinary continued dictation; manual custom vocabulary is unaffected.)_
-
-Everything runs locally; no data is sent over the internet.
+Everything runs locally; no data is sent over the internet. You can bias recognition toward your own names and jargon with the manual custom vocabulary (`custom_vocabulary` in the config); automatic correction learning was removed and its reimplementation is tracked in [issue #8](https://github.com/albrones/whispy/issues/8).
 
 > **Linux note:** Whispy v1 supports **X11 sessions only**. Global hotkeys and synthetic text input are restricted under Wayland's security model. If you run Wayland, log out and pick an "Xorg"/"X11" session at your display manager. Wayland support is deferred to a later release.
 
@@ -25,11 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootst
 Works on macOS and Linux from one command. On **macOS** it builds and installs
 the signed `Whispy.app` into `/Applications` (the only supported macOS install);
 on **Linux/X11** it sets up a virtualenv and a `systemd --user` service. Source
-lives in `~/.local/share/whispy`. Pick a model with:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | WHISPER_MODEL=medium bash
-```
+lives in `~/.local/share/whispy`.
 
 > The macOS build needs the Xcode Command Line Tools (`xcode-select --install`).
 > If they're missing, the installer prints the manual `make app` steps instead.
@@ -119,15 +115,10 @@ cd whispy
 
 The script automatically manages:
 - Python virtual environment creation
-- Installation of `faster-whisper`
+- Installation of `onnx-asr` (Parakeet + onnxruntime)
 - On **Linux/X11**, setup and launching of a `systemd --user` service. On
   **macOS** it only builds the venv — run `make app` to produce `Whispy.app`
   (autostart is the in-app "Start at login" toggle, no LaunchAgent)
-
-To use a different model:
-```bash
-WHISPER_MODEL=medium ./install.sh  # Options: small, base, tiny, medium, large-v3
-```
 
 ### 3. Configure macOS Permissions (Crucial Step)
 
@@ -187,21 +178,53 @@ If you changed permissions, restart Whispy so the daemon picks up the new settin
 3. **Speak**.
 4. **Release the trigger key** → a sound indicates transcription and automatic typing/insertion of the text.
 
-## Whisper Models Selection
+## The Transcription Model
 
-| Model | Size | Speed | FR Quality |
-|--------|------|-------|------------|
-| tiny   | 75 MB | ++++  | --         |
-| base   | 142 MB| +++    | -          |
-| small  | 466 MB| ++     | ++         |
-| medium | 1.5 GB| +      | +++        |
-| large-v3 | 2.9 GB| -     | ++++       |
+Whispy ships one model: **`nvidia/parakeet-tdt-0.6b-v3`**, int8-quantized to ONNX
+and run on CPU. There is nothing to choose, so there is no model setting.
 
-The default model is `small` (faster). To change it, use the command in Step 2.
+| | |
+|---|---|
+| Download | **639 MB**, automatic on first use |
+| Cached at | `~/.cache/huggingface/hub/models--istupakov--parakeet-tdt-0.6b-v3-onnx` |
+| Resident memory | ~1.4 GB while loaded |
+| Languages | 25, **detected automatically**. Speech outside this set will not transcribe |
 
-Models are downloaded automatically by `faster-whisper` on first use and cached under
-`~/.cache/huggingface/hub/`. Expect the model's full size (see table) to be used on disk;
-delete that folder to reclaim the space.
+The 25, per the [model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3):
+Bulgarian, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French,
+German, Greek, Hungarian, Italian, Latvian, Lithuanian, Maltese, Polish,
+Portuguese, Romanian, Slovak, Slovenian, Spanish, Swedish, Russian, Ukrainian.
+
+There is no language setting, and adding one would make things worse: the model
+detects language per utterance and handles switching mid-recording, while
+forcing a language was measurably wrong (English speech came back translated
+into French).
+
+**Non-speech never reaches it.** Given silence or room noise, the model answers
+with a short filler — `Yeah.`, `Okay.`, `Mm-hmm.` — which would be typed into
+whatever you had focused. Two gates run before it, and a clip has to clear both:
+
+| Gate | Discards |
+|---|---|
+| Loudness | Anything below 0.005 normalized RMS — a muted mic, a misfire, a quiet room |
+| Voice detection | Anything with under 0.20 s of detected voice — steady noise, a fan, mains hum |
+
+Both fail open: a clip that cannot be measured is transcribed rather than
+dropped, because losing real dictation is worse than an occasional stray word.
+Neither looks at *what* was said — `Okay.` and `No.` are legitimate one-word
+dictations, so filtering by text would delete real speech. Holding the trigger
+while you think is fine too: the second gate measures how much voice it heard,
+not what fraction of the recording was voice.
+
+In a genuinely loud room (above roughly 0.04 RMS of noise) voice detection stops
+being able to tell noise from speech, and you are relying on the model, which
+returned nothing for every such clip measured. If you do get a stray word in a
+noisy environment, that is the gap.
+
+**Upgrading from a Whisper-era Whispy?** The old model cache at
+`~/.cache/huggingface/hub/models--Systran--faster-whisper-*` is no longer used.
+`./install.sh --uninstall` points at it but will not delete another era's data —
+remove it by hand to reclaim the space.
 
 ## Manual Commands (API)
 
@@ -219,10 +242,10 @@ curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:9090/stop       
 tail -f ~/.whispy.log ~/.whispy-error.log  # Live logs
 ```
 
-### Upgrading faster-whisper
+### Upgrading the ASR runtime
 
 ```bash
-./.venv/bin/pip install --upgrade faster-whisper
+./.venv/bin/pip install --upgrade onnx-asr
 ```
 
 ## Troubleshooting
@@ -263,7 +286,7 @@ catch it (see the matrix header).
 | No text appears (Linux) | `xdotool` missing, or Wayland session | Install `xdotool`; switch to an X11 session |
 | `sounddevice`/PortAudio import error | PortAudio runtime missing | Install it (e.g. `apt install libportaudio2`) |
 | `Operation not permitted` error | Incorrect Python interpreter (e.g., Xcode vs Homebrew) | Rerun `install.sh` |
-| Inaccurate text / errors | Model is too small | `WHISPER_MODEL=medium ./install.sh` |
+| Inaccurate text on names or jargon | The model renders unusual terms phonetically | Add them to `custom_vocabulary` (corrects close misses only) |
 | Daemon fails to start | Port 9090 is occupied or Python executable cannot be found | Check the logs (`.whispy-error.log`) |
 | Model not found | Virtual environment not created | Rerun `install.sh` |
 
@@ -274,15 +297,10 @@ You can edit `~/.config/whispy/config.json` to change any of the following keys
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `model_size` | `small` | Whisper model name (`tiny`, `base`, `small`, `medium`, `large-v3`) |
-| `language` | `en` | Transcription language (`en` or `fr`) |
-| `beam_size` | `1` | Beam search width passed to faster-whisper; higher can improve accuracy at the cost of speed |
-| `best_of` | `2` | Number of candidates sampled when not using beam search; higher can improve accuracy at the cost of speed |
 | `copy_to_clipboard` | `false` | Paste via the clipboard instead of synthesizing keystrokes |
 | `start_at_login` | `false` | Register the app as a login item. macOS `.app` bundle only (via `SMAppService`); ignored on the loose-script path |
-| `auto_detect_min_duration` | `0.5` | Minimum recording duration (seconds) before automatic language detection runs |
-| `min_recording_duration` | `0.3` | Recordings shorter than this (seconds) are discarded rather than transcribed |
-| `custom_vocabulary` | `[]` | User-curated terms (names, jargon) used to bias transcription toward the words you habitually say |
+| `min_recording_duration` | `0.3` | Recordings shorter than this (seconds) are discarded rather than transcribed. Separately (and not configurable), near-silent audio is discarded on energy before it reaches the model — the model otherwise invents short fillers like "Okay." on a quiet room |
+| `custom_vocabulary` | `[]` | User-curated terms (names, brands, jargon). Applied **after** transcription: an output word is corrected when its spelling *or* its pronunciation matches one of your terms (`wispy` → `Whispy`, `parakite` → `Parakeet`). Weaker than biasing the decoder — a word rendered far from the target on both counts is left alone — but it cannot leak your terms into text you did not say. Add proper nouns and anglicisms here; it is the intended fix for them |
 | `trigger` | `null` | Push-to-talk key/combo. `null` uses the platform default: the **Fn** key on macOS, **Right Ctrl** (`ctrl_r`) on Linux. Set a macOS keycode (integer) or a key/combo name (string) to override |
 | `streaming_enabled` | `true` | Transcribe audio in chunks during recording (typed near-instantly on release) instead of the legacy record-then-transcribe path |
 | `pause_ms` | `600` | Minimum trailing silence (milliseconds) that closes a streaming chunk |
@@ -365,8 +383,21 @@ then relaunch it. On **Linux**, rerun `./install.sh` (it reinstalls the venv and
 reloads the systemd unit). Running `/Applications/Whispy.app` from an old build
 is the usual reason a code or settings fix "doesn't take" — rebuild the bundle.
 
-**Q: What if I want to use a different Whisper model?**
-A: Run `WHISPER_MODEL=medium ./install.sh` (see model table above).
+**Q: Can I use a different model?**
+A: No. Whispy ships one model (see "The Transcription Model" above), so there is
+no model setting and no `WHISPER_MODEL` variable any more.
+
+**Q: I spoke and nothing was typed.**
+A: A clip has to clear both non-speech gates (see "The Transcription Model"). The
+usual causes are a recording under `min_recording_duration` (0.3 s — a tap rather
+than a hold), a muted or wrong input device, or speech too far from the mic to
+register as voice. `~/.whispy.log` says which gate discarded it and with what
+measurement — `Recording too short`, `near-silent (RMS ...)`, or
+`No speech detected (... of voiced frames)`.
+
+**Q: My language isn't transcribing at all.**
+A: Parakeet covers 25 languages, listed under "The Transcription Model" above.
+Anything outside that set will not work — there is no setting that changes it.
 
 **Q: How do I know if Whispy is running?**
 A: Check with `curl -H "Authorization: Bearer $(cat ~/.config/whispy/config.token)" http://localhost:9090/status` or look for the process in Activity Monitor.
@@ -426,15 +457,24 @@ Test files are organized by scope:
 | File | Scope |
 |------|-------|
 | `tests/test_engine.py` | Core engine, state machine, config |
-| `tests/test_audio.py` | AudioEngine, transcription, language detection |
+| `tests/test_audio.py` | AudioEngine, transcription, audio duration detection |
 | `tests/test_integration.py` | Multi-module integration |
 | `tests/test_e2e.py` | End-to-end workflow tests |
 | `tests/test_event_tap_e2e.py` | EventTapListener E2E tests |
 | `tests/test_api/test_server.py` | HTTP API server tests |
-| `tests/test_text_cleaning.py` | Whisper credit stripping |
+| `tests/test_text_cleaning.py` | whitespace normalization, custom-vocabulary correction |
 | `tests/test_config_validation.py` | Config validation and migration |
 | `tests/test_error_handling.py` | Error cases (capture-backend failure, mic unavailable) |
 
 ## License
 
-This project is distributed under the **GPLv3** license. Please see the `LICENSE` file for more details.
+This project is distributed under the **GPLv3** license. See the `LICENSE` file
+for the full text.
+
+The transcription model is a separate work under a different licence:
+**`nvidia/parakeet-tdt-0.6b-v3`** is © NVIDIA Corporation, licensed
+[CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). Whispy does not
+redistribute it — the weights are downloaded from the Hugging Face Hub on first
+run and cached on your machine, so no model files ship in this repository or in
+any release artifact. See `NOTICE` for the full attribution, including the ONNX
+conversion Whispy loads.

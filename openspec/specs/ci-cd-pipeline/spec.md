@@ -28,13 +28,6 @@ The bootstrap installer SHALL complete successfully when piped from `curl` (a no
 - **WHEN** `bootstrap.sh` runs via `curl … | bash` with no controlling TTY
 - **THEN** it SHALL NOT block on or abort due to an unanswered prompt
 
-### Requirement: Chosen Whisper model takes effect
-When the user sets `WHISPER_MODEL`, the installed daemon SHALL use that model rather than silently falling back to the default.
-
-#### Scenario: WHISPER_MODEL=medium
-- **WHEN** the user installs with `WHISPER_MODEL=medium`
-- **THEN** the daemon SHALL load the `medium` model (the value SHALL be persisted to config or read at load), not the default `small`
-
 ### Requirement: Website deployment via Vercel Git integration
 The system SHALL deploy the `website/` directory to Vercel using Vercel's native Git integration connected to the repository, rather than a GitHub Actions workflow, with configuration versioned in the repository's root `vercel.json` (`framework: null`, no build command, `outputDirectory: website`) and `.vercelignore`.
 
@@ -55,30 +48,15 @@ The system SHALL deploy the `website/` directory to Vercel using Vercel's native
 - **THEN** project documentation SHALL describe running `npx vercel deploy --prod` from a checkout linked to the Vercel project via `.vercel/`
 
 ### Requirement: macOS real-seam tests execute in CI
+The macOS real-seam tier SHALL run against the real transcription model in CI, loading `nemo-parakeet-tdt-0.6b-v3` int8 through `onnx-asr` on `CPUExecutionProvider`. The job SHALL allow enough wall-clock for the first-run model download (639 MB) and SHALL override the default per-test timeout for real model load and inference.
 
-CI SHALL run the `macos`-marked test tier (`pytest -m macos`) on a macOS runner, in addition to the default (mocked/unit) tier, so that the tier is attempted rather than silently deselected by the global `addopts` filter. A test in this tier that skips cleanly (missing TCC permission grant, missing synthesis toolchain, no audio device) SHALL NOT fail the job; a test that errors or crashes SHALL fail the job.
+#### Scenario: Real model tier runs with an adequate timeout
+- **WHEN** the macOS real-seam job executes
+- **THEN** it SHALL run the `macos`-marked tests with a timeout longer than the default, covering model download, load, and inference
 
-#### Scenario: Real-seam job runs the macos-marked tests
-
-- **WHEN** the CI workflow runs on a push or pull request
-- **THEN** a job SHALL invoke `pytest -m macos` on a `macos-latest` (or
-  equivalent) runner, covering the tests in `tests/test_e2e_smoke.py`,
-  `tests/test_transcription_quality.py`, and `tests/test_waveform.py`
-
-#### Scenario: Missing hardware/permission produces a visible skip, not a silent pass
-
-- **WHEN** the runner lacks the Microphone or Input Monitoring TCC grant,
-  or lacks the `say`/`sox` speech-synthesis toolchain
-- **THEN** the affected test(s) SHALL report as skipped in the job output
-  (visible in the log), and the job SHALL still pass
-- **AND** the job SHALL NOT report the tests as passed by deselecting them
-  before they run
-
-#### Scenario: A genuine failure in the real-seam tier fails the job
-
-- **WHEN** a `macos`-marked test raises an unexpected exception or an
-  assertion fails (as opposed to calling `pytest.skip`)
-- **THEN** the job SHALL fail
+#### Scenario: No Whisper model is fetched in CI
+- **WHEN** the CI workflows are inspected
+- **THEN** no job SHALL download or cache a faster-whisper model
 
 ### Requirement: Default test tier executes on Linux in CI
 

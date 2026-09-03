@@ -30,11 +30,15 @@ Tiers are defined in `openspec/specs/TESTING-TIERS.md`.
 | Feature | Platform(s) | Tier | Verified by | Notes |
 |---------|-------------|------|-------------|-------|
 | Config load / validate / persist | both | unit-pure | `tests/test_config_validation.py` | defaults, corrupt-file fallback, partial update |
-| Config live-reload (model swap) | both | unit-mocked | `tests/test_e2e.py::TestEngineLifecycle` | `needs_reload` flag triggers async model load |
 | State machine transitions | both | unit-pure | `tests/test_state_machine.py` | idle→recording→transcribing→idle, guards |
-| Text cleaning | both | unit-pure | `tests/test_text_cleaning.py` | trailing space, casing, filler |
-| Language detection / selection | both | unit-mocked | `tests/test_language_detection.py` | fr/en, auto-detect min duration |
-| Engine + audio + FSM integration | both | unit-mocked | `tests/test_e2e.py::TestFullEngineAudioFSMIntegration` | mocked audio/whisper |
+| Text cleaning | both | unit-pure | `tests/test_text_cleaning.py` | whitespace normalization, custom-vocabulary near-miss correction |
+| Silence gate (non-speech guard) | both | unit-pure | `tests/test_audio.py::TestAudioRms`, `::TestTranscribe` | RMS below threshold never reaches the model; fails open when unmeasurable |
+| Speech gate (voiced-duration guard) | both | unit-pure | `tests/test_audio.py::TestSpeechGate`, `tests/test_segmentation.py::TestSpeechDuration` | non-speech above the RMS gate never reaches the model; one word in a long hold is not penalized; fails open without webrtcvad (rejection assertions skip there rather than fail) |
+| Both gates against the real model | both | live-driven | `tests/test_non_speech_real.py` | pure silence and quiet-room noise across durations; loud white/brown/pink/hum/fan noise above the RMS gate; committed recordings still transcribe. Carries both markers, so `-m macos` and `-m linux` each run it |
+| Gate thresholds vs. recorded audio | both | unit-pure | `tests/test_audio.py::TestSpeechGateAgainstCommittedAudio` | committed fixtures clear RMS by 5x and the speech gate by 3x; runs in the default tier, so ubuntu CI covers it too |
+| Real speech clears the gate (synthesized) | macOS | live-driven | `tests/test_transcription_quality.py::TestSilenceGate`, `::TestShortDictation` | `say`-synthesized speech, sub-second words, and a word inside a 10s hold still transcribe |
+| Audio duration detection | both | unit-pure | `tests/test_audio.py::TestAudioDurationDetection` | frames/rate; None for unreadable files |
+| Engine + audio + FSM integration | both | unit-mocked | `tests/test_e2e.py::TestFullEngineAudioFSMIntegration` | mocked audio + ASR model |
 | HTTP API endpoints | both | unit-mocked | `tests/test_api/` | status/config/last-transcription/start/stop |
 | Event decode (keycode → trigger) | macOS | unit-pure | `tests/test_event_decode.py` | Fn keycode 63 mapping |
 | Text injection logic (both modes) | both | unit-mocked | `tests/test_injection.py` | clipboard + keystroke, quote escaping |
@@ -50,8 +54,8 @@ Tiers are defined in `openspec/specs/TESTING-TIERS.md`.
 | Silence yields empty transcription | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | fixture `silence.wav` via `/transcribe-file` |
 | Transcription of known speech (fr) | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | fixture `fr_speech.wav`; expects tokens test+fini |
 | Transcription of known speech (en) | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | fixture `en_speech.wav`; expects tokens testing+done |
-| Language selection honored | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | fr/en fixtures decode in the configured language |
-| Config change applies over HTTP | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | `/config` sets language; `/config` GET reflects it |
+| Language detected, not configured | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | fr/en fixtures each decode correctly with no language setting |
+| Config change applies over HTTP | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | `/config` POST sets a value; `/config` GET reflects it |
 | /transcribe-file endpoint (deterministic seam) | both | unit-mocked | `tests/test_api/` | transcribes given WAV with current config, no inject/delete |
 | Streaming chunk transcription (HTTP) | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | fixture `fr_speech.wav` via `/stream-file`; expects tokens test+fini across chunks |
 | Streaming segments on silence (≥2 chunks) | both | live-driven | `tests/test_e2e_smoke.py::TestLiveDriveCycle`, `tests/test_e2e_smoke_linux.py::TestLiveDriveCycle` | fr+silence+fr clip via `/stream-file` cut into ≥2 chunks |
@@ -72,4 +76,3 @@ Tiers are defined in `openspec/specs/TESTING-TIERS.md`.
 | Model selection change takes effect | both | manual-ui | operator | switch model in menu, confirm reload + transcription |
 | Restart from menu relaunches daemon | macOS | manual-ui | operator | menu → Restart; daemon comes back on :9090 |
 | Quit from menu stops daemon | both | manual-ui | operator | menu/tray → Quit; daemon process exits |
-| Adaptive vocabulary (learns from corrections) | macOS | unit-mocked | `tests/test_corrections.py`, `tests/test_engine.py::TestCorrectionDetection`, `tests/test_engine.py::TestAdaptiveLearningDisabledByDefault` | **Currently disabled** (`ADAPTIVE_LEARNING_ENABLED=False`): the fixed-window alignment mislearned garbage word→word shifts from continued dictation and fed them back to Whisper as hotwords (self-reinforcing hallucination). Machinery intact + tested; re-enable after the alignment is rewritten |

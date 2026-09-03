@@ -8,8 +8,8 @@
     <!-- Sending Apple events to type text via osascript into the focused app. -->
     <key>com.apple.security.automation.apple-events</key>
     <true/>
-    <!-- ctranslate2 / onnxruntime JIT + the CPython interpreter need writable,
-         executable and unsigned-executable memory under the hardened runtime. -->
+    <!-- onnxruntime JIT + the CPython interpreter need writable, executable
+         and unsigned-executable memory under the hardened runtime. -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>

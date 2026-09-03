@@ -9,15 +9,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Valid model sizes for faster-whisper
-VALID_MODEL_SIZES: list[str] = ["tiny", "base", "small", "medium", "large-v3"]
-
-# Supported languages with display names
-SUPPORTED_LANGUAGES: dict[str, str] = {
-    "fr": "French",
-    "en": "English",
-}
-
 # Curated push-to-talk trigger presets for the menu UI: ordered (label, value)
 # where value is None for the platform default (Fn on macOS) or a macOS keycode.
 # Keycodes are Carbon virtual keycodes (what CGEvent reports). Only keys that
@@ -34,35 +25,12 @@ TRIGGER_PRESETS: list[tuple[str, int | None]] = [
     ("F13", 105),
 ]
 
-# Model presets for UI display
-MODEL_PRESETS: dict[str, dict[str, str]] = {
-    "tiny": {
-        "label": "Fast (tiny)",
-        "description": "75 MB — fastest, limited quality",
-    },
-    "base": {
-        "label": "Light (base)",
-        "description": "142 MB — good speed/quality balance",
-    },
-    "small": {"label": "Normal (small)", "description": "466 MB — recommended"},
-    "medium": {"label": "Accurate (medium)", "description": "1.5 GB — best quality"},
-    "large-v3": {
-        "label": "Maximum (large)",
-        "description": "2.9 GB — maximum quality, slow",
-    },
-}
-
 # Default configuration values
 DEFAULT_CONFIG: dict[str, Any] = {
-    "model_size": "small",
-    "language": "en",
-    "beam_size": 1,
-    "best_of": 2,
     "copy_to_clipboard": False,
     # Register the app as a macOS login item (start at login). macOS .app
     # bundle only; ignored on the loose-script path (LaunchAgent handles it).
     "start_at_login": False,
-    "auto_detect_min_duration": 0.5,
     "min_recording_duration": 0.3,
     # User-curated terms (names, jargon) used to bias transcription toward the
     # words the user habitually says. Empty by default.
@@ -108,41 +76,6 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
     if "_version" in config:
         validated["_version"] = config["_version"]
 
-    # Validate model_size
-    if validated.get("model_size") not in VALID_MODEL_SIZES:
-        print(
-            f"[config] Invalid model_size '{validated.get('model_size')}', "
-            f"defaulting to '{DEFAULT_CONFIG['model_size']}'",
-            file=sys.stderr,
-        )
-        validated["model_size"] = DEFAULT_CONFIG["model_size"]
-
-    # Validate language
-    if validated.get("language") not in SUPPORTED_LANGUAGES:
-        print(
-            f"[config] Invalid language '{validated.get('language')}', defaulting to '{DEFAULT_CONFIG['language']}'",
-            file=sys.stderr,
-        )
-        validated["language"] = DEFAULT_CONFIG["language"]
-
-    # Validate beam_size (must be positive int)
-    beam = validated.get("beam_size")
-    if not isinstance(beam, int) or beam < 1:
-        print(
-            f"[config] Invalid beam_size '{beam}', defaulting to {DEFAULT_CONFIG['beam_size']}",
-            file=sys.stderr,
-        )
-        validated["beam_size"] = DEFAULT_CONFIG["beam_size"]
-
-    # Validate best_of (must be positive int)
-    best = validated.get("best_of")
-    if not isinstance(best, int) or best < 1:
-        print(
-            f"[config] Invalid best_of '{best}', defaulting to {DEFAULT_CONFIG['best_of']}",
-            file=sys.stderr,
-        )
-        validated["best_of"] = DEFAULT_CONFIG["best_of"]
-
     # Validate copy_to_clipboard (must be bool)
     ctc = validated.get("copy_to_clipboard")
     if not isinstance(ctc, bool):
@@ -160,15 +93,6 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
             file=sys.stderr,
         )
         validated["start_at_login"] = DEFAULT_CONFIG["start_at_login"]
-
-    # Validate auto_detect_min_duration (must be positive number)
-    adm = validated.get("auto_detect_min_duration")
-    if not isinstance(adm, int | float) or adm < 0:
-        print(
-            f"[config] Invalid auto_detect_min_duration '{adm}', defaulting to {DEFAULT_CONFIG['auto_detect_min_duration']}",
-            file=sys.stderr,
-        )
-        validated["auto_detect_min_duration"] = DEFAULT_CONFIG["auto_detect_min_duration"]
 
     # Validate min_recording_duration (must be a non-negative number)
     mrd = validated.get("min_recording_duration")
@@ -263,12 +187,10 @@ def _migrate_config(config: dict[str, Any], config_path: Path) -> dict[str, Any]
     Adds any missing keys with defaults, and handles known migration paths.
     """
     migrated = dict(config)
-    version = migrated.get("_version", 0)
 
-    if version == 0:
-        # From v0 to v1: add auto_detect_min_duration if missing
-        if "auto_detect_min_duration" not in migrated:
-            migrated["auto_detect_min_duration"] = DEFAULT_CONFIG["auto_detect_min_duration"]
+    # No version-specific step remains: the only one (v0 -> v1) added
+    # auto_detect_min_duration, a key the Parakeet backend no longer has.
+    # Filling in missing defaults below covers every version.
 
     # Add any missing default keys
     for key, value in DEFAULT_CONFIG.items():

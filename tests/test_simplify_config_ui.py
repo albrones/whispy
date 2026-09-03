@@ -93,15 +93,20 @@ class TestEventTapNoLearningMode:
         assert not hasattr(listener, "is_learning")
 
 
-class TestLanguageOnlyFrEn:
-    """SUPPORTED_LANGUAGES must only contain fr and en."""
+class TestNoLanguageSetting:
+    """There is no language setting: Parakeet detects language per utterance.
 
-    def test_only_fr_and_en(self):
-        from whispy.core.engine import SUPPORTED_LANGUAGES
+    Forcing one was measurably harmful under the previous backend — a forced
+    French decode transcribed English speech into French words — so the whole
+    knob is gone rather than defaulted.
+    """
 
-        assert set(SUPPORTED_LANGUAGES.keys()) == {"fr", "en"}
+    def test_supported_languages_constant_is_gone(self):
+        import whispy.core.engine as engine
 
-    def test_no_auto_language(self):
-        from whispy.core.engine import SUPPORTED_LANGUAGES
+        assert not hasattr(engine, "SUPPORTED_LANGUAGES")
 
-        assert "auto" not in SUPPORTED_LANGUAGES
+    def test_language_is_not_a_config_key(self):
+        from whispy.core.config import DEFAULT_CONFIG
+
+        assert "language" not in DEFAULT_CONFIG

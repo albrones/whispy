@@ -72,18 +72,38 @@ class TestRealAudioCapture:
 
 class TestRealOsascriptClipboard:
     def test_clipboard_round_trips_through_osascript(self):
-        token = f"whispy-smoke-{os.getpid()}-{int(time.time())}"
-        set_proc = subprocess.run(
-            ["osascript", "-e", f'set the clipboard to "{token}"'],
-            capture_output=True,
-            text=True,
-        )
-        if set_proc.returncode != 0:
-            pytest.skip(f"osascript clipboard set failed: {set_proc.stderr.strip()}")
-        read_back = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
-        assert read_back == token
-        # NOTE: the actual Cmd+V paste into a focused field is the operator
-        # boundary and is not automated here.
+        """The clipboard-paste injection path really round-trips through osascript.
+
+        This test runs on the operator's own machine and takes over their real
+        clipboard, so it puts back what it found. Without that, whoever ran the
+        suite got ``whispy-smoke-<pid>-<timestamp>`` on their next Cmd+V, which
+        is exactly what happened before this guard existed.
+
+        Restoration is text-only: ``pbpaste`` cannot represent an image or a
+        file promise, so a non-text clipboard is still lost. Accepted -- a
+        best-effort restore beats an unconditional clobber, and the alternative
+        (not testing the real osascript seam) is worse.
+        """
+        previous = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
+
+        try:
+            token = f"whispy-smoke-{os.getpid()}-{int(time.time())}"
+            set_proc = subprocess.run(
+                ["osascript", "-e", f'set the clipboard to "{token}"'],
+                capture_output=True,
+                text=True,
+            )
+            if set_proc.returncode != 0:
+                pytest.skip(f"osascript clipboard set failed: {set_proc.stderr.strip()}")
+            read_back = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
+            assert read_back == token
+            # NOTE: the actual Cmd+V paste into a focused field is the operator
+            # boundary and is not automated here.
+        finally:
+            # pbcopy rather than osascript: it takes the text on stdin, so a
+            # previous clipboard containing quotes or newlines cannot break the
+            # restore the way string-interpolating AppleScript would.
+            subprocess.run(["pbcopy"], input=previous, text=True, check=False)
 
 
 class TestLiveEventTap:

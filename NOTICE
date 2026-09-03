@@ -1,0 +1,38 @@
+Whispy
+Copyright (C) 2026 the Whispy contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License version 3, as published by the Free
+Software Foundation. See the LICENSE file for the full text.
+
+
+THIRD-PARTY MODEL ATTRIBUTION
+=============================
+
+Whispy transcribes speech using a machine-learning model it does not
+redistribute. The weights are downloaded from the Hugging Face Hub on first
+run and cached on the user's machine; no model files are contained in this
+repository or in any Whispy release artifact.
+
+Parakeet TDT 0.6B v3
+--------------------
+Copyright (c) NVIDIA Corporation
+Licensed under the Creative Commons Attribution 4.0 International License
+(CC-BY-4.0): https://creativecommons.org/licenses/by/4.0/
+
+    https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+
+Cited as: Canary-1B-v2 & Parakeet-TDT-0.6B-v3: Efficient and High-Performance
+Models for Multilingual ASR and AST, arXiv:2509.14128.
+
+ONNX conversion
+---------------
+Whispy loads the int8-quantized ONNX conversion of the model published at
+
+    https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx
+
+through the onnx-asr package (MIT), https://github.com/istupakov/onnx-asr.
+
+The CC-BY-4.0 licence on the model weights and the GPLv3 licence on this
+program apply to separate works: Whispy is a program that fetches and runs the
+model, not a derivative of it, and the two are never distributed together.

@@ -21,7 +21,7 @@ jobs:
       - name: Install ruff
         # Pinned to match .pre-commit-config.yaml so `format --check` is
         # deterministic (a floating newer ruff reformats differently).
-        run: pip install "ruff==0.6.9"
+        run: pip install "ruff==0.15.21"
 
       - name: Ruff lint
         run: ruff check .
@@ -68,8 +68,23 @@ jobs:
           .venv/bin/pip install --upgrade pip
           .venv/bin/pip install -e ".[dev]"
 
+      # The model is 639 MB and does not change between runs. Measured on this
+      # job: a cache hit restores it in ~10s and downloads nothing.
+      - name: Cache the Parakeet weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: hf-parakeet-tdt-0.6b-v3-onnx-int8
+
+      # test_transcription_quality.py is deliberately excluded rather than
+      # skipped by accident. It asserts on `say`-synthesized speech, whose
+      # output is not byte-stable between runs, so individual phrases flip
+      # (measured: "oui" comes back as "We" on roughly half the draws). It is
+      # also the only remaining reason anything here would want sox, which CI
+      # therefore does not install. It stays a local tool. Everything else is
+      # deterministic -- numpy-synthesized noise and committed recordings.
       - name: Run macOS real-seam tests
-        run: .venv/bin/pytest -m macos -v --tb=short --timeout=300
+        run: .venv/bin/pytest -m macos -v --tb=short --timeout=300 --ignore=tests/test_transcription_quality.py
 
   test-linux:
     runs-on: ubuntu-latest

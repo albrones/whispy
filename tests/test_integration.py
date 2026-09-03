@@ -34,9 +34,8 @@ class TestEngineLifecycle:
         assert status["is_transcribing"] is False
 
         # Update config
-        needs_reload = engine.update_config({"model_size": "base"})
-        assert needs_reload is True
-        assert engine.state.config["model_size"] == "base"
+        engine.update_config({"pause_ms": 800})
+        assert engine.state.config["pause_ms"] == 800
 
         # Check status reflects config
         status = engine.get_status()
@@ -142,10 +141,10 @@ class TestConcurrentConfigUpdates:
                     errors.append(e)
 
         threads = [
-            threading.Thread(target=update_config, args=("model_size", "base")),
-            threading.Thread(target=update_config, args=("language", "fr")),
-            threading.Thread(target=update_config, args=("beam_size", 5)),
-            threading.Thread(target=update_config, args=("best_of", 4)),
+            threading.Thread(target=update_config, args=("pause_ms", 800)),
+            threading.Thread(target=update_config, args=("copy_to_clipboard", True)),
+            threading.Thread(target=update_config, args=("vad_aggressiveness", 3)),
+            threading.Thread(target=update_config, args=("min_chunk_s", 0.6)),
         ]
         for t in threads:
             t.start()
@@ -153,10 +152,10 @@ class TestConcurrentConfigUpdates:
             t.join()
 
         assert len(errors) == 0
-        assert engine.state.config["model_size"] == "base"
-        assert engine.state.config["language"] == "fr"
-        assert engine.state.config["beam_size"] == 5
-        assert engine.state.config["best_of"] == 4
+        assert engine.state.config["pause_ms"] == 800
+        assert engine.state.config["copy_to_clipboard"] is True
+        assert engine.state.config["vad_aggressiveness"] == 3
+        assert engine.state.config["min_chunk_s"] == 0.6
 
     def test_concurrent_updates_different_keys(self):
         ds = DictationState()
@@ -173,11 +172,11 @@ class TestConcurrentConfigUpdates:
                     errors.append(e)
 
         update_sets = [
-            {"model_size": "base"},
-            {"language": "fr"},
+            {"pause_ms": 800},
+            {"copy_to_clipboard": True},
             {"compute_key": "cpu-float32"},
-            {"beam_size": 3},
-            {"best_of": 5},
+            {"vad_aggressiveness": 3},
+            {"min_chunk_s": 0.6},
         ]
         threads = [threading.Thread(target=updater, args=(u,)) for u in update_sets]
         for t in threads:
@@ -201,9 +200,9 @@ class TestEngineAudioWithMocks:
         result = engine.run_transcription()
         assert result is None
 
-    def test_run_transcription_with_no_audio_file(self, state, mock_whisper_model, tmp_dir):
+    def test_run_transcription_with_no_audio_file(self, state, mock_asr_model, tmp_dir):
         engine = Engine(state)
-        state.model = mock_whisper_model
+        state.model = mock_asr_model
         # RECORDING_PATH doesn't exist
         result = engine.run_transcription()
         assert result is None
