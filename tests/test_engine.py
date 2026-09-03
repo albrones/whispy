@@ -258,6 +258,13 @@ class TestEngineConfigUpdate:
         engine.start_fn_listener()
         assert make.call_args.kwargs["trigger"] == 61
 
+    def test_min_speech_s_rewires_streaming_without_restart(self, engine, mocker):
+        """A streaming-parameter change re-configures the live audio engine."""
+        spy = mocker.spy(engine._audio_engine, "configure_streaming")
+        engine.update_config({"min_speech_s": 1.5})
+        assert spy.call_count == 1
+        assert spy.call_args.kwargs["min_speech_s"] == 1.5
+
     def test_settings_survive_restart(self, engine, config_path):
         """Selecting settings then reloading from disk (a restart) keeps them.
 

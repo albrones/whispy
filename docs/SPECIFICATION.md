@@ -114,6 +114,7 @@ Owns loading, validation, and migration of the config file (previously inline in
     # streaming / incremental transcription
     "streaming_enabled": True,
     "pause_ms": 600,                  # trailing silence that closes a chunk
+    "min_speech_s": 0.7,              # voiced seconds a chunk needs before a pause closes it
     "min_chunk_s": 0.4,               # chunk shorter than this is discarded
     "max_chunk_s": 12.0,              # hard cap: force-flush run-on speech
     "vad_aggressiveness": 2,          # WebRTC VAD 0-3
@@ -199,7 +200,7 @@ Valid transitions: `IDLE → RECORDING → TRANSCRIBING → IDLE`. `start_record
 | `stop()` | Stop/close the stream, flush the tail chunk, FSM RECORDING→TRANSCRIBING. |
 | `get_level()` | Live mic level 0.0–1.0 for the waveform UI. |
 | `transcribe(...)` | `model.recognize(audio_path)` behind three gates: min-duration, an RMS silence gate (`SILENCE_RMS_THRESHOLD = 0.005`), then a speech gate (`MIN_SPEECH_DURATION_S = 0.20`) via `_carries_speech`. Both energy gates fail open when their measurement is unavailable. No decoder arguments: the transducer detects language itself, decodes greedily, and exposes no prompt/hotword channel. |
-| `configure_streaming(enabled, on_chunk, *, pause_ms, min_chunk_s, max_chunk_s, aggressiveness)` | Enable/disable live segmentation and register the chunk sink. |
+| `configure_streaming(enabled, on_chunk, *, pause_ms, min_speech_s, max_chunk_s, aggressiveness)` | Enable/disable live segmentation and register the chunk sink. |
 | `segment_pcm(pcm, ...)` | Replay raw PCM through the live segmenter; returns chunk WAV paths (drives `stream_file`). |
 | `_get_audio_duration` / `cleanup_audio_file` | WAV-header duration; temp-file cleanup. |
 
@@ -213,7 +214,7 @@ Valid transitions: `IDLE → RECORDING → TRANSCRIBING → IDLE`. `start_record
 
 Deliberately a duration rather than a voiced/silent ratio: one word inside a 10 s key-hold is ~6% voiced frames, the same as steady room noise, while its voiced duration (0.66 s) is unmistakable. Measured separation across 125 noise realizations above the RMS gate: worst 0.12 s voiced against 0.33 s for the shortest real one-word dictation. Known ceiling — past roughly 0.04 normalized RMS `webrtcvad` labels steady noise fully voiced and the gate stops discriminating; that band is left to the model, which returned an empty string for every such clip measured.
 
-`SpeechSegmenter` decides chunk boundaries frame-by-frame for streaming. It uses `webrtcvad` when available (gain-independent), falling back to a normalized-RMS energy gate. Capture is 16 kHz mono int16; frames are 30 ms (480 samples / 960 bytes). A boundary is emitted when buffered speech is followed by ≥ `pause_ms` of silence (and ≥ `min_chunk_s`), or when the buffer reaches `max_chunk_s` (forced flush). `feed(raw) → bool` (boundary occurred), `flush_tail() → bool` (pending chunk on stop), `reset_chunk()`, `has_pending`. The segmenter never drops audio — it only decides cut points.
+`SpeechSegmenter` decides chunk boundaries frame-by-frame for streaming. It uses `webrtcvad` when available (gain-independent), falling back to a normalized-RMS energy gate. Capture is 16 kHz mono int16; frames are 30 ms (480 samples / 960 bytes). A boundary is emitted when buffered speech carrying ≥ `min_speech_s` of **voiced** audio is followed by ≥ `pause_ms` of silence, or when the buffer reaches `max_chunk_s` (forced flush). The minimum-size guard measures voiced seconds, not elapsed buffered seconds: each chunk is one independent model call, and measured through the production gates an isolated "oui" chunk of 1.11 s total but 0.39 s voiced came back as English 5/5, while the same word with 0.72 s voiced was correct 5/5 — elapsed duration does not separate the two, voiced duration does. Below the threshold the segmenter keeps buffering, so the short word is carried into the next chunk; nothing is discarded. The `max_chunk_s` branch and `flush_tail()` are deliberately independent of the threshold, so audio can neither be held indefinitely nor lost when a dictation is one short word. `feed(raw) → bool` (boundary occurred), `flush_tail() → bool` (pending chunk on stop), `reset_chunk()`, `has_pending`. The segmenter never drops audio — it only decides cut points.
 
 ---
 
@@ -353,6 +354,7 @@ Run via `python whispy_daemon.py --doctor` (or `make doctor`). Each check return
 | `trigger_mode` | str | `"hold"` | `"hold"` (push-to-talk: hold to record, release to stop) or `"toggle"` (press to start, press again to stop); an invalid value falls back to `"hold"` |
 | `streaming_enabled` | bool | `True` | streaming vs. whole-file transcription |
 | `pause_ms` | number | `600` | > 0 |
+| `min_speech_s` | number | `0.7` | ≥ 0 |
 | `min_chunk_s` | number | `0.4` | ≥ 0 |
 | `max_chunk_s` | number | `12.0` | > `min_chunk_s` |
 | `vad_aggressiveness` | int | `2` | 0–3 |

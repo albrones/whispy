@@ -50,6 +50,8 @@ python3 -m venv /tmp/fw-venv && /tmp/fw-venv/bin/pip install faster-whisper
 | `probe_noise_rate.py` | How often does loud non-speech become text, and does the speech gate stop it? | project venv |
 | `probe_vad_seconds.py` | Why does the speech gate measure voiced seconds instead of a ratio, and where does it stop working? | project venv |
 | `probe_logprobs.py` | Could token confidence reject invented short output? (no) | project venv |
+| `probe_chunk_language.py` | Does streaming segmentation, not language detection, make a French dictation come back partly in English? | project venv |
+| `probe_chunk_merge.py` | How much surrounding speech does a too-short chunk need before the language is right again? | project venv |
 
 ## Measured on an Apple M1 Pro
 

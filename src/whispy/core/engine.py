@@ -591,7 +591,7 @@ class Engine:
             self._streaming,
             self._enqueue_chunk,
             pause_ms=cfg.get("pause_ms", 600),
-            min_chunk_s=cfg.get("min_chunk_s", 0.4),
+            min_speech_s=cfg.get("min_speech_s", 0.7),
             max_chunk_s=cfg.get("max_chunk_s", 12.0),
             aggressiveness=cfg.get("vad_aggressiveness", 2),
         )
@@ -614,11 +614,17 @@ class Engine:
         try:
             if self.state.model is None or not os.path.exists(path):
                 return
+            duration = self._audio_engine._get_audio_duration(path)
             text = self._audio_engine.transcribe(
                 audio_path=path,
                 model=self.state.model,
                 min_recording_duration=self.state.config.get("min_chunk_s", 0.4),
             )
+            # One line per chunk. Without it a live-drive cannot tell wrong-language
+            # output apart from keystroke-injection corruption, nor show whether a
+            # short word was carried into its neighbour or emitted alone. The
+            # discard paths inside transcribe() already log their own reason.
+            logger.info("[engine] chunk %.2fs -> %r", duration or 0.0, text)
             if not text:
                 return
             cleaned = clean_text(text, self.state.config.get("custom_vocabulary"))
@@ -737,7 +743,7 @@ class Engine:
         paths = self._audio_engine.segment_pcm(
             pcm,
             pause_ms=cfg.get("pause_ms", 600),
-            min_chunk_s=min_chunk_s,
+            min_speech_s=cfg.get("min_speech_s", 0.7),
             max_chunk_s=cfg.get("max_chunk_s", 12.0),
             aggressiveness=cfg.get("vad_aggressiveness", 2),
         )
@@ -1151,6 +1157,7 @@ class Engine:
         streaming_keys = {
             "streaming_enabled",
             "pause_ms",
+            "min_speech_s",
             "min_chunk_s",
             "max_chunk_s",
             "vad_aggressiveness",
