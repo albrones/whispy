@@ -10,15 +10,19 @@ from pathlib import Path
 from typing import Any
 
 # Curated push-to-talk trigger presets for the menu UI: ordered (label, value)
-# where value is None for the platform default (Fn on macOS) or a macOS keycode.
-# Keycodes are Carbon virtual keycodes (what CGEvent reports). Only keys that
-# work as a *hold* without blocking typing or stealing system shortcuts are
-# listed — letter/space/Esc keys and the Caps Lock toggle are deliberately out.
-# ponytail: confirm each keycode against a real CGEventTap before trusting it
-# (see tasks 1.2 / 4.2) — the keycode table in event_decode names some of these
-# differently, but matching/decoding is by raw keycode, and the label here is
-# what the menu shows, so a wrong name there does not mislead the UI.
-TRIGGER_PRESETS: list[tuple[str, int | None]] = [
+# where value is None for the platform default (Fn on macOS) or a macOS keycode
+# (int). Keycodes are Carbon virtual keycodes (what CGEvent reports). Only keys
+# that work as a *hold* without blocking typing or stealing system shortcuts
+# are listed — letter/space/Esc keys and the Caps Lock toggle are deliberately
+# out, and so are modifier combinations: the macOS event tap is listen-only and
+# cannot consume the event, so any combination the focused application also
+# binds would fire that application's own shortcut on both the start and the
+# stop press.
+#
+# A modifier-combination string (e.g. "ctrl+alt+cmd+e", see
+# hardware/event_decode.parse_trigger) is still a valid hand-edited config
+# value and is honoured by the listener; it just has no preset item here.
+TRIGGER_PRESETS: list[tuple[str, int | str | None]] = [
     ("Fn", None),  # platform default; None keeps "default" semantics (keycode 63)
     ("Right Command", 54),
     ("Right Option", 61),
@@ -39,6 +43,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # (Fn / keycode 63 on macOS, Right Ctrl on Linux), resolved at runtime by
     # the engine. May be an int (macOS keycode) or a string (key/combo name).
     "trigger": None,
+    # How the trigger controls recording. "hold" is push-to-talk — the trigger
+    # must be held for the whole dictation (current, default behavior).
+    # "toggle" means a trigger press starts recording and the next trigger
+    # press stops it; the trigger release does not stop recording. This is
+    # deliberately a key of its own rather than a property of each trigger
+    # preset, so any trigger composes with either mode without doubling the
+    # menu's trigger list.
+    "trigger_mode": "hold",
     # --- Streaming / incremental transcription ---
     # When enabled (default), the recording is segmented on silence (and a max
     # length) and each chunk is transcribed during recording, so the assembled
@@ -47,6 +59,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "streaming_enabled": True,
     # Minimum trailing silence (milliseconds) that closes a chunk.
     "pause_ms": 600,
+    # Minimum *voiced* seconds a chunk must hold before a pause may close it.
+    # Each chunk is one independent model call, and a chunk carrying too little
+    # speech is resolved into the wrong language (an isolated "oui" of 0.39s
+    # voiced came back as English 5/5; the same word with 0.72s voiced was
+    # correct 5/5). Below this the segmenter keeps buffering, so the short word
+    # rides along with its neighbour. Provisional: both measurements come from
+    # synthesized speech with a single voice, so a real microphone or room may
+    # move where VAD counts a frame as voiced -- retune rather than refile.
+    # Distinct from min_chunk_s below, which discards; this one only defers.
+    "min_speech_s": 0.7,
     # A chunk shorter than this (seconds) is discarded rather than transcribed
     # (mirrors min_recording_duration, applied per chunk).
     "min_chunk_s": 0.4,
@@ -120,6 +142,15 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
     elif isinstance(trigger, str):
         validated["trigger"] = trigger.strip()
 
+    # Validate trigger_mode (must be exactly "hold" or "toggle").
+    trigger_mode = validated.get("trigger_mode")
+    if trigger_mode not in ("hold", "toggle"):
+        print(
+            f"[config] Invalid trigger_mode '{trigger_mode}', defaulting to {DEFAULT_CONFIG['trigger_mode']}",
+            file=sys.stderr,
+        )
+        validated["trigger_mode"] = DEFAULT_CONFIG["trigger_mode"]
+
     # Validate streaming_enabled (must be bool).
     se = validated.get("streaming_enabled")
     if not isinstance(se, bool):
@@ -137,6 +168,15 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
             file=sys.stderr,
         )
         validated["pause_ms"] = DEFAULT_CONFIG["pause_ms"]
+
+    # Validate min_speech_s (must be a non-negative number; bool rejected).
+    mss = validated.get("min_speech_s")
+    if not isinstance(mss, int | float) or isinstance(mss, bool) or mss < 0:
+        print(
+            f"[config] Invalid min_speech_s '{mss}', defaulting to {DEFAULT_CONFIG['min_speech_s']}",
+            file=sys.stderr,
+        )
+        validated["min_speech_s"] = DEFAULT_CONFIG["min_speech_s"]
 
     # Validate min_chunk_s (must be a non-negative number; bool rejected).
     mcs = validated.get("min_chunk_s")

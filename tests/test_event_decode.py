@@ -10,9 +10,11 @@ if str(_src) not in sys.path:
 from whispy.hardware.event_decode import (
     DEFAULT_TRIGGER_KEYCODE,
     NX_SECONDARYFNMASK,
+    canonical_modifier,
     decode_key_match,
     decode_trigger_event,
     keycode_to_name,
+    parse_trigger,
     trigger_held_after_rearm,
 )
 from whispy.platform.detect import LINUX_DEFAULT_TRIGGER, detect
@@ -85,6 +87,110 @@ class TestKeycodeToName:
 
     def test_unknown_keycode_fallback(self):
         assert keycode_to_name(9999) == "key9999"
+
+    def test_corrected_letters(self):
+        # kVK_ANSI_E = 0x0E = 14, kVK_ANSI_C = 0x08 = 8 (Apple's Events.h).
+        # The table previously had these swapped/missing; see 2.5.
+        assert keycode_to_name(14) == "e"
+        assert keycode_to_name(8) == "c"
+
+
+class TestParseTrigger:
+    def test_full_combo(self):
+        assert parse_trigger("ctrl+alt+cmd+e") == (14, 0x1C0000)
+
+    def test_full_combo_other_key(self):
+        assert parse_trigger("ctrl+alt+cmd+f") == (3, 0x1C0000)
+
+    def test_bare_key_no_modifiers(self):
+        # Read straight from the table rather than guessing the keycode.
+        from whispy.hardware.event_decode import _KEYCODE_TO_NAME
+
+        space_keycode = next(k for k, v in _KEYCODE_TO_NAME.items() if v == "space")
+        assert parse_trigger("space") == (space_keycode, 0)
+
+    def test_none_is_none(self):
+        assert parse_trigger(None) is None
+
+    def test_empty_string_is_none(self):
+        assert parse_trigger("") is None
+
+    def test_whitespace_only_is_none(self):
+        assert parse_trigger("   ") is None
+
+    def test_non_string_is_none(self):
+        assert parse_trigger(123) is None
+
+    def test_unknown_key_is_none(self):
+        assert parse_trigger("ctrl+alt+cmd+zzz") is None
+
+    def test_unknown_modifier_is_none(self):
+        assert parse_trigger("meta+e") is None
+
+    def test_wrong_modifier_order_is_none(self):
+        assert parse_trigger("alt+ctrl+e") is None
+
+    def test_no_key_segment_is_none(self):
+        assert parse_trigger("ctrl+alt+cmd+") is None
+
+
+class TestDecodeTriggerEventCombination:
+    """decode_trigger_event's required_mask gate for a combination trigger."""
+
+    E_KEYCODE = 14
+    FULL_MASK = 0x1C0000  # ctrl+alt+cmd
+
+    def test_key_down_with_all_modifiers_held_is_press(self):
+        result = decode_trigger_event(
+            "key_down", self.E_KEYCODE, self.FULL_MASK, self.E_KEYCODE, required_mask=self.FULL_MASK
+        )
+        assert result == "press"
+
+    def test_key_down_with_partial_modifiers_is_none(self):
+        partial = 0x40000 | 0x80000  # ctrl+alt only, missing cmd
+        result = decode_trigger_event("key_down", self.E_KEYCODE, partial, self.E_KEYCODE, required_mask=self.FULL_MASK)
+        assert result is None
+
+    def test_key_down_with_no_modifiers_is_none(self):
+        result = decode_trigger_event("key_down", self.E_KEYCODE, 0, self.E_KEYCODE, required_mask=self.FULL_MASK)
+        assert result is None
+
+    def test_key_up_ignores_required_mask(self):
+        # The user may release Command/Option/Control before the letter.
+        result = decode_trigger_event("key_up", self.E_KEYCODE, 0, self.E_KEYCODE, required_mask=self.FULL_MASK)
+        assert result == "release"
+
+    def test_required_mask_zero_reproduces_existing_behavior(self):
+        assert decode_trigger_event("key_down", 49, 0, 49, required_mask=0) == "press"
+        assert decode_trigger_event("key_up", 49, 0, 49, required_mask=0) == "release"
+
+
+class TestCanonicalModifier:
+    def test_known_pynput_modifiers(self):
+        assert canonical_modifier("ctrl_r") == "ctrl"
+        assert canonical_modifier("ctrl_l") == "ctrl"
+        assert canonical_modifier("alt_gr") == "alt"
+        assert canonical_modifier("cmd") == "cmd"
+        assert canonical_modifier("shift") == "shift"
+
+    def test_non_modifier_is_none(self):
+        assert canonical_modifier("a") is None
+
+
+class TestDecodeKeyMatchWithModifiers:
+    def test_all_required_modifiers_held_is_press(self):
+        held = frozenset({"ctrl", "alt", "cmd"})
+        required = frozenset({"ctrl", "alt", "cmd"})
+        assert decode_key_match("key_down", "e", "e", held, required) == "press"
+
+    def test_partial_modifiers_held_is_none(self):
+        held = frozenset({"ctrl", "alt"})
+        required = frozenset({"ctrl", "alt", "cmd"})
+        assert decode_key_match("key_down", "e", "e", held, required) is None
+
+    def test_key_up_ignores_required_modifiers(self):
+        required = frozenset({"ctrl", "alt", "cmd"})
+        assert decode_key_match("key_up", "e", "e", frozenset(), required) == "release"
 
 
 class TestDecodeKeyMatch:

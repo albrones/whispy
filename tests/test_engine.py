@@ -258,6 +258,13 @@ class TestEngineConfigUpdate:
         engine.start_fn_listener()
         assert make.call_args.kwargs["trigger"] == 61
 
+    def test_min_speech_s_rewires_streaming_without_restart(self, engine, mocker):
+        """A streaming-parameter change re-configures the live audio engine."""
+        spy = mocker.spy(engine._audio_engine, "configure_streaming")
+        engine.update_config({"min_speech_s": 1.5})
+        assert spy.call_count == 1
+        assert spy.call_args.kwargs["min_speech_s"] == 1.5
+
     def test_settings_survive_restart(self, engine, config_path):
         """Selecting settings then reloading from disk (a restart) keeps them.
 
@@ -1123,17 +1130,53 @@ class TestChunkDrainTimeout:
 class TestWatchdogRecovery:
     """The FSM watchdog force-recovers a wedged RECORDING/TRANSCRIBING to IDLE."""
 
-    def test_recording_watchdog_recovers_to_idle(self, engine):
+    def test_recording_limit_stops_gracefully_and_preserves_text(self, engine):
+        """Reaching RECORDING_MAX_S hands off to the ordinary stop path.
+
+        The old behavior force-recovered, and _force_recover clears _chunk_texts.
+        Under push-to-talk that was nearly unreachable; a toggle-mode dictation
+        can legitimately run five minutes, and discarding already-transcribed
+        speech is never the desired outcome.
+        """
         import time
 
         import whispy.core.engine as eng_mod
 
+        messages = []
+        engine.on_recording_limit_reached(messages.append)
         engine._state_machine.start_recording()
         assert engine._state_machine.is_recording
+        with engine.state.lock:
+            engine._chunk_texts = ["bonjour"]
         # Pretend recording started long before the RECORDING backstop.
         engine._recording_since = time.monotonic() - (eng_mod.RECORDING_MAX_S + 1)
+
         engine._watchdog_tick()
+
+        # Handed to the transcription worker, not force-recovered.
+        assert engine._state_machine.is_transcribing
+        assert engine.state.stop_event.is_set()
+        assert engine._deliver_to_clipboard is True
+        # The transcript survives for the worker to assemble.
+        assert engine._chunk_texts == ["bonjour"]
+        assert len(messages) == 1
+        assert "clipboard" in messages[0]
+
+    def test_failed_graceful_stop_falls_back_to_forced_recovery(self, engine, mocker):
+        """The watchdog exists to break a wedged FSM: if the graceful stop cannot
+        transition RECORDING -> TRANSCRIBING, forced recovery still runs."""
+        import time
+
+        import whispy.core.engine as eng_mod
+
+        mocker.patch.object(engine, "stop_recording", side_effect=RuntimeError("boom"))
+        engine._state_machine.start_recording()
+        engine._recording_since = time.monotonic() - (eng_mod.RECORDING_MAX_S + 1)
+
+        engine._watchdog_tick()
+
         assert engine._state_machine.is_idle
+        assert engine._deliver_to_clipboard is False
 
     def test_transcribing_watchdog_recovers_to_idle(self, engine):
         import time
@@ -1202,7 +1245,8 @@ class TestInjectWaitsForTriggerRelease:
         from whispy.core.engine import Engine
 
         src = inspect.getsource(Engine.start_transcription_worker)
-        inject_idx = src.index("inject(assembled)")
+        # Delivery now goes through _deliver(), which chooses inject vs clipboard.
+        inject_idx = src.index("_deliver(assembled)")
         assembled_idx = src.index("assembled = ")
         assert "_wait_trigger_released()" in src[assembled_idx:inject_idx]
 
@@ -1247,3 +1291,171 @@ class TestNoDoubleInjectionOnRapidRepress:
         finally:
             eng.stop_transcription_worker()
             eng.stop_chunk_worker()
+
+
+class TestTriggerModeDispatch:
+    """Toggle mode routes press/release differently from hold mode, in the one
+    cross-platform seam (the trigger worker) rather than in either platform
+    listener, so macOS and Linux cannot drift apart."""
+
+    def test_hold_mode_press_starts_and_release_stops(self, engine, mocker):
+        press = mocker.patch.object(engine, "_handle_trigger_press_work")
+        release = mocker.patch.object(engine, "_handle_trigger_release_work")
+
+        assert engine._trigger_mode == "hold"
+        engine._handle_trigger_press_signal()
+        press.assert_called_once()
+        release.assert_not_called()
+
+        engine._handle_trigger_release_signal()
+        release.assert_called_once()
+
+    def test_toggle_press_starts_when_idle(self, engine, mocker):
+        engine.update_config({"trigger_mode": "toggle"})
+        press = mocker.patch.object(engine, "_handle_trigger_press_work")
+        release = mocker.patch.object(engine, "_handle_trigger_release_work")
+
+        engine._handle_trigger_press_signal()
+
+        press.assert_called_once()
+        release.assert_not_called()
+
+    def test_toggle_second_press_stops(self, engine, mocker):
+        engine.update_config({"trigger_mode": "toggle"})
+        engine._state_machine.start_recording()
+        press = mocker.patch.object(engine, "_handle_trigger_press_work")
+        stop = mocker.patch.object(engine, "_stop_and_signal")
+
+        engine._handle_trigger_press_signal()
+
+        stop.assert_called_once()
+        press.assert_not_called()
+
+    def test_toggle_stop_does_not_announce_a_release(self, engine, mocker):
+        """Regression: the stopping press arrives with the keys physically down.
+
+        Announcing a release there hides the waveform pill (the menu bar listens
+        on that event) and, worse, clears the trigger-held flag while the
+        combination is still held -- letting injection start with the modifiers
+        down.
+        """
+        engine.update_config({"trigger_mode": "toggle"})
+        engine._state_machine.start_recording()
+        released = []
+        engine.on_fn_released(lambda: released.append(1))
+        mocker.patch.object(engine, "stop_recording", return_value=True)
+
+        engine._handle_trigger_press_signal()
+
+        assert released == []
+        assert engine._fn_pressed is True
+
+    def test_toggle_release_does_not_stop_recording(self, engine, mocker):
+        engine.update_config({"trigger_mode": "toggle"})
+        engine._state_machine.start_recording()
+        release = mocker.patch.object(engine, "_handle_trigger_release_work")
+
+        engine._handle_trigger_release_signal()
+
+        release.assert_not_called()
+        assert engine._state_machine.is_recording
+
+    def test_mode_change_applies_without_a_restart(self, engine):
+        assert engine._trigger_mode == "hold"
+        engine.update_config({"trigger_mode": "toggle"})
+        assert engine._trigger_mode == "toggle"
+        engine.update_config({"trigger_mode": "hold"})
+        assert engine._trigger_mode == "hold"
+
+
+class TestToggleKeepsTriggerHeldFlagAccurate:
+    """Regression guard for the trap in toggle mode: the release no longer stops
+    recording, but it must still clear _fn_pressed. Left set, _wait_trigger_released
+    would block every injection for its full timeout -- and because streaming
+    injects almost immediately after the stopping press, a modifier still recorded
+    as held is exactly what mangles the typed characters."""
+
+    def test_release_clears_fn_pressed_in_toggle_mode(self, engine):
+        engine.update_config({"trigger_mode": "toggle"})
+        engine._notify_fn_pressed()
+        assert engine._fn_pressed is True
+
+        engine._handle_trigger_release_signal()
+
+        assert engine._fn_pressed is False
+
+    def test_toggle_release_does_not_fan_out_to_subscribers(self, engine):
+        """Regression (found in live-drive): the pill vanished mid-dictation.
+
+        In toggle mode the key is released seconds before the dictation ends, so
+        the release must clear the flag WITHOUT announcing a release -- the menu
+        bar hides the waveform on that event. The pill's lifecycle belongs to
+        the recording, not to the key.
+        """
+        engine.update_config({"trigger_mode": "toggle"})
+        engine._notify_fn_pressed()
+        released = []
+        engine.on_fn_released(lambda: released.append(1))
+
+        engine._handle_trigger_release_signal()
+
+        assert released == []
+        assert engine._fn_pressed is False
+
+    def test_hold_mode_release_still_fans_out(self, engine, mocker):
+        """The hold path must keep announcing releases -- that is what puts the
+        pill away when a press showed it but recording never started."""
+        mocker.patch.object(engine, "stop_recording", return_value=False)
+        released = []
+        engine.on_fn_released(lambda: released.append(1))
+
+        engine._handle_trigger_release_signal()
+
+        assert released == [1]
+
+    def test_wait_returns_immediately_after_a_toggle_release(self, engine):
+        import time
+
+        engine.update_config({"trigger_mode": "toggle"})
+        engine._notify_fn_pressed()
+        engine._handle_trigger_release_signal()
+
+        t0 = time.monotonic()
+        engine._wait_trigger_released()
+        assert time.monotonic() - t0 < 1.0
+
+
+class TestRecordingLimitDelivery:
+    """At the recording limit the transcript is copied, not typed: after minutes
+    of speech there is no basis for assuming the originally focused field still
+    has focus."""
+
+    def test_limit_flag_routes_delivery_to_the_clipboard(self, engine, mocker):
+        copy = mocker.patch.object(engine._text_injector, "copy_only")
+        inject = mocker.patch.object(engine._text_injector, "inject")
+        engine._deliver_to_clipboard = True
+
+        engine._deliver("bonjour")
+
+        copy.assert_called_once_with("bonjour")
+        inject.assert_not_called()
+
+    def test_normal_delivery_injects(self, engine, mocker):
+        copy = mocker.patch.object(engine._text_injector, "copy_only")
+        inject = mocker.patch.object(engine._text_injector, "inject")
+
+        engine._deliver("bonjour")
+
+        inject.assert_called_once_with("bonjour")
+        copy.assert_not_called()
+
+    def test_flag_is_cleared_once_per_cycle_not_in_deliver(self):
+        """A cycle that produced no text never reaches _deliver, so clearing the
+        one-shot flag there would let it leak into the next dictation."""
+        import inspect
+
+        from whispy.core.engine import Engine
+
+        src = inspect.getsource(Engine.start_transcription_worker)
+        assert "self._deliver_to_clipboard = False" in src
+        assert "self._deliver_to_clipboard = False" not in inspect.getsource(Engine._deliver)

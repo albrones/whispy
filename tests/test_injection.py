@@ -11,9 +11,12 @@ _src = Path(__file__).parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
+import subprocess
 import time
 
-from whispy.hardware.injection import TextInjector
+import pytest
+
+from whispy.hardware.injection import _UTF8_ENV, TextInjector
 
 
 def _ok(popen_instance):
@@ -408,3 +411,85 @@ class TestKeystrokeDenialDebounce:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# UTF-8 locale on the clipboard helpers
+# ---------------------------------------------------------------------------
+
+
+def _envs(popen_mock):
+    """Return the ``env`` kwarg passed to each Popen call."""
+    return [call.kwargs.get("env") for call in popen_mock.call_args_list]
+
+
+class TestUtf8Locale:
+    """pbcopy/pbpaste fall back to Mac Roman without a locale, so every helper
+    the injector spawns must carry a forced UTF-8 locale -- snapshot and
+    restore included, or fixing the copy alone corrupts the restore."""
+
+    def test_clipboard_path_forces_utf8_locale_on_every_step(self, mock_subprocess):
+        run_mock, popen_mock, popen_instance = mock_subprocess
+        _ok(popen_instance)
+        _ok_pbpaste(run_mock, stdout=b"d\xc3\xa9j\xc3\xa0 vu")
+        injector = TextInjector(copy_to_clipboard=True)
+        injector.inject("là créer ça")
+
+        assert _wait_communicate(popen_instance, 3)  # pbcopy, paste, restore
+        envs = _envs(popen_mock)
+        assert len(envs) == 3
+        assert all(env is not None and env["LC_ALL"] == "en_US.UTF-8" for env in envs)
+        assert all(env["LANG"] == "en_US.UTF-8" for env in envs)
+        # The transcript itself still reaches pbcopy as UTF-8 bytes.
+        assert popen_instance.communicate.call_args_list[0].kwargs.get("input") == "là créer ça".encode()
+
+    def test_snapshot_pbpaste_shares_the_locale(self, mock_subprocess):
+        run_mock, _, popen_instance = mock_subprocess
+        _ok(popen_instance)
+        _ok_pbpaste(run_mock, stdout=b"previous")
+        injector = TextInjector(copy_to_clipboard=True)
+        injector.inject("hello")
+
+        assert run_mock.call_args.args[0] == ["pbpaste"]
+        assert run_mock.call_args.kwargs.get("env") is _UTF8_ENV
+        assert _wait_communicate(popen_instance, 3)
+
+    def test_keystroke_path_forces_utf8_locale(self, mock_subprocess):
+        _, popen_mock, popen_instance = mock_subprocess
+        _ok(popen_instance)
+        injector = TextInjector(copy_to_clipboard=False)
+        injector.inject("hello")
+
+        assert _wait_communicate(popen_instance, 1)
+        assert _envs(popen_mock) == [_UTF8_ENV]
+
+    def test_copy_only_forces_utf8_locale(self, mock_subprocess):
+        _, popen_mock, popen_instance = mock_subprocess
+        _ok(popen_instance)
+        injector = TextInjector(copy_to_clipboard=True)
+        injector.copy_only("hello")
+
+        assert _wait_communicate(popen_instance, 1)
+        assert _commands(popen_mock) == [["pbcopy"]]
+        assert _envs(popen_mock) == [_UTF8_ENV]
+
+    @pytest.mark.macos
+    def test_real_pbcopy_pbpaste_roundtrip_with_empty_environment(self):
+        """Real seam: with the launchd-like empty environment plus only the
+        forced locale, accented text round-trips byte-exact. The developer
+        clipboard is snapshotted and restored around the check."""
+        if sys.platform != "darwin":
+            pytest.skip("pbcopy/pbpaste are macOS-only")
+        forced = {"LC_ALL": "en_US.UTF-8", "LANG": "en_US.UTF-8"}
+        sample = "là créer ça".encode()
+        saved = subprocess.run(["pbpaste"], capture_output=True, timeout=2, env=forced).stdout
+        try:
+            subprocess.run(["pbcopy"], input=sample, timeout=2, env=forced, check=True)
+            out = subprocess.run(["pbpaste"], capture_output=True, timeout=2, env=forced, check=True).stdout
+            assert out == sample
+            # Control: the bare environment really does corrupt (documents the bug).
+            subprocess.run(["pbcopy"], input=sample, timeout=2, env={}, check=True)
+            bare = subprocess.run(["pbpaste"], capture_output=True, timeout=2, env=forced, check=True).stdout
+            assert bare != sample
+        finally:
+            subprocess.run(["pbcopy"], input=saved, timeout=2, env=forced)

@@ -68,7 +68,8 @@
         <h1>Speak. <span class="accent">It types.</span><br />Nothing leaves your computer.</h1>
         <p class="lede">
           Whispy is a private voice-dictation utility for macOS and Linux. Hold
-          your push-to-talk key, talk, and release — your words land in whatever
+          your push-to-talk key, talk, and release — or flip on toggle mode and
+          press once to start, once to stop — your words land in whatever
           app you're using. All transcription runs locally with NVIDIA's
           <code>parakeet-tdt-0.6b-v3</code>. No cloud, no account, no telemetry.
         </p>
@@ -98,9 +99,10 @@
       <h2>See it work</h2>
       <p class="section-lede">
         Hold your push-to-talk key, speak, release — Whispy types into whatever
-        field has focus. Switch languages right from the tray. Here's the whole
-        loop. The trigger is configurable; it defaults to <kbd>Fn</kbd> on macOS
-        and <kbd>Right Ctrl</kbd> on Linux. On macOS, pick it straight from the
+        field has focus. Here's the whole loop. Don't want to hold it? Turn on
+        toggle mode: one press starts, the next stops. The trigger is
+        configurable; it defaults to <kbd>Fn</kbd> on macOS and
+        <kbd>Right Ctrl</kbd> on Linux. On macOS, pick it straight from the
         menu — <kbd>Fn</kbd>, <kbd>Right Command</kbd>, <kbd>Right Option</kbd>,
         or <kbd>F13</kbd>.
       </p>
@@ -132,6 +134,9 @@
           <div class="dd-section">Settings</div>
           <div class="dd-item dd-toggle is-checked" data-demo-clip-row>
             <span>Copy to clipboard</span><span class="dd-tick">✓</span>
+          </div>
+          <div class="dd-item dd-toggle">
+            <span>Toggle mode</span><span class="dd-tick">✓</span>
           </div>
           <div class="dd-item dd-sub"><span>Trigger</span><span class="dd-val">Fn ›</span></div>
           <div class="dd-item dd-toggle"><span>Start at login</span><span class="dd-tick">✓</span></div>
@@ -186,6 +191,10 @@
           <p>Hold your push-to-talk key to record, release to insert text into any focused field — terminal, browser, editor.</p>
         </article>
         <article class="card">
+          <h3>Hold or toggle</h3>
+          <p>Not every dictation fits under a held-down key. Flip on toggle mode and one press starts recording, the next press stops it — composable with any trigger.</p>
+        </article>
+        <article class="card">
           <h3>macOS &amp; Linux</h3>
           <p>Native on macOS and Linux (X11). OS-specific seams sit behind a ports-and-adapters layer bound at runtime.</p>
         </article>
@@ -225,6 +234,7 @@
           <div><h3>Release</h3><p>Whispy transcribes locally and types the text into the active field.</p></div>
         </li>
       </ol>
+      <p class="section-lede">Prefer not to hold the key? Turn on <strong>Toggle mode</strong> in Settings — one press starts, the next stops.</p>
     </section>
 
     <!-- Privacy / open source / free -->

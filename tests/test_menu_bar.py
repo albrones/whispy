@@ -54,6 +54,7 @@ sys.modules["rumps"] = _fake_rumps
 # rebuilds the class against the real _App base.
 sys.modules.pop("whispy.ui.menu_bar", None)
 
+from whispy.core.config import TRIGGER_PRESETS
 from whispy.ui import menu_theme
 from whispy.ui.menu_bar import WhisperMenuBarApp
 
@@ -127,6 +128,150 @@ class TestCheckmarkInvariant:
 
         checked = [it._label for it in items if it.title.startswith(menu_theme.CHECK)]
         assert checked == ["Right Command"]
+
+
+class TestTriggerSelectF13Preset:
+    """Selecting a non-default keycode preset must persist, move the checkmark,
+    and re-label the submenu title (F13 stands in for any curated preset)."""
+
+    def _item(self, label, value):
+        # _menuitem=None forces apply_title's plain-string path (sets .title).
+        return SimpleNamespace(_label=label, _trigger_value=value, _menuitem=None, title=label)
+
+    def _app(self, items, trigger):
+        engine = MagicMock()
+        engine.state.config = {"trigger": trigger}
+        engine.update_config.side_effect = engine.state.config.update
+        app = SimpleNamespace(engine=engine, _trigger_items=items, trigger_menu=SimpleNamespace(title="Trigger: Fn"))
+        app._trigger_is_active = lambda value: WhisperMenuBarApp._trigger_is_active(app, value)
+        app._trigger_label = lambda: WhisperMenuBarApp._trigger_label(app)
+        app._update_trigger_title = lambda: WhisperMenuBarApp._update_trigger_title(app)
+        return app
+
+    def test_selecting_f13_persists_checks_and_labels(self, monkeypatch):
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        items = [self._item("Fn", None), self._item("F13", 105)]
+        app = self._app(items, trigger=None)
+
+        WhisperMenuBarApp._on_trigger_select(app, SimpleNamespace(_trigger_value=105))
+
+        app.engine.update_config.assert_called_once_with({"trigger": 105})
+        checked = [it._label for it in items if it.title.startswith(menu_theme.CHECK)]
+        assert checked == ["F13"]
+        assert app.trigger_menu.title == "Trigger: F13"
+
+    def test_hand_edited_combination_titles_itself_and_checks_nothing(self, monkeypatch):
+        # The combination decoder is kept for hand-edited configs even though no
+        # preset offers one: the title shows the raw string, no item is checked.
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        items = [self._item(label, value) for label, value in TRIGGER_PRESETS]
+        app = self._app(items, trigger="ctrl+alt+cmd+e")
+
+        WhisperMenuBarApp._update_trigger_title(app)
+
+        assert app.trigger_menu.title == "Trigger: ctrl+alt+cmd+e"
+        assert not any(app._trigger_is_active(it._trigger_value) for it in items)
+
+
+class TestTriggerLabelRawString:
+    """A configured string trigger matching no preset must render as itself,
+    not be passed through keycode_to_name (which expects an int)."""
+
+    def test_unmatched_combination_returns_raw_string(self):
+        engine = MagicMock()
+        engine.state.config = {"trigger": "ctrl+shift+z"}
+        app = SimpleNamespace(engine=engine)
+        app._trigger_is_active = lambda value: WhisperMenuBarApp._trigger_is_active(app, value)
+
+        assert WhisperMenuBarApp._trigger_label(app) == "ctrl+shift+z"
+
+
+class TestToggleTriggerMode:
+    """_on_toggle_trigger_mode flips trigger_mode and persists it, mirroring
+    _on_toggle_copy."""
+
+    def _sender(self, label="Toggle mode"):
+        # _menuitem=None forces apply_title's plain-string path (sets .title).
+        return SimpleNamespace(_label=label, _menuitem=None, title=label)
+
+    def _app(self, current):
+        engine = MagicMock()
+        engine.state.config = {"trigger_mode": current}
+        return SimpleNamespace(engine=engine)
+
+    def test_hold_to_toggle_persists_and_checks(self, monkeypatch):
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        app = self._app(current="hold")
+        sender = self._sender()
+
+        WhisperMenuBarApp._on_toggle_trigger_mode(app, sender)
+
+        app.engine.update_config.assert_called_once_with({"trigger_mode": "toggle"})
+        assert sender.title.rstrip().endswith(menu_theme.CHECK)
+
+    def test_toggle_to_hold_persists_and_unchecks(self, monkeypatch):
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        app = self._app(current="toggle")
+        sender = self._sender()
+
+        WhisperMenuBarApp._on_toggle_trigger_mode(app, sender)
+
+        app.engine.update_config.assert_called_once_with({"trigger_mode": "hold"})
+        assert not sender.title.rstrip().endswith(menu_theme.CHECK)
+
+
+class TestRefreshAccentsToggleMode:
+    """_refresh_accents must rebuild the Toggle mode title from current config,
+    same as it does for the clipboard toggle."""
+
+    def test_rebuilds_toggle_mode_title_checked(self, monkeypatch):
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        engine = MagicMock()
+        engine.state.config = {"trigger_mode": "toggle", "copy_to_clipboard": False}
+        app = SimpleNamespace(
+            engine=engine,
+            _settings_header=SimpleNamespace(_menuitem=None, title=""),
+            copy_menu=SimpleNamespace(_label="Copy to clipboard", _menuitem=None, title=""),
+            toggle_mode_menu=SimpleNamespace(_label="Toggle mode", _menuitem=None, title=""),
+            _trigger_items=[],
+            update_status_display=MagicMock(),
+        )
+
+        WhisperMenuBarApp._refresh_accents(app)
+
+        assert app.toggle_mode_menu.title.rstrip().endswith(menu_theme.CHECK)
+
+    def test_rebuilds_toggle_mode_title_unchecked(self, monkeypatch):
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        engine = MagicMock()
+        engine.state.config = {"trigger_mode": "hold", "copy_to_clipboard": False}
+        app = SimpleNamespace(
+            engine=engine,
+            _settings_header=SimpleNamespace(_menuitem=None, title=""),
+            copy_menu=SimpleNamespace(_label="Copy to clipboard", _menuitem=None, title=""),
+            toggle_mode_menu=SimpleNamespace(_label="Toggle mode", _menuitem=None, title=""),
+            _trigger_items=[],
+            update_status_display=MagicMock(),
+        )
+
+        WhisperMenuBarApp._refresh_accents(app)
+
+        assert not app.toggle_mode_menu.title.rstrip().endswith(menu_theme.CHECK)
+
+
+class TestRecordingLimitAlert:
+    """The recording-limit callback (engine, background thread) must queue a
+    pending alert like the other engine-driven warnings."""
+
+    def test_queues_alert_with_engine_message(self):
+        app = SimpleNamespace(_pending_alerts=[])
+
+        WhisperMenuBarApp._on_recording_limit_reached(app, "Recording stopped after 5 minutes.")
+
+        [(subtitle, message, url)] = app._pending_alerts
+        assert subtitle == "Dictation stopped"
+        assert message == "Recording stopped after 5 minutes."
+        assert url is None
 
 
 class TestLoginItemToggle:
@@ -350,9 +495,14 @@ class TestAlertQueue:
         popen.assert_called_once_with(["open", mb._SETTINGS_URLS["input_monitoring"]])
 
 
-class TestFnReleasedModelLoadingAlert:
-    """_on_fn_released warns when a dictation attempt raced the model load,
-    instead of the previous silent no-op (nothing transcribed, no feedback)."""
+class TestRecordingStopModelLoadingAlert:
+    """_on_recording_stop warns when a dictation attempt raced the model load,
+    instead of the previous silent no-op (nothing transcribed, no feedback).
+
+    It hangs off the recording lifecycle rather than the trigger release so it
+    fires when the *dictation* ends -- in toggle mode the key is released long
+    before that, and the engine does not announce a release there at all.
+    """
 
     def _app(self, model, model_loading):
         engine = SimpleNamespace(state=SimpleNamespace(model=model, model_loading=model_loading))
@@ -361,7 +511,7 @@ class TestFnReleasedModelLoadingAlert:
     def test_queues_alert_while_model_still_loading(self):
         app = self._app(model=None, model_loading=True)
 
-        WhisperMenuBarApp._on_fn_released(app)
+        WhisperMenuBarApp._on_recording_stop(app)
 
         app._visualization.hide.assert_called_once_with()
         [(subtitle, message, url)] = app._pending_alerts
@@ -372,7 +522,7 @@ class TestFnReleasedModelLoadingAlert:
     def test_no_alert_once_model_is_loaded(self):
         app = self._app(model=MagicMock(), model_loading=False)
 
-        WhisperMenuBarApp._on_fn_released(app)
+        WhisperMenuBarApp._on_recording_stop(app)
 
         assert app._pending_alerts == []
 
@@ -381,7 +531,7 @@ class TestFnReleasedModelLoadingAlert:
         # alert (on_model_load_failed); don't queue a second one here.
         app = self._app(model=None, model_loading=False)
 
-        WhisperMenuBarApp._on_fn_released(app)
+        WhisperMenuBarApp._on_recording_stop(app)
 
         assert app._pending_alerts == []
 
@@ -428,3 +578,29 @@ class TestLaunchRegressions:
         assert "_last_dark" in src.split("_anim_timer.start()")[0], (
             "_last_dark must be set before the anim timer starts"
         )
+
+
+class TestPillLifecycleBelongsToTheRecording:
+    """Regression (found in live-drive): in toggle mode the waveform pill vanished
+    as soon as the keys were lifted, while the dictation was still running."""
+
+    def _app(self):
+        engine = SimpleNamespace(state=SimpleNamespace(model=MagicMock(), model_loading=False))
+        return SimpleNamespace(engine=engine, _visualization=MagicMock(), _pending_alerts=[])
+
+    def test_fn_released_only_hides_and_nothing_else(self):
+        app = self._app()
+
+        WhisperMenuBarApp._on_fn_released(app)
+
+        app._visualization.hide.assert_called_once_with()
+        assert app._pending_alerts == []
+
+    def test_recording_start_shows_and_stop_hides(self):
+        app = self._app()
+
+        WhisperMenuBarApp._on_recording_start(app)
+        app._visualization.show.assert_called_once_with()
+
+        WhisperMenuBarApp._on_recording_stop(app)
+        app._visualization.hide.assert_called_once_with()

@@ -182,7 +182,7 @@ class AudioEngine:
         on_chunk: Callable[[str], None] | None = None,
         *,
         pause_ms: float = 600,
-        min_chunk_s: float = 0.4,
+        min_speech_s: float = 0.7,
         max_chunk_s: float = 12.0,
         aggressiveness: int = 2,
     ) -> None:
@@ -196,7 +196,7 @@ class AudioEngine:
         self._on_chunk = on_chunk
         self._seg_kwargs = {
             "pause_ms": pause_ms,
-            "min_chunk_s": min_chunk_s,
+            "min_speech_s": min_speech_s,
             "max_chunk_s": max_chunk_s,
             "aggressiveness": aggressiveness,
         }
@@ -236,7 +236,7 @@ class AudioEngine:
         pcm: bytes,
         *,
         pause_ms: float = 600,
-        min_chunk_s: float = 0.4,
+        min_speech_s: float = 0.7,
         max_chunk_s: float = 12.0,
         aggressiveness: int = 2,
         block_frames: int = 1600,
@@ -254,7 +254,7 @@ class AudioEngine:
         self._on_chunk = paths.append
         self._segmenter = SpeechSegmenter(
             pause_ms=pause_ms,
-            min_chunk_s=min_chunk_s,
+            min_speech_s=min_speech_s,
             max_chunk_s=max_chunk_s,
             aggressiveness=aggressiveness,
         )

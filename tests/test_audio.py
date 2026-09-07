@@ -528,7 +528,7 @@ class TestStreamingCapture:
 
     def test_emits_chunk_on_silence_boundary(self, sm, mocker):
         chunks: list[str] = []
-        audio, cb = self._start_streaming(sm, mocker, chunks.append, pause_ms=200, min_chunk_s=0.1, max_chunk_s=10.0)
+        audio, cb = self._start_streaming(sm, mocker, chunks.append, pause_ms=200, min_speech_s=0.05, max_chunk_s=10.0)
         speech = self._block(8000)  # loud -> level ~1.0
         silence = self._block(0)
         for _ in range(5):  # 0.5s speech
@@ -548,7 +548,7 @@ class TestStreamingCapture:
 
     def test_tail_flushed_on_stop(self, sm, mocker):
         chunks: list[str] = []
-        audio, cb = self._start_streaming(sm, mocker, chunks.append, pause_ms=5000, min_chunk_s=0.1, max_chunk_s=60.0)
+        audio, cb = self._start_streaming(sm, mocker, chunks.append, pause_ms=5000, min_speech_s=0.05, max_chunk_s=60.0)
         # Speech with no closing pause -> nothing emitted until stop flushes tail.
         for _ in range(5):
             cb(self._block(8000), 1600, None, None)
@@ -559,7 +559,7 @@ class TestStreamingCapture:
 
     def test_pure_silence_emits_nothing(self, sm, mocker):
         chunks: list[str] = []
-        audio, cb = self._start_streaming(sm, mocker, chunks.append, pause_ms=200, min_chunk_s=0.1)
+        audio, cb = self._start_streaming(sm, mocker, chunks.append, pause_ms=200, min_speech_s=0.05)
         for _ in range(20):
             cb(self._block(0), 1600, None, None)
         audio.stop()
@@ -595,7 +595,7 @@ class TestSegmentPcm:
         # Lead-in silence (as in a real recording) seeds the noise floor low;
         # then: utterance, pause, utterance.
         pcm = silence * 3 + speech * 4 + silence * 5 + speech * 4
-        paths = audio.segment_pcm(pcm, pause_ms=200, min_chunk_s=0.1, max_chunk_s=10.0)
+        paths = audio.segment_pcm(pcm, pause_ms=200, min_speech_s=0.05, max_chunk_s=10.0)
         try:
             assert len(paths) >= 2
             for p in paths:
@@ -607,7 +607,7 @@ class TestSegmentPcm:
 
     def test_pure_silence_emits_no_chunks(self, sm):
         audio = AudioEngine(sm)
-        paths = audio.segment_pcm(bytes(1600 * 2) * 20, pause_ms=200, min_chunk_s=0.1)
+        paths = audio.segment_pcm(bytes(1600 * 2) * 20, pause_ms=200, min_speech_s=0.05)
         assert paths == []
 
     def test_restores_live_state(self, sm):

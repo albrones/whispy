@@ -35,6 +35,36 @@
 
 ### Fixed
 
+- **French dictation could come back partly in English.** Not a
+  language-detection failure: streaming transcribes every chunk as an
+  independent model call, and the guard meant to stop over-short chunks
+  measured the wrong quantity. It compared *total buffered* seconds against
+  `min_chunk_s` (0.4 s), but the same condition already required 0.6 s of
+  silence, so at the shipped defaults the guard could never bind — a single
+  short word followed by a pause became a chunk of its own, and the
+  multilingual transducer resolved it into another language. Measured through
+  the production transcription gates: an isolated "oui" chunk of 1.11 s total
+  but **0.39 s voiced** came back as `We` in 5 of 5 realizations, and "bref"
+  (0.51 s, all voiced) as `Dress.` in 6 of 6, while the same speech inside the
+  19.45 s dictation was correct on every word. Prepending 0.5 s of preceding
+  speech — 1.61 s total, **0.72 s voiced** — fixed it 5/5, so elapsed duration
+  is not the discriminator and voiced duration is. The guard now measures
+  voiced seconds, exposed as the new `min_speech_s` key (default 0.7, between
+  the two measured regimes); a chunk holding less simply is not emitted at a
+  pause, so the short word rides along with its neighbour. `max_chunk_s` still
+  force-flushes and the tail flush is unchanged, so no audio is held
+  indefinitely and a dictation of one short word is still transcribed. The
+  default comes from synthesized speech with a single voice, which is why it is
+  a config key: a real microphone or room may move where VAD counts a frame as
+  voiced.
+- **The five-minute recording limit no longer discards your text.** The
+  watchdog that stops a recording at `RECORDING_MAX_S` used to recover by
+  clearing `_chunk_texts`, silently throwing away everything transcribed so
+  far — a backstop written back when "no push-to-talk hold lasts minutes," an
+  assumption toggle mode below breaks. It now stops the recording gracefully,
+  assembles the transcript, copies it to the clipboard, and shows a
+  notification instead of typing into a field that may no longer be focused
+  after five minutes.
 - **Long recordings were silently truncated.** In the non-streaming path a
   22-second recording transcribed to a single sentence, dropping roughly 90% of
   the audio with no error and no log line. If you ever dictated a long passage
@@ -51,6 +81,17 @@
 
 ### Added
 
+- **Toggle trigger mode.** A new `trigger_mode` config key — `"hold"` (default,
+  push-to-talk, unchanged) or `"toggle"` — lets a trigger press start
+  dictation and the next press stop it, so recording can outlive the key
+  press. Exposed as a **Toggle mode** checkbox in the menu bar / tray
+  Settings, and composable with any trigger.
+- **Modifier-combination triggers** (`ctrl+alt+cmd+<key>`) are decoded on both
+  platforms when written by hand into `config.json`. They are deliberately not
+  offered as menu presets: the macOS event tap is listen-only and cannot consume
+  the event, so a combination the focused app also binds would fire that app's
+  own shortcut too. The Trigger submenu stays Fn / Right Command / Right Option /
+  F13.
 - **Silence gate.** Near-silent audio is now discarded before it reaches the
   model. Parakeet is far better behaved than Whisper on non-speech — no corpus
   artifacts, no repetition loops — but it does invent short fillers (`Yeah.`,

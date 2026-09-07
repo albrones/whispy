@@ -15,6 +15,7 @@ UI can prompt the user to fix the grant instead of failing quietly.
 """
 
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -30,6 +31,16 @@ KEYSTROKE_NOT_PERMITTED_CODE = "1002"
 # Delay before restoring the clipboard after a paste, so the target app has
 # time to read the pasted transcript before we overwrite it again.
 _CLIPBOARD_RESTORE_DELAY = 0.15
+
+# ``pbcopy`` decodes its stdin and ``pbpaste`` encodes its stdout through the
+# process locale. ``Whispy.app`` launched by launchd or Finder inherits no
+# ``LANG``/``LC_*``, so both fall back to Mac Roman and UTF-8 "ç" (C3 A7) is
+# typed as "√ß". Force a UTF-8 locale on every helper we spawn. ``LC_ALL``
+# beats any stray ``LANG=C``; ``LANG`` is set too for tools that read only it.
+# Applied uniformly (osascript included, where it is harmless) because the
+# snapshot (pbpaste) and the restore (pbcopy) must agree on the encoding, or
+# fixing the copy alone would corrupt the user's previous clipboard on restore.
+_UTF8_ENV = {**os.environ, "LC_ALL": "en_US.UTF-8", "LANG": "en_US.UTF-8"}
 
 
 class TextInjector:
@@ -69,6 +80,20 @@ class TextInjector:
         else:
             self._inject_via_keystrokes(text)
 
+    def copy_only(self, text: str) -> None:
+        """Place text on the clipboard without pasting it anywhere.
+
+        Used when the engine must hand a transcript back to the user but has no
+        business typing it -- the recording-limit stop, where the field that was
+        focused when dictation started may no longer be focused after minutes of
+        speech. Unlike ``_inject_via_clipboard`` this deliberately does NOT
+        snapshot and restore the previous clipboard: the whole point is that the
+        transcript survives on the pasteboard for the user to paste themselves.
+        """
+        if not text:
+            return
+        self._spawn([(["pbcopy"], text.encode("utf-8"))], "copy-only")
+
     def _spawn(
         self,
         steps: list[tuple[list[str], bytes | None] | tuple[list[str], bytes | None, float]],
@@ -101,6 +126,7 @@ class TextInjector:
                     stdin=subprocess.PIPE if stdin_data is not None else None,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
+                    env=_UTF8_ENV,
                 )
                 try:
                     _, err = proc.communicate(input=stdin_data, timeout=5)
@@ -162,7 +188,7 @@ class TextInjector:
         treated as an empty snapshot — injection proceeds either way.
         """
         try:
-            result = subprocess.run(["pbpaste"], capture_output=True, timeout=2)
+            result = subprocess.run(["pbpaste"], capture_output=True, timeout=2, env=_UTF8_ENV)
         except Exception as exc:
             logger.warning("[inject] clipboard snapshot failed: %s", exc)
             return b""

@@ -28,11 +28,20 @@ class TestTriggerPresets:
 
     def test_every_preset_keycode_is_known(self):
         # The UI fallback names a configured trigger via keycode_to_name; every
-        # non-default preset keycode must resolve to a real entry (not keyNN).
+        # non-default preset must resolve to a real entry (not keyNN).
         for label, value in TRIGGER_PRESETS:
             if value is None:
                 continue
             assert value in _KEYCODE_TO_NAME, f"{label} keycode {value} missing from table"
+
+    def test_no_preset_is_a_combination_string(self):
+        # Modifier combinations stay valid hand-edited config values but are
+        # deliberately not offered as presets (the listen-only tap cannot
+        # swallow them). Every preset is the platform default or a keycode.
+        for label, value in TRIGGER_PRESETS:
+            assert value is None or (isinstance(value, int) and not isinstance(value, bool)), (
+                f"{label} preset {value!r} is not None/keycode"
+            )
 
     def test_fn_preset_value_is_none(self):
         # Fn stays None so resolve_trigger maps it to the platform default.
@@ -235,6 +244,51 @@ class TestRestartPath:
 
 
 # ---------------------------------------------------------------------------
+# trigger_mode validation
+# ---------------------------------------------------------------------------
+
+
+class TestTriggerMode:
+    """Test validation of the trigger_mode config key."""
+
+    def test_default_is_hold(self):
+        assert DEFAULT_CONFIG["trigger_mode"] == "hold"
+
+    def test_hold_passes_through_unchanged(self):
+        validated = _validate_config({"trigger_mode": "hold"})
+        assert validated["trigger_mode"] == "hold"
+
+    def test_toggle_passes_through_unchanged(self):
+        validated = _validate_config({"trigger_mode": "toggle"})
+        assert validated["trigger_mode"] == "toggle"
+
+    def test_invalid_values_reset_to_hold(self):
+        for bad in ("Toggle", "push", "", None, 123, True):
+            validated = _validate_config({"trigger_mode": bad})
+            assert validated["trigger_mode"] == "hold", f"{bad!r} should default to 'hold'"
+
+    def test_missing_key_defaults_to_hold(self):
+        validated = _validate_config({})
+        assert validated["trigger_mode"] == "hold"
+
+    def test_load_config_without_key_defaults_to_hold(self, tmp_path):
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"copy_to_clipboard": True}))
+
+        loaded = load_config(config_file)
+        assert loaded["trigger_mode"] == "hold"
+
+    def test_save_config_round_trips_toggle(self, tmp_path):
+        config = dict(DEFAULT_CONFIG)
+        config["trigger_mode"] = "toggle"
+        config_path = tmp_path / "config.json"
+        save_config(config, config_path)
+
+        saved = json.loads(config_path.read_text())
+        assert saved["trigger_mode"] == "toggle"
+
+
+# ---------------------------------------------------------------------------
 # Streaming / incremental transcription config
 # ---------------------------------------------------------------------------
 
@@ -245,6 +299,7 @@ class TestStreamingConfig:
     def test_defaults_present(self):
         assert DEFAULT_CONFIG["streaming_enabled"] is True
         assert DEFAULT_CONFIG["pause_ms"] == 600
+        assert DEFAULT_CONFIG["min_speech_s"] == 0.7
         assert DEFAULT_CONFIG["min_chunk_s"] == 0.4
         assert DEFAULT_CONFIG["max_chunk_s"] == 12.0
         assert DEFAULT_CONFIG["vad_aggressiveness"] == 2
@@ -254,6 +309,7 @@ class TestStreamingConfig:
             {
                 "streaming_enabled": False,
                 "pause_ms": 400,
+                "min_speech_s": 1.2,
                 "min_chunk_s": 0.5,
                 "max_chunk_s": 20.0,
                 "vad_aggressiveness": 3,
@@ -261,6 +317,7 @@ class TestStreamingConfig:
         )
         assert validated["streaming_enabled"] is False
         assert validated["pause_ms"] == 400
+        assert validated["min_speech_s"] == 1.2
         assert validated["min_chunk_s"] == 0.5
         assert validated["max_chunk_s"] == 20.0
         assert validated["vad_aggressiveness"] == 3
@@ -272,6 +329,16 @@ class TestStreamingConfig:
         assert _validate_config({"pause_ms": 0})["pause_ms"] == 600
         assert _validate_config({"pause_ms": -100})["pause_ms"] == 600
         assert _validate_config({"pause_ms": True})["pause_ms"] == 600
+
+    def test_min_speech_s_invalid_resets(self):
+        # 0 is legal (gate off); anything not a non-negative number is not.
+        assert _validate_config({"min_speech_s": 0})["min_speech_s"] == 0
+        assert _validate_config({"min_speech_s": -0.1})["min_speech_s"] == 0.7
+        assert _validate_config({"min_speech_s": True})["min_speech_s"] == 0.7
+        assert _validate_config({"min_speech_s": "0.7"})["min_speech_s"] == 0.7
+        assert _validate_config({"min_speech_s": None})["min_speech_s"] == 0.7
+        # Absent from the file -> the default.
+        assert _validate_config({})["min_speech_s"] == 0.7
 
     def test_min_chunk_s_negative_resets(self):
         assert _validate_config({"min_chunk_s": -1})["min_chunk_s"] == 0.4
@@ -293,7 +360,14 @@ class TestStreamingConfig:
         config_file.write_text(json.dumps({"copy_to_clipboard": False, "_version": 0}))
 
         loaded = load_config(config_file)
-        for key in ("streaming_enabled", "pause_ms", "min_chunk_s", "max_chunk_s", "vad_aggressiveness"):
+        for key in (
+            "streaming_enabled",
+            "pause_ms",
+            "min_speech_s",
+            "min_chunk_s",
+            "max_chunk_s",
+            "vad_aggressiveness",
+        ):
             assert key in loaded
         # And the defaults were persisted back.
         on_disk = json.loads(config_file.read_text())

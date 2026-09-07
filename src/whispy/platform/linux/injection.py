@@ -58,6 +58,32 @@ class XdotoolInjector:
         else:
             self._inject_via_keystrokes(text)
 
+    def copy_only(self, text: str) -> None:
+        """Place text on the clipboard without pasting it anywhere.
+
+        Mirrors the macOS injector's contract: used by the recording-limit stop,
+        where typing a long transcript into a window that may no longer be
+        focused is its own failure mode. A no-op when no clipboard setter is
+        installed -- there is nowhere to put the text, and the keystroke fallback
+        used by ``inject`` would defeat the purpose.
+        """
+        if not text or not self._clipboard_cmd:
+            return
+
+        def _run() -> None:
+            try:
+                setter = subprocess.Popen(
+                    self._clipboard_cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                setter.communicate(text.encode("utf-8"), timeout=5)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+
+        threading.Thread(target=_run, daemon=True).start()
+
     def _inject_via_clipboard(self, text: str) -> None:
         """Set the X11 clipboard then synthesize Ctrl+V into the focused window."""
 

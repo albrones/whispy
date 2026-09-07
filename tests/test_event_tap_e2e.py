@@ -432,6 +432,126 @@ class TestEventTapCallback:
 
 
 # ---------------------------------------------------------------------------
+# TestEventTapCombinationTrigger (add-toggle-dictation-mode, task 5.5)
+# ---------------------------------------------------------------------------
+
+
+class TestEventTapCombinationTrigger:
+    """EventTapListener resolves a string trigger (plain key or combination)."""
+
+    def test_int_trigger_keycode_unchanged(self):
+        """A bare int keeps today's behavior exactly: no mask, no label."""
+        listener = EventTapListener(trigger_keycode=63)
+        assert listener._trigger_keycode == 63
+        assert listener._required_mask == 0
+        assert listener._trigger_label is None
+
+    def test_combination_string_resolves_keycode_and_mask(self):
+        listener = EventTapListener(trigger_keycode="ctrl+alt+cmd+e")
+        assert listener._trigger_keycode == 14  # "e"
+        assert listener._required_mask == 0x1C0000  # ctrl|alt|cmd
+        assert listener._trigger_label == "ctrl+alt+cmd+e"
+
+    def test_unparseable_string_falls_back_to_default_with_stderr(self, capsys):
+        listener = EventTapListener(trigger_keycode="not-a-real-trigger")
+        assert listener._trigger_keycode == 63  # DEFAULT_TRIGGER_KEYCODE
+        assert listener._required_mask == 0
+        err = capsys.readouterr().err
+        assert "not-a-real-trigger" in err
+
+    def test_startup_log_shows_combination_string(self, mocker, capsys):
+        mocker.patch("whispy.hardware.event_tap.QUARTZ_AVAILABLE", True)
+        mocker.patch("whispy.hardware.event_tap.CGEventTapCreate", return_value=MagicMock())
+        mocker.patch("whispy.hardware.event_tap.CFMachPortCreateRunLoopSource", return_value=MagicMock())
+        mocker.patch("whispy.hardware.event_tap.CFRunLoopAddSource")
+        mocker.patch("whispy.hardware.event_tap.CGEventTapEnable")
+        mocker.patch("whispy.hardware.event_tap.CFRunLoopRunInMode")
+
+        listener = EventTapListener(trigger_keycode="ctrl+alt+cmd+e")
+        listener.start()
+        assert listener._ready_event.wait(timeout=2)
+        listener.stop()
+        listener._run_loop_thread.join(timeout=1.0)
+
+        out = capsys.readouterr().out
+        assert "ctrl+alt+cmd+e" in out
+
+    def test_combination_press_requires_full_modifier_mask(self, captured_callbacks):
+        """Only ctrl+alt held (missing cmd) must not fire a press."""
+        listener = EventTapListener(
+            trigger_keycode="ctrl+alt+cmd+e",
+            on_trigger_press=captured_callbacks["press"],
+            on_trigger_release=captured_callbacks["release"],
+        )
+        mock_event = MagicMock()
+        partial_mask = 0x40000 | 0x80000  # ctrl | alt, missing cmd
+
+        with (
+            patch("whispy.hardware.event_tap.CGEventGetType", return_value=kCGEventKeyDown),
+            patch("whispy.hardware.event_tap.CGEventGetIntegerValueField", return_value=14),
+            patch("whispy.hardware.event_tap.CGEventGetFlags", return_value=partial_mask),
+        ):
+            listener._event_callback(None, kCGEventKeyDown, mock_event, None)
+
+        assert captured_callbacks["press_count"]() == 0
+
+    def test_combination_press_fires_with_full_modifier_mask(self, captured_callbacks):
+        listener = EventTapListener(
+            trigger_keycode="ctrl+alt+cmd+e",
+            on_trigger_press=captured_callbacks["press"],
+            on_trigger_release=captured_callbacks["release"],
+        )
+        mock_event = MagicMock()
+        full_mask = 0x40000 | 0x80000 | 0x100000  # ctrl | alt | cmd
+
+        with (
+            patch("whispy.hardware.event_tap.CGEventGetType", return_value=kCGEventKeyDown),
+            patch("whispy.hardware.event_tap.CGEventGetIntegerValueField", return_value=14),
+            patch("whispy.hardware.event_tap.CGEventGetFlags", return_value=full_mask),
+        ):
+            listener._event_callback(None, kCGEventKeyDown, mock_event, None)
+
+        assert captured_callbacks["press_count"]() == 1
+
+    def test_combination_release_fires_without_modifiers_held(self, captured_callbacks):
+        """Same asymmetry as decode_trigger_event: release never requires the
+        modifiers to still be held."""
+        listener = EventTapListener(
+            trigger_keycode="ctrl+alt+cmd+e",
+            on_trigger_press=captured_callbacks["press"],
+            on_trigger_release=captured_callbacks["release"],
+        )
+        mock_event = MagicMock()
+
+        with (
+            patch("whispy.hardware.event_tap.CGEventGetType", return_value=kCGEventKeyUp),
+            patch("whispy.hardware.event_tap.CGEventGetIntegerValueField", return_value=14),
+            patch("whispy.hardware.event_tap.CGEventGetFlags", return_value=0),
+        ):
+            listener._event_callback(None, kCGEventKeyUp, mock_event, None)
+
+        assert captured_callbacks["release_count"]() == 1
+
+    def test_combination_rearm_does_not_synthesize_release(self):
+        """5.7: a combination trigger's key is a regular key (absent from
+        _TRIGGER_HELD_MASK) — _resync_after_rearm must resync _prev_flags but
+        cannot and must not synthesize a missed release; the FSM watchdog is
+        the backstop for this case."""
+        from whispy.hardware import event_tap as et
+
+        release = MagicMock()
+        listener = EventTapListener(trigger_keycode="ctrl+alt+cmd+e", on_trigger_release=release)
+        listener._pressed = True  # simulate a press that was in flight
+
+        with patch.object(et, "CGEventSourceFlagsState", return_value=0):
+            listener._resync_after_rearm()
+
+        release.assert_not_called()
+        assert listener._pressed is True  # unresolved — left for the watchdog
+        assert listener._prev_flags == 0
+
+
+# ---------------------------------------------------------------------------
 # TestFullFnWorkflowIntegration
 # ---------------------------------------------------------------------------
 

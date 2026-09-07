@@ -53,6 +53,7 @@ from .event_decode import (  # noqa: E402, F401
     _normalize_flags,
     decode_trigger_event,
     keycode_to_name,
+    parse_trigger,
     trigger_held_after_rearm,
 )
 
@@ -66,7 +67,29 @@ class EventTapListener:
         on_trigger_press: Callable | None = None,
         on_trigger_release: Callable | None = None,
     ) -> None:
-        self._trigger_keycode = trigger_keycode
+        # ``trigger_keycode`` may arrive as a plain int keycode (unchanged
+        # behavior) or as a combination string (e.g. "ctrl+alt+cmd+e") coming
+        # straight from config via platform/detect.py. Resolve it once here so
+        # the rest of the class only ever deals with (keycode, mask). Keep the
+        # parameter name for backward compatibility — callers and tests still
+        # pass a bare int.
+        self._trigger_label: str | None = None
+        if isinstance(trigger_keycode, str):
+            parsed = parse_trigger(trigger_keycode)
+            if parsed is None:
+                print(
+                    f"[event-tap] Unrecognized trigger '{trigger_keycode}' — "
+                    "falling back to the default trigger key (Fn).",
+                    file=sys.stderr,
+                )
+                self._trigger_keycode = DEFAULT_TRIGGER_KEYCODE
+                self._required_mask = 0
+            else:
+                self._trigger_keycode, self._required_mask = parsed
+                self._trigger_label = trigger_keycode
+        else:
+            self._trigger_keycode = trigger_keycode
+            self._required_mask = 0
         self._on_trigger_press = on_trigger_press
         self._on_trigger_release = on_trigger_release
         self._tap = None
@@ -124,7 +147,11 @@ class EventTapListener:
             CFRunLoopAddSource(CFRunLoopGetCurrent(), self._run_loop_source, kCFRunLoopDefaultMode)
             CGEventTapEnable(tap, True)
             self.active = True
-            key_name = _keycode_to_name(self._trigger_keycode)
+            # A combination trigger's keycode is the plain letter/key, which
+            # would print misleadingly on its own (e.g. "e" instead of
+            # "ctrl+alt+cmd+e") — show the configured combination string when
+            # there is one.
+            key_name = self._trigger_label or _keycode_to_name(self._trigger_keycode)
             print(f"[event-tap] Trigger key listener active (key: {key_name})")
             self._ready_event.set()
             while not self._stop_event.is_set():
@@ -178,7 +205,9 @@ class EventTapListener:
             kind = "other"
 
         flags = CGEventGetFlags(event)
-        action = decode_trigger_event(kind, keycode, flags, self._trigger_keycode, self._prev_flags)
+        action = decode_trigger_event(
+            kind, keycode, flags, self._trigger_keycode, self._prev_flags, self._required_mask
+        )
         # Track the latest flags so the next modifier transition decodes correctly.
         if kind == "flags_changed":
             self._prev_flags = _normalize_flags(flags)
@@ -220,6 +249,15 @@ class EventTapListener:
         self._prev_flags = _normalize_flags(live)
         if not self._pressed:
             return
+        # For a combination trigger (e.g. "ctrl+alt+cmd+e"), self._trigger_keycode
+        # is the regular key ("e"), not a modifier — it is absent from
+        # _TRIGGER_HELD_MASK, so trigger_held_after_rearm deliberately returns
+        # None here. A regular key's release is a key_up event, and live
+        # modifier flags cannot reconstruct whether a key_up was missed while
+        # the tap was disabled. That's fine: _prev_flags is still resynced
+        # above (so the next flags_changed for the *modifiers* decodes
+        # correctly), and the FSM watchdog is the backstop that recovers a
+        # stuck RECORDING state if the missed release is never recovered here.
         held = trigger_held_after_rearm(self._trigger_keycode, live)
         if held is False:
             # The trigger was released while the tap was disabled.

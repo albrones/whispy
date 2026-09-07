@@ -253,6 +253,10 @@ class TestStreamingEndToEnd:
         ds = DictationState()
         ds.config["streaming_enabled"] = True
         ds.config["pause_ms"] = 200
+        # The fixture speaks 0.5s per utterance; the shipped 0.7s voiced-speech
+        # gate would (correctly) hold both into one chunk, and this test is
+        # about the callback -> queue -> worker wiring, not the gate.
+        ds.config["min_speech_s"] = 0.05
         ds.config["min_chunk_s"] = 0.1
         ds.config["max_chunk_s"] = 10.0
         engine = Engine(ds, config_path)
