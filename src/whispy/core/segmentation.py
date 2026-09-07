@@ -6,11 +6,12 @@ gain-independent, well-tested voice detector that avoids the mid-word cuts a
 naive energy threshold produces — and falls back to a simple energy gate when
 the dependency is absent (so the app still imports and runs).
 
-A chunk boundary is emitted when accumulated speech is followed by at least
-``pause_ms`` of silence, OR when the buffered chunk reaches ``max_chunk_s`` (a
-forced flush so run-on speech still streams). Audio is never dropped by the
-segmenter — it only decides *where* to cut; the per-chunk VAD filter inside
-``transcribe`` trims any leading/trailing silence.
+A chunk boundary is emitted when accumulated speech carrying at least
+``min_speech_s`` of *voiced* audio is followed by at least ``pause_ms`` of
+silence, OR when the buffered chunk reaches ``max_chunk_s`` (a forced flush so
+run-on speech still streams). Audio is never dropped by the segmenter — it only
+decides *where* to cut; the per-chunk VAD filter inside ``transcribe`` trims any
+leading/trailing silence.
 """
 
 import logging
@@ -78,17 +79,38 @@ class SpeechSegmenter:
             flush_buffer_as_chunk()
 
     On stop, call ``flush_tail()``; if True, flush the remaining buffer.
+
+    A pause closes a chunk only once the chunk holds ``min_speech_s`` of
+    **voiced** audio. The quantity matters: each chunk is one independent model
+    call, and a chunk carrying too little speech is resolved into the wrong
+    language. Measured through the production transcription gates, an isolated
+    "oui" chunk of 1.11 s total but 0.39 s voiced came back as English 5/5,
+    while the same word with 0.5 s of preceding speech — 1.61 s total, 0.72 s
+    voiced — was correct 5/5. Elapsed duration does not separate the two
+    outcomes; voiced duration does. (An elapsed-time guard was also unreachable
+    here: the pause condition already implies more elapsed time than any
+    sensible minimum. That is the bug this replaced.) Below the threshold the
+    segmenter simply keeps buffering, so the short word rides along with its
+    neighbour — not emitting *is* the merge, since the caller already holds the
+    audio.
+
+    Three similarly-named thresholds live nearby and are different things:
+    ``min_speech_s`` (here) gates *pause boundaries* on voiced seconds;
+    ``min_chunk_s`` (config) is the engine's per-chunk *discard* duration, fed
+    to ``transcribe`` as ``min_recording_duration``; ``MIN_SPEECH_DURATION_S``
+    (``audio.py``, 0.20) is the per-chunk floor below which a clip is dropped as
+    non-speech.
     """
 
     def __init__(
         self,
         pause_ms: float = 600,
-        min_chunk_s: float = 0.4,
+        min_speech_s: float = 0.7,
         max_chunk_s: float = 12.0,
         aggressiveness: int = 2,
     ) -> None:
         self._pause_s = pause_ms / 1000.0
-        self._min_chunk_s = min_chunk_s
+        self._min_speech_s = min_speech_s
         self._max_chunk_s = max_chunk_s
         self._frame_s = FRAME_MS / 1000.0
 
@@ -109,6 +131,7 @@ class SpeechSegmenter:
         """Start a fresh (empty) chunk. The frame-alignment buffer is preserved."""
         self._have_speech = False
         self._buffered_s = 0.0
+        self._speech_s = 0.0
         self._silence_s = 0.0
 
     @property
@@ -146,12 +169,13 @@ class SpeechSegmenter:
             self._buffered_s += self._frame_s
             if self._is_speech(frame):
                 self._have_speech = True
+                self._speech_s += self._frame_s
                 self._silence_s = 0.0
             else:
                 self._silence_s += self._frame_s
 
             if self._have_speech and (
-                (self._silence_s >= self._pause_s and self._buffered_s >= self._min_chunk_s)
+                (self._silence_s >= self._pause_s and self._speech_s >= self._min_speech_s)
                 or self._buffered_s >= self._max_chunk_s
             ):
                 emit = True

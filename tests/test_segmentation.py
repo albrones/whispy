@@ -40,22 +40,22 @@ def _silence_block(n_frames=1):
 
 class TestPauseEmit:
     def test_pause_after_speech_emits_a_chunk(self):
-        seg = SpeechSegmenter(pause_ms=300, min_chunk_s=0.1, max_chunk_s=30.0)
+        seg = SpeechSegmenter(pause_ms=300, min_speech_s=0.05, max_chunk_s=30.0)
         seg.feed(_speech_block(17))  # ~0.5s of speech
         # A pause past the threshold (0.3s) after speech must close the chunk.
         emitted = any(seg.feed(_silence_block(1)) for _ in range(20))
         assert emitted is True
 
-    def test_short_speech_then_pause_does_not_emit_below_min_chunk(self):
-        seg = SpeechSegmenter(pause_ms=150, min_chunk_s=2.0, max_chunk_s=10.0)
-        seg.feed(_speech_block(3))  # ~0.09s, below min_chunk_s
+    def test_short_speech_then_pause_does_not_emit_below_min_speech(self):
+        seg = SpeechSegmenter(pause_ms=150, min_speech_s=2.0, max_chunk_s=10.0)
+        seg.feed(_speech_block(3))  # ~0.09s, below min_speech_s
         emitted = any(seg.feed(_silence_block(1)) for _ in range(20))
         assert emitted is False
 
 
 class TestMaxLengthFlush:
     def test_run_on_speech_is_force_flushed(self):
-        seg = SpeechSegmenter(pause_ms=600, min_chunk_s=0.4, max_chunk_s=1.0)
+        seg = SpeechSegmenter(pause_ms=600, max_chunk_s=1.0)
         # Continuous speech, no pause: must flush near max_chunk_s (1.0s ≈ 34 frames).
         emitted = seg.feed(_speech_block(40))
         assert emitted is True
@@ -63,7 +63,7 @@ class TestMaxLengthFlush:
 
 class TestPureSilence:
     def test_silence_never_emits(self):
-        seg = SpeechSegmenter(pause_ms=300, min_chunk_s=0.1)
+        seg = SpeechSegmenter(pause_ms=300, min_speech_s=0.05)
         emitted = any(seg.feed(_silence_block(1)) for _ in range(100))
         assert emitted is False
         assert seg.has_pending is False
@@ -73,7 +73,7 @@ class TestOnsetNotClipped:
     """Recording that starts with speech (no lead-in) is detected immediately."""
 
     def test_speech_from_first_frame_sets_pending(self):
-        seg = SpeechSegmenter(pause_ms=300, min_chunk_s=0.1)
+        seg = SpeechSegmenter(pause_ms=300, min_speech_s=0.05)
         seg.feed(_speech_block(5))  # speech from the very first frames
         assert seg.has_pending is True
 
@@ -94,7 +94,7 @@ class TestFrameAlignment:
     def test_handles_blocks_not_aligned_to_frame_size(self):
         # Feed odd-sized blocks (not multiples of FRAME_BYTES); the segmenter
         # buffers the remainder and still detects speech across block edges.
-        seg = SpeechSegmenter(pause_ms=300, min_chunk_s=0.1)
+        seg = SpeechSegmenter(pause_ms=300, min_speech_s=0.05)
         speech = _speech_block(5)
         # Split into 100-byte chunks (not frame-aligned).
         for i in range(0, len(speech), 100):
@@ -107,7 +107,7 @@ class TestEnergyFallback:
         import whispy.core.segmentation as seg_mod
 
         monkeypatch.setattr(seg_mod, "webrtcvad", None)
-        seg = SpeechSegmenter(pause_ms=300, min_chunk_s=0.1, max_chunk_s=10.0)
+        seg = SpeechSegmenter(pause_ms=300, min_speech_s=0.05, max_chunk_s=10.0)
         assert seg._vad is None  # fell back to the energy gate
         seg.feed(_speech_block(10))
         assert seg.has_pending is True
@@ -162,3 +162,63 @@ class TestSpeechDuration:
 
     def test_returns_none_when_shorter_than_one_frame(self):
         assert speech_duration_s(_voiced_block(1)[:100]) is None
+
+
+class TestVoicedSpeechGate:
+    """A pause closes a chunk only once it holds `min_speech_s` of voiced audio.
+
+    `_voiced_block` reads as speech on every frame, so n frames is exactly
+    n * 30 ms of voiced audio — the quantity under test.
+    """
+
+    @staticmethod
+    def _pause(seg, frames=30):
+        """Feed silence one frame at a time; return True on the first boundary."""
+        return any(seg.feed(_silence_block(1)) for _ in range(frames))
+
+    @requires_vad
+    def test_below_threshold_pause_does_not_emit_and_speech_is_carried_over(self):
+        seg = SpeechSegmenter(pause_ms=600, min_speech_s=0.7, max_chunk_s=30.0)
+        seg.feed(_voiced_block(10))  # 0.30s voiced, below 0.7s
+        assert self._pause(seg) is False
+        # The chunk is still open, so the next utterance joins it: the two are
+        # emitted together as ONE chunk, which is how the short word reaches the
+        # model with context.
+        seg.feed(_voiced_block(20))  # 0.30 + 0.60 = 0.90s voiced
+        assert self._pause(seg) is True
+
+    @requires_vad
+    def test_at_threshold_pause_emits(self):
+        seg = SpeechSegmenter(pause_ms=600, min_speech_s=0.7, max_chunk_s=30.0)
+        seg.feed(_voiced_block(30))  # 0.90s voiced
+        assert self._pause(seg) is True
+
+    @requires_vad
+    def test_old_elapsed_time_guard_was_unreachable(self):
+        """Regression: the previous rule could not block this boundary.
+
+        It compared `_buffered_s` (total buffered seconds, silence included)
+        against `min_chunk_s` = 0.4. By the time the pause condition held,
+        `_silence_s` was already >= 0.6, so `_buffered_s` >= 0.6 > 0.4 always —
+        the guard was unreachable, and this chunk (0.39s voiced, the measured
+        wrong-language case) was emitted alone.
+        """
+        seg = SpeechSegmenter(pause_ms=600, min_speech_s=0.7, max_chunk_s=30.0)
+        seg.feed(_voiced_block(13))  # 0.39s voiced
+        assert self._pause(seg) is False
+        assert seg._buffered_s > 0.4  # what the old rule was comparing
+
+    @requires_vad
+    def test_max_chunk_still_force_flushes_below_threshold(self):
+        # Audio can never be held indefinitely for want of voiced seconds.
+        seg = SpeechSegmenter(pause_ms=600, min_speech_s=0.7, max_chunk_s=1.0)
+        seg.feed(_voiced_block(10))  # 0.30s voiced, below the threshold
+        assert self._pause(seg, frames=40) is True  # flushed at max_chunk_s
+
+    @requires_vad
+    def test_tail_flush_ignores_the_threshold(self):
+        # A dictation that is entirely one short word is still emitted at stop.
+        seg = SpeechSegmenter(pause_ms=600, min_speech_s=0.7, max_chunk_s=30.0)
+        seg.feed(_voiced_block(5))  # 0.15s voiced
+        assert self._pause(seg) is False
+        assert seg.flush_tail() is True

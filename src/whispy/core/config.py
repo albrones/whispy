@@ -73,6 +73,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "streaming_enabled": True,
     # Minimum trailing silence (milliseconds) that closes a chunk.
     "pause_ms": 600,
+    # Minimum *voiced* seconds a chunk must hold before a pause may close it.
+    # Each chunk is one independent model call, and a chunk carrying too little
+    # speech is resolved into the wrong language (an isolated "oui" of 0.39s
+    # voiced came back as English 5/5; the same word with 0.72s voiced was
+    # correct 5/5). Below this the segmenter keeps buffering, so the short word
+    # rides along with its neighbour. Provisional: both measurements come from
+    # synthesized speech with a single voice, so a real microphone or room may
+    # move where VAD counts a frame as voiced -- retune rather than refile.
+    # Distinct from min_chunk_s below, which discards; this one only defers.
+    "min_speech_s": 0.7,
     # A chunk shorter than this (seconds) is discarded rather than transcribed
     # (mirrors min_recording_duration, applied per chunk).
     "min_chunk_s": 0.4,
@@ -172,6 +182,15 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
             file=sys.stderr,
         )
         validated["pause_ms"] = DEFAULT_CONFIG["pause_ms"]
+
+    # Validate min_speech_s (must be a non-negative number; bool rejected).
+    mss = validated.get("min_speech_s")
+    if not isinstance(mss, int | float) or isinstance(mss, bool) or mss < 0:
+        print(
+            f"[config] Invalid min_speech_s '{mss}', defaulting to {DEFAULT_CONFIG['min_speech_s']}",
+            file=sys.stderr,
+        )
+        validated["min_speech_s"] = DEFAULT_CONFIG["min_speech_s"]
 
     # Validate min_chunk_s (must be a non-negative number; bool rejected).
     mcs = validated.get("min_chunk_s")

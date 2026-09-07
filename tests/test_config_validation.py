@@ -301,6 +301,7 @@ class TestStreamingConfig:
     def test_defaults_present(self):
         assert DEFAULT_CONFIG["streaming_enabled"] is True
         assert DEFAULT_CONFIG["pause_ms"] == 600
+        assert DEFAULT_CONFIG["min_speech_s"] == 0.7
         assert DEFAULT_CONFIG["min_chunk_s"] == 0.4
         assert DEFAULT_CONFIG["max_chunk_s"] == 12.0
         assert DEFAULT_CONFIG["vad_aggressiveness"] == 2
@@ -310,6 +311,7 @@ class TestStreamingConfig:
             {
                 "streaming_enabled": False,
                 "pause_ms": 400,
+                "min_speech_s": 1.2,
                 "min_chunk_s": 0.5,
                 "max_chunk_s": 20.0,
                 "vad_aggressiveness": 3,
@@ -317,6 +319,7 @@ class TestStreamingConfig:
         )
         assert validated["streaming_enabled"] is False
         assert validated["pause_ms"] == 400
+        assert validated["min_speech_s"] == 1.2
         assert validated["min_chunk_s"] == 0.5
         assert validated["max_chunk_s"] == 20.0
         assert validated["vad_aggressiveness"] == 3
@@ -328,6 +331,16 @@ class TestStreamingConfig:
         assert _validate_config({"pause_ms": 0})["pause_ms"] == 600
         assert _validate_config({"pause_ms": -100})["pause_ms"] == 600
         assert _validate_config({"pause_ms": True})["pause_ms"] == 600
+
+    def test_min_speech_s_invalid_resets(self):
+        # 0 is legal (gate off); anything not a non-negative number is not.
+        assert _validate_config({"min_speech_s": 0})["min_speech_s"] == 0
+        assert _validate_config({"min_speech_s": -0.1})["min_speech_s"] == 0.7
+        assert _validate_config({"min_speech_s": True})["min_speech_s"] == 0.7
+        assert _validate_config({"min_speech_s": "0.7"})["min_speech_s"] == 0.7
+        assert _validate_config({"min_speech_s": None})["min_speech_s"] == 0.7
+        # Absent from the file -> the default.
+        assert _validate_config({})["min_speech_s"] == 0.7
 
     def test_min_chunk_s_negative_resets(self):
         assert _validate_config({"min_chunk_s": -1})["min_chunk_s"] == 0.4
@@ -349,7 +362,14 @@ class TestStreamingConfig:
         config_file.write_text(json.dumps({"copy_to_clipboard": False, "_version": 0}))
 
         loaded = load_config(config_file)
-        for key in ("streaming_enabled", "pause_ms", "min_chunk_s", "max_chunk_s", "vad_aggressiveness"):
+        for key in (
+            "streaming_enabled",
+            "pause_ms",
+            "min_speech_s",
+            "min_chunk_s",
+            "max_chunk_s",
+            "vad_aggressiveness",
+        ):
             assert key in loaded
         # And the defaults were persisted back.
         on_disk = json.loads(config_file.read_text())

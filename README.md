@@ -308,6 +308,7 @@ You can edit `~/.config/whispy/config.json` to change any of the following keys
 | `trigger_mode` | `"hold"` | `"hold"` (push-to-talk: hold the trigger to record, release to stop) or `"toggle"` (press once to start, press again to stop). Composable with any trigger; an invalid value falls back to `"hold"` |
 | `streaming_enabled` | `true` | Transcribe audio in chunks during recording (typed near-instantly on release) instead of the legacy record-then-transcribe path |
 | `pause_ms` | `600` | Minimum trailing silence (milliseconds) that closes a streaming chunk |
+| `min_speech_s` | `0.7` | Minimum *voiced* seconds a streaming chunk must hold before a pause may close it. Below this the chunk keeps buffering, so a short word is carried into the next one instead of reaching the model alone (where it can come back in the wrong language) |
 | `min_chunk_s` | `0.4` | A streaming chunk shorter than this (seconds) is discarded rather than transcribed |
 | `max_chunk_s` | `12.0` | Hard cap (seconds) on streaming chunk length, so run-on speech with no pause still makes progress |
 | `vad_aggressiveness` | `2` | WebRTC VAD aggressiveness (0-3); higher classifies more audio as non-speech when finding chunk boundaries |
