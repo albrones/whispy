@@ -28,22 +28,20 @@ class TestTriggerPresets:
 
     def test_every_preset_keycode_is_known(self):
         # The UI fallback names a configured trigger via keycode_to_name; every
-        # non-default *keycode* preset must resolve to a real entry (not keyNN).
-        # Modifier-combo presets (e.g. "ctrl+alt+cmd+e") are strings, not
-        # keycodes, and are covered separately below.
+        # non-default preset must resolve to a real entry (not keyNN).
         for label, value in TRIGGER_PRESETS:
-            if not isinstance(value, int) or isinstance(value, bool):
+            if value is None:
                 continue
             assert value in _KEYCODE_TO_NAME, f"{label} keycode {value} missing from table"
 
-    def test_every_preset_combo_string_is_canonical(self):
-        # Modifier-combo presets must be non-empty and lowercase-canonical
-        # (matching the form the trigger resolver expects, e.g. "ctrl+alt+cmd+e").
+    def test_no_preset_is_a_combination_string(self):
+        # Modifier combinations stay valid hand-edited config values but are
+        # deliberately not offered as presets (the listen-only tap cannot
+        # swallow them). Every preset is the platform default or a keycode.
         for label, value in TRIGGER_PRESETS:
-            if not isinstance(value, str):
-                continue
-            assert value != ""
-            assert value == value.lower(), f"{label} combo {value!r} is not lowercase-canonical"
+            assert value is None or (isinstance(value, int) and not isinstance(value, bool)), (
+                f"{label} preset {value!r} is not None/keycode"
+            )
 
     def test_fn_preset_value_is_none(self):
         # Fn stays None so resolve_trigger maps it to the platform default.

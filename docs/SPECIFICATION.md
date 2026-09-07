@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-**Whispy** is a local voice dictation utility that runs as a menu bar / tray daemon on **macOS** and **Linux (X11)**. A configurable trigger key — the **Fn** key by default on macOS, **Right Ctrl** on Linux, both selectable — starts and stops recording. By default (`trigger_mode: "hold"`) it is a push-to-talk key: held to record, released to transcribe and inject the text into the active text field. In the optional `trigger_mode: "toggle"`, one press starts recording and the next press stops it. On macOS the trigger is selectable from the menu (Fn, Right Command, Right Option, F13, `⌃⌥⌘E`, `⌃⌥⌘F`). All processing is local — no audio or text leaves the machine.
+**Whispy** is a local voice dictation utility that runs as a menu bar / tray daemon on **macOS** and **Linux (X11)**. A configurable trigger key — the **Fn** key by default on macOS, **Right Ctrl** on Linux, both selectable — starts and stops recording. By default (`trigger_mode: "hold"`) it is a push-to-talk key: held to record, released to transcribe and inject the text into the active text field. In the optional `trigger_mode: "toggle"`, one press starts recording and the next press stops it. On macOS the trigger is selectable from the menu (Fn, Right Command, Right Option, F13). All processing is local — no audio or text leaves the machine.
 
 By default transcription is **streaming**: while recording, the audio is segmented on silence and each chunk is transcribed in the background, so the assembled text is typed near-instantly on release rather than after a single whole-file pass.
 
@@ -124,7 +124,7 @@ There is **no** `compute_key` — the model always loads with `device="cpu", com
 
 - **`VALID_MODEL_SIZES`** = `["tiny", "base", "small", "medium", "large-v3"]`
 - **`SUPPORTED_LANGUAGES`** = `{"fr": "French", "en": "English"}` (no `"auto"`)
-- **`TRIGGER_PRESETS`** — ordered `[(label, value)]`: `("Fn", None)`, `("Right Command", 54)`, `("Right Option", 61)`, `("F13", 105)`, `("⌃⌥⌘E", "ctrl+alt+cmd+e")`, `("⌃⌥⌘F", "ctrl+alt+cmd+f")` (macOS keycodes, or a `ctrl+alt+cmd+<key>` combination string for the two Hyper-tier presets; `None` = platform default)
+- **`TRIGGER_PRESETS`** — ordered `[(label, value)]`: `("Fn", None)`, `("Right Command", 54)`, `("Right Option", 61)`, `("F13", 105)` (macOS keycodes; `None` = platform default; a hand-edited `ctrl+alt+cmd+<key>` combination string is still accepted by the listener but has no preset)
 - **`CONFIG_VERSION`** = `1`
 
 **Functions:**
@@ -249,7 +249,7 @@ Settings                        (section header, disabled)
 Model: <current>                (submenu of MODEL_PRESETS, checkmarked)
 Language: <current>             (French / English, checkmarked)
 Copy to clipboard               (toggle)
-Trigger: <current>              (Fn / Right Command / Right Option / F13 / ⌃⌥⌘E / ⌃⌥⌘F, checkmarked)
+Trigger: <current>              (Fn / Right Command / Right Option / F13, checkmarked)
 Start at login                  (toggle — macOS .app bundle only, when SMAppService available)
 ---
 Restart

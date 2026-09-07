@@ -10,37 +10,23 @@ from pathlib import Path
 from typing import Any
 
 # Curated push-to-talk trigger presets for the menu UI: ordered (label, value)
-# where value is None for the platform default (Fn on macOS), a macOS keycode
-# (int), or a modifier-combo string (see below). Keycodes are Carbon virtual
-# keycodes (what CGEvent reports). Only keys that work as a *hold* without
-# blocking typing or stealing system shortcuts are listed — letter/space/Esc
-# keys and the Caps Lock toggle are deliberately out.
+# where value is None for the platform default (Fn on macOS) or a macOS keycode
+# (int). Keycodes are Carbon virtual keycodes (what CGEvent reports). Only keys
+# that work as a *hold* without blocking typing or stealing system shortcuts
+# are listed — letter/space/Esc keys and the Caps Lock toggle are deliberately
+# out, and so are modifier combinations: the macOS event tap is listen-only and
+# cannot consume the event, so any combination the focused application also
+# binds would fire that application's own shortcut on both the start and the
+# stop press.
 #
-# The list also carries modifier-combination presets from the Control+Option+
-# Command ("Hyper") tier. That tier is chosen because the macOS event tap is
-# listen-only and cannot consume the event: any combination the focused
-# application also binds would fire that application's own shortcut on both
-# the start and the stop press, and a shortcut that opens a focused panel
-# would redirect the subsequent text injection into it. The Hyper tier is
-# vacated by nearly every app for this reason.
-#
-# These combo presets are labelled by their key combination and must NOT be
-# relabelled with a language (e.g. "English", "French"): the ASR backend is a
-# transducer whose language cannot be forced, so a language label would
-# assert behavior the system does not implement.
-#
-# ponytail: confirm each keycode against a real CGEventTap before trusting it
-# (see tasks 1.2 / 4.2) — the keycode table in event_decode names some of these
-# differently, but matching/decoding is by raw keycode, and the label here is
-# what the menu shows, so a wrong name there does not mislead the UI. E=14 and
-# F=3 were verified against Apple's Events.h kVK_ANSI_* values.
+# A modifier-combination string (e.g. "ctrl+alt+cmd+e", see
+# hardware/event_decode.parse_trigger) is still a valid hand-edited config
+# value and is honoured by the listener; it just has no preset item here.
 TRIGGER_PRESETS: list[tuple[str, int | str | None]] = [
     ("Fn", None),  # platform default; None keeps "default" semantics (keycode 63)
     ("Right Command", 54),
     ("Right Option", 61),
     ("F13", 105),
-    ("⌃⌥⌘E", "ctrl+alt+cmd+e"),
-    ("⌃⌥⌘F", "ctrl+alt+cmd+f"),
 ]
 
 # Default configuration values
