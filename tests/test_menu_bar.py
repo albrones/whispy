@@ -54,6 +54,7 @@ sys.modules["rumps"] = _fake_rumps
 # rebuilds the class against the real _App base.
 sys.modules.pop("whispy.ui.menu_bar", None)
 
+from whispy.core.config import TRIGGER_PRESETS
 from whispy.ui import menu_theme
 from whispy.ui.menu_bar import WhisperMenuBarApp
 
@@ -129,32 +130,47 @@ class TestCheckmarkInvariant:
         assert checked == ["Right Command"]
 
 
-class TestTriggerSelectCombinationPreset:
-    """String-valued combination presets (added alongside the int keycodes)
-    must persist, move the checkmark, and re-label the submenu title."""
+class TestTriggerSelectF13Preset:
+    """Selecting a non-default keycode preset must persist, move the checkmark,
+    and re-label the submenu title (F13 stands in for any curated preset)."""
 
     def _item(self, label, value):
         # _menuitem=None forces apply_title's plain-string path (sets .title).
         return SimpleNamespace(_label=label, _trigger_value=value, _menuitem=None, title=label)
 
-    def test_selecting_combination_persists_checks_and_labels(self, monkeypatch):
-        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
-
-        items = [self._item("Fn", None), self._item("⌃⌥⌘E", "ctrl+alt+cmd+e")]
+    def _app(self, items, trigger):
         engine = MagicMock()
-        engine.state.config = {"trigger": None}
+        engine.state.config = {"trigger": trigger}
         engine.update_config.side_effect = engine.state.config.update
         app = SimpleNamespace(engine=engine, _trigger_items=items, trigger_menu=SimpleNamespace(title="Trigger: Fn"))
         app._trigger_is_active = lambda value: WhisperMenuBarApp._trigger_is_active(app, value)
         app._trigger_label = lambda: WhisperMenuBarApp._trigger_label(app)
         app._update_trigger_title = lambda: WhisperMenuBarApp._update_trigger_title(app)
+        return app
 
-        WhisperMenuBarApp._on_trigger_select(app, SimpleNamespace(_trigger_value="ctrl+alt+cmd+e"))
+    def test_selecting_f13_persists_checks_and_labels(self, monkeypatch):
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        items = [self._item("Fn", None), self._item("F13", 105)]
+        app = self._app(items, trigger=None)
 
-        engine.update_config.assert_called_once_with({"trigger": "ctrl+alt+cmd+e"})
+        WhisperMenuBarApp._on_trigger_select(app, SimpleNamespace(_trigger_value=105))
+
+        app.engine.update_config.assert_called_once_with({"trigger": 105})
         checked = [it._label for it in items if it.title.startswith(menu_theme.CHECK)]
-        assert checked == ["⌃⌥⌘E"]
-        assert app.trigger_menu.title == "Trigger: ⌃⌥⌘E"
+        assert checked == ["F13"]
+        assert app.trigger_menu.title == "Trigger: F13"
+
+    def test_hand_edited_combination_titles_itself_and_checks_nothing(self, monkeypatch):
+        # The combination decoder is kept for hand-edited configs even though no
+        # preset offers one: the title shows the raw string, no item is checked.
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        items = [self._item(label, value) for label, value in TRIGGER_PRESETS]
+        app = self._app(items, trigger="ctrl+alt+cmd+e")
+
+        WhisperMenuBarApp._update_trigger_title(app)
+
+        assert app.trigger_menu.title == "Trigger: ctrl+alt+cmd+e"
+        assert not any(app._trigger_is_active(it._trigger_value) for it in items)
 
 
 class TestTriggerLabelRawString:

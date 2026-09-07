@@ -86,11 +86,12 @@
   dictation and the next press stop it, so recording can outlive the key
   press. Exposed as a **Toggle mode** checkbox in the menu bar / tray
   Settings, and composable with any trigger.
-- **Two new trigger presets**, `⌃⌥⌘E` and `⌃⌥⌘F` (Control+Option+Command plus a
-  letter). They are labelled by their keys, nothing more — the macOS event tap
-  is listen-only and cannot consume the event, so a combination the focused
-  app also binds would fire that app's own shortcut too; the Hyper tier is the
-  only multi-key combination left unbound by convention.
+- **Modifier-combination triggers** (`ctrl+alt+cmd+<key>`) are decoded on both
+  platforms when written by hand into `config.json`. They are deliberately not
+  offered as menu presets: the macOS event tap is listen-only and cannot consume
+  the event, so a combination the focused app also binds would fire that app's
+  own shortcut too. The Trigger submenu stays Fn / Right Command / Right Option /
+  F13.
 - **Silence gate.** Near-silent audio is now discarded before it reaches the
   model. Parakeet is far better behaved than Whisper on non-speech — no corpus
   artifacts, no repetition loops — but it does invent short fillers (`Yeah.`,
