@@ -56,6 +56,6 @@
 
 - [x] 7.1 Run `./.venv/bin/pytest` — existing and new tests green
 - [x] 7.2 Live-drive on macOS: with `⌃⌥⌘E` in toggle mode, one press starts (pill appears, waveform reacts), a second press stops and injects; confirm the injected text carries no modifier-layer mangling. **Confirmed by the operator.** First run exposed two defects (pill hidden on the physical key release; the stopping press clearing the trigger-held flag while the keys were down) — both fixed and guarded by regression tests before re-confirmation.
-- [ ] 7.3 Live-drive: confirm hold mode with Fn is unchanged
-- [ ] 7.4 Live-drive: exceed the recording limit in toggle mode and confirm the notification appears and the text is on the clipboard
+- [x] 7.3 Live-drive: confirm hold mode with Fn is unchanged. **Confirmed by the operator on 2026-09-07** on the built app.
+- [x] 7.4 Live-drive: exceed the recording limit in toggle mode and confirm the notification appears and the text is on the clipboard. **Confirmed by the operator on 2026-09-07** on the built app.
 - [x] 7.5 Note in the PR which combination-decode paths were exercised on a real event tap versus only in unit tests (per `openspec/specs/TESTING-TIERS.md`). **Recorded here:** every combination decode path (`parse_trigger`, the `required_mask` gate, `split_trigger_combination`, `canonical_modifier`, the held-modifier tracking) is covered at the unit-pure tier only. No assertion in this change has run against a live `CGEventTap` or a live X11 `pynput` listener; tasks 7.2-7.4 are the platform-real tier and remain outstanding.
