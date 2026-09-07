@@ -39,6 +39,6 @@
 
 - [x] 6.1 Run `./.venv/bin/pytest` — existing and new tests green
 - [x] 6.2 Run `./.venv/bin/ruff check .` and `ruff format --check .`
-- [ ] 6.3 Live-drive: dictate in French with a deliberate pause around a single short word ("oui", "bref", "donc") and confirm the transcript stays French
-- [ ] 6.4 Live-drive: confirm a dictation consisting of one short word alone still transcribes (the `flush_tail` path)
-- [ ] 6.5 Note in the PR that the threshold is TTS-derived and unvalidated against real speech, so the first real-voice counter-example should retune `min_speech_s` rather than be treated as a new bug
+- [x] 6.3 Live-drive: dictate in French with a deliberate pause around a single short word ("oui", "bref", "donc") and confirm the transcript stays French. **Confirmed by the operator on 2026-09-07** on the built app.
+- [x] 6.4 Live-drive: confirm a dictation consisting of one short word alone still transcribes (the `flush_tail` path). **Confirmed by the operator on 2026-09-07.**
+- [x] 6.5 Note in the PR that the threshold is TTS-derived and unvalidated against real speech, so the first real-voice counter-example should retune `min_speech_s` rather than be treated as a new bug
