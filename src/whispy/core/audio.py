@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 
-from .segmentation import SpeechSegmenter, speech_duration_s
+from .segmentation import SpeechSegmenter, speech_span_s
 from .state_machine import StateMachine
 
 # ``sounddevice`` loads libportaudio at import time, which is absent on headless
@@ -51,6 +51,13 @@ SAMPLE_WIDTH = 2  # int16
 # are legitimate one-word dictations, so filtering by text would delete real
 # speech. Energy never looks at what was said.
 SILENCE_RMS_THRESHOLD = 0.005
+# The gate compares the threshold against the loudest window of this length,
+# not the whole-clip mean. Measured on a live dictation: one word ("test",
+# ~0.4 s) held by the segmenter for context and then flushed inside 10 s of
+# silence averaged 0.00496 — under the gate by 1% — and was discarded. The
+# mean scales the word by sqrt(voiced / total); the loudest 0.5 s window is
+# the word itself. A near-silent clip has no loud window, so it still fails.
+PEAK_RMS_WINDOW_S = 0.5
 
 # Minimum seconds of VAD-voiced audio required before a clip reaches the model.
 #
@@ -83,6 +90,20 @@ SILENCE_RMS_THRESHOLD = 0.005
 # voiced); a real fix for louder rooms would need a speech-vs-noise classifier,
 # not a louder threshold.
 MIN_SPEECH_DURATION_S = 0.20
+
+# Before the model call, a clip is cut down to its outermost VAD-speech frames
+# plus this margin on each side. Silence around an utterance is not neutral to
+# Parakeet: measured with `scripts/asr-bench/probe_lone_word.py` (3 words x 6
+# voices x 2 levels), an isolated word followed by 0.6 s of silence was
+# recognized 12/15, by 5 s 4-6/15, by 10 s 3-5/15; trimmed to its voiced span
+# the same clips came back 10-12/15 whatever the tail. A lone word that the
+# segmenter holds for `LONE_WORD_PAUSE_S` (or the soft cut) always arrives
+# with seconds of silence attached, and was coming back empty 7 times out of 9
+# on a live drive. Internal silences are kept: only the ends are cut.
+TRIM_MARGIN_S = 0.3
+# Rewrite the clip only when it saves at least this much; a clip that already
+# starts and ends on speech goes to the model as is.
+TRIM_MIN_GAIN_S = 0.25
 
 RECORDING_PATH = os.path.join(tempfile.gettempdir(), "whispy.wav")
 
@@ -511,7 +532,7 @@ class AudioEngine:
         # Near-silent audio must never reach the model. Parakeet invents short
         # backchannel fillers on it -- "Yeah.", "Okay.", "Mm-hmm.", "No.",
         # "Thank you." -- which would be typed into the user's active field.
-        rms = self._get_audio_rms(audio_path)
+        rms = self._get_peak_rms(audio_path)
         if rms is not None and rms < SILENCE_RMS_THRESHOLD:
             logger.info(
                 "[audio] Recording is near-silent (RMS %.6f < %.4f) — discarding.",
@@ -525,36 +546,51 @@ class AudioEngine:
         # (3/100 realizations measured) Parakeet answers it with a filler
         # ("Yeah.", "Ha ha ha."). VAD closes that: the same clips carry at most
         # 0.12s of speech frames against 0.33s for the shortest real word.
-        if not self._carries_speech(audio_path):
+        span = self._speech_span(audio_path)
+        if span is not None and not self._span_carries_speech(span):
             return None
 
+        # Silence around the utterance makes the model return nothing (see
+        # TRIM_MARGIN_S). Cut to the voiced span; the trimmed file is the
+        # model's input only, the caller still owns and deletes `audio_path`.
+        model_path = self._trim_to_speech(audio_path, span, duration)
         try:
-            text = (model.recognize(audio_path) or "").strip()
-            return text if text else None
-        except Exception as exc:
-            print(f"[audio] Transcription error: {exc}", file=sys.stderr)
+            text = (model.recognize(model_path) or "").strip()
+        except Exception:
+            # Logged, not printed: the bundled app has no stderr sink, so a
+            # print here is invisible in a live drive.
+            logger.exception("[audio] Transcription error")
             return None
+        finally:
+            if model_path != audio_path:
+                self.cleanup_audio_file(model_path)
+        if not text:
+            # Both gates passed, so the clip did carry voice. Without this line
+            # a lost utterance is indistinguishable in the log from a discard.
+            logger.info("[audio] Model returned no text for a %.2fs clip — discarding.", duration or 0.0)
+            return None
+        return text
 
-    def _carries_speech(self, audio_path: str) -> bool:
-        """True when the clip holds enough VAD-detected speech to be worth decoding.
+    def _speech_span(self, audio_path: str) -> tuple[float, float, float] | None:
+        """``(first_s, last_s, voiced_s)`` of the clip's VAD speech, or None if unmeasurable.
 
-        Fails open: an unreadable file, a non-16-bit clip, or a missing
-        ``webrtcvad`` all return True, so a clip that cannot be measured is
-        transcribed rather than dropped. Losing a real dictation is worse than
-        typing an occasional filler.
+        None (unreadable file, non-16-bit or non-mono clip, missing
+        ``webrtcvad``) means "fail open": the caller transcribes the clip
+        untrimmed rather than dropping it.
         """
         try:
             with wave.open(audio_path, "rb") as wf:
                 if wf.getsampwidth() != 2 or wf.getnchannels() != 1:
-                    return True
+                    return None
                 rate = wf.getframerate()
                 pcm = wf.readframes(wf.getnframes())
         except (OSError, wave.Error):
-            return True
+            return None
+        return speech_span_s(pcm, sample_rate=rate)
 
-        speech_s = speech_duration_s(pcm, sample_rate=rate)
-        if speech_s is None:
-            return True
+    def _span_carries_speech(self, span: tuple[float, float, float]) -> bool:
+        """The speech gate on a measured span; logs the discard reason."""
+        speech_s = span[2]
         if speech_s < MIN_SPEECH_DURATION_S:
             logger.info(
                 "[audio] No speech detected (%.2fs < %.2fs of voiced frames) — discarding.",
@@ -564,30 +600,106 @@ class AudioEngine:
             return False
         return True
 
-    def _get_audio_rms(self, audio_path: str) -> float | None:
-        """Root-mean-square amplitude of a WAV, normalized to 0.0-1.0.
+    def _carries_speech(self, audio_path: str) -> bool:
+        """True when the clip holds enough VAD-detected speech to be worth decoding.
 
-        Returns None when the file cannot be measured, so an unmeasurable clip
-        is transcribed rather than silently dropped.
+        Fails open: an unmeasurable clip returns True, so it is transcribed
+        rather than dropped. Losing a real dictation is worse than typing an
+        occasional filler.
         """
+        span = self._speech_span(audio_path)
+        return True if span is None else self._span_carries_speech(span)
+
+    def _trim_to_speech(
+        self,
+        audio_path: str,
+        span: tuple[float, float, float] | None,
+        duration: float | None,
+    ) -> str:
+        """Write a copy of the clip cut to its voiced span (+ TRIM_MARGIN_S) and return its path.
+
+        Returns ``audio_path`` itself when the span is unknown, when trimming
+        would save less than TRIM_MIN_GAIN_S, or when the copy cannot be
+        written -- the model then sees the original, never nothing.
+        """
+        if span is None or duration is None or span[2] <= 0.0:
+            return audio_path
+        start = max(0.0, span[0] - TRIM_MARGIN_S)
+        end = min(duration, span[1] + TRIM_MARGIN_S)
+        if (duration - (end - start)) < TRIM_MIN_GAIN_S:
+            return audio_path
+        trimmed = f"{audio_path}.trim.wav"
+        try:
+            with wave.open(audio_path, "rb") as src:
+                rate = src.getframerate()
+                width = src.getsampwidth()
+                channels = src.getnchannels()
+                src.setpos(int(start * rate))
+                frames = src.readframes(int((end - start) * rate))
+            with wave.open(trimmed, "wb") as dst:
+                dst.setnchannels(channels)
+                dst.setsampwidth(width)
+                dst.setframerate(rate)
+                dst.writeframes(frames)
+        except (OSError, wave.Error):
+            logger.warning("[audio] could not trim %s; transcribing it whole", audio_path)
+            return audio_path
+        logger.debug("[audio] trimmed %.2fs -> %.2fs before the model", duration, end - start)
+        return trimmed
+
+    def _get_peak_rms(self, audio_path: str, window_s: float = PEAK_RMS_WINDOW_S) -> float | None:
+        """Highest normalized RMS over any ``window_s`` window of a WAV.
+
+        The near-silence gate's metric. Unlike the whole-clip mean it does not
+        dilute one word in a long silence (see PEAK_RMS_WINDOW_S). A clip
+        shorter than the window is measured whole. Returns None when the file
+        cannot be measured, so an unmeasurable clip is transcribed.
+        """
+        loaded = self._load_normalized(audio_path)
+        if loaded is None:
+            return None
+        samples, rate = loaded
+        window = max(1, int(window_s * rate))
+        if samples.size <= window:
+            return float(np.sqrt(np.mean(samples**2)))
+        # Sliding mean of squares via a cumulative sum; hop of 1/5 window.
+        sq = np.concatenate(([0.0], np.cumsum(samples**2)))
+        hop = max(1, window // 5)
+        starts = np.arange(0, samples.size - window + 1, hop)
+        means = (sq[starts + window] - sq[starts]) / window
+        return float(np.sqrt(means.max()))
+
+    def _load_normalized(self, audio_path: str) -> tuple[np.ndarray, int] | None:
+        """WAV samples as float64 in -1.0..1.0 plus the sample rate; None if unreadable."""
         try:
             with wave.open(audio_path, "rb") as wf:
                 width = wf.getsampwidth()
+                rate = wf.getframerate()
                 raw = wf.readframes(wf.getnframes())
         except (OSError, wave.Error):
             return None
-
         dtype = {1: np.uint8, 2: np.int16, 4: np.int32}.get(width)
         if dtype is None or not raw:
             return None
-
         samples = np.frombuffer(raw, dtype=dtype).astype(np.float64)
         if samples.size == 0:
             return None
         if width == 1:  # 8-bit PCM is unsigned, centred on 128
             samples = (samples - 128.0) / 128.0
         else:
-            samples /= float(np.iinfo(dtype).max)
+            samples = samples / float(np.iinfo(dtype).max)
+        return samples, rate
+
+    def _get_audio_rms(self, audio_path: str) -> float | None:
+        """Root-mean-square amplitude of a WAV, normalized to 0.0-1.0.
+
+        Whole-clip mean; kept for calibration checks. The gate itself uses
+        ``_get_peak_rms``. Returns None when the file cannot be measured.
+        """
+        loaded = self._load_normalized(audio_path)
+        if loaded is None:
+            return None
+        samples, _rate = loaded
         return float(np.sqrt(np.mean(samples**2)))
 
     def _get_audio_duration(self, audio_path: str) -> float | None:

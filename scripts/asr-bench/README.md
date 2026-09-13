@@ -70,6 +70,10 @@ Numbers move with the machine; the *shapes* are the point.
 - **Non-speech above the RMS gate** — Parakeet answered 3 of 100 noise
   realizations with a filler, Whisper 52-100% depending on noise type. The speech
   gate took Parakeet's 3 to 0.
+- **Silence around a word** (`probe_lone_word.py`) — an isolated word followed
+  by 0.6 s of silence is recognized 12/15, by 5 s 4-6/15, by 10 s 3-5/15.
+  Trimmed to its VAD span (+0.3 s margins) the same clips hold at 10-12/15.
+  `transcribe()` now trims before the model call.
 - **Confidence gating** — unusable. An invented `Hello` on a mid-word cut scores
   mean logprob -0.040; a correctly recognized `Oui.` scores -0.399.
 

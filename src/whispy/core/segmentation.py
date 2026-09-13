@@ -8,10 +8,14 @@ the dependency is absent (so the app still imports and runs).
 
 A chunk boundary is emitted when accumulated speech carrying at least
 ``min_speech_s`` of *voiced* audio is followed by at least ``pause_ms`` of
-silence, OR when the buffered chunk reaches ``max_chunk_s`` (a forced flush so
-run-on speech still streams). Audio is never dropped by the segmenter — it only
-decides *where* to cut; the per-chunk VAD filter inside ``transcribe`` trims any
-leading/trailing silence.
+silence, OR when the buffered chunk has reached ``max_chunk_s`` and the speaker
+hits a short gap (``SOFT_FLUSH_GAP_S``), OR unconditionally at
+``max_chunk_s * HARD_MAX_FACTOR`` (so run-on speech with no gap at all still
+streams). The soft rule exists because a cut placed at an arbitrary frame lands
+mid-word: measured on a live dictation, the half-words on either side came back
+as the same word twice ("mais" / "Mais") or as nothing at all. Audio is never
+dropped by the segmenter — it only decides *where* to cut; the per-chunk VAD
+filter inside ``transcribe`` trims any leading/trailing silence.
 """
 
 import logging
@@ -31,6 +35,62 @@ FRAME_SAMPLES = SAMPLE_RATE * FRAME_MS // 1000  # 480
 FRAME_BYTES = FRAME_SAMPLES * 2  # int16 -> 960 bytes
 # Energy-fallback speech gate (normalized RMS * 10, matching the capture level).
 _FALLBACK_SPEECH_LEVEL = 0.04
+# Once a chunk has reached max_chunk_s, cut at the first gap this long instead
+# of at the very next frame: ~200 ms is a between-word-groups breath, which
+# continuous speech offers every few seconds, and short enough that a
+# between-word gap does not qualify.
+SOFT_FLUSH_GAP_S = 0.2
+# ponytail: unconditional ceiling as a multiple of max_chunk_s (18 s at the
+# default 12 s) rather than a second config key. Only reached by speech with no
+# 200 ms gap for six seconds straight.
+HARD_MAX_FACTOR = 1.5
+# A chunk below min_speech_s is normally held so a short word rides along with
+# the next utterance instead of reaching the model alone. But when nothing
+# follows, "held" means "typed 12 s later" (or, before the peak-RMS gate,
+# lost). Past this much silence the speaker has stopped: emit the word alone
+# and accept the wrong-language risk on it — the user asked for the word.
+LONE_WORD_PAUSE_S = 2.0
+
+
+def speech_span_s(
+    pcm: bytes, sample_rate: int = SAMPLE_RATE, aggressiveness: int = 2
+) -> tuple[float, float, float] | None:
+    """``(first_s, last_s, voiced_s)`` of the VAD-speech frames in ``pcm``.
+
+    ``first_s``/``last_s`` bound the outermost speech frames (``last_s`` is the
+    end of the last one); ``voiced_s`` is the total speech duration, the metric
+    behind ``speech_duration_s``. A clip with no speech frame returns
+    ``(0.0, 0.0, 0.0)``. Returns None when VAD is unavailable or the audio
+    cannot be framed, so callers fail open.
+    """
+    if webrtcvad is None or sample_rate not in (8000, 16000, 32000, 48000):
+        return None
+    try:
+        vad = webrtcvad.Vad(max(0, min(3, int(aggressiveness))))
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+    frame_bytes = sample_rate * FRAME_MS // 1000 * 2
+    n_frames = len(pcm) // frame_bytes
+    if n_frames == 0:
+        return None
+
+    speech = 0
+    first = last = -1
+    for i in range(n_frames):
+        frame = pcm[i * frame_bytes : (i + 1) * frame_bytes]
+        try:
+            if vad.is_speech(frame, sample_rate):
+                speech += 1
+                if first < 0:
+                    first = i
+                last = i
+        except Exception:  # pragma: no cover - defensive
+            return None
+    frame_s = FRAME_MS / 1000.0
+    if first < 0:
+        return (0.0, 0.0, 0.0)
+    return (first * frame_s, (last + 1) * frame_s, speech * frame_s)
 
 
 def speech_duration_s(pcm: bytes, sample_rate: int = SAMPLE_RATE, aggressiveness: int = 2) -> float | None:
@@ -47,27 +107,8 @@ def speech_duration_s(pcm: bytes, sample_rate: int = SAMPLE_RATE, aggressiveness
     Returns None when VAD is unavailable or the audio cannot be framed, so an
     unmeasurable clip is transcribed rather than silently dropped.
     """
-    if webrtcvad is None or sample_rate not in (8000, 16000, 32000, 48000):
-        return None
-    try:
-        vad = webrtcvad.Vad(max(0, min(3, int(aggressiveness))))
-    except Exception:  # pragma: no cover - defensive
-        return None
-
-    frame_bytes = sample_rate * FRAME_MS // 1000 * 2
-    n_frames = len(pcm) // frame_bytes
-    if n_frames == 0:
-        return None
-
-    speech = 0
-    for i in range(n_frames):
-        frame = pcm[i * frame_bytes : (i + 1) * frame_bytes]
-        try:
-            if vad.is_speech(frame, sample_rate):
-                speech += 1
-        except Exception:  # pragma: no cover - defensive
-            return None
-    return speech * FRAME_MS / 1000.0
+    span = speech_span_s(pcm, sample_rate=sample_rate, aggressiveness=aggressiveness)
+    return None if span is None else span[2]
 
 
 class SpeechSegmenter:
@@ -175,8 +216,12 @@ class SpeechSegmenter:
                 self._silence_s += self._frame_s
 
             if self._have_speech and (
-                (self._silence_s >= self._pause_s and self._speech_s >= self._min_speech_s)
-                or self._buffered_s >= self._max_chunk_s
+                (
+                    self._silence_s >= self._pause_s
+                    and (self._speech_s >= self._min_speech_s or self._silence_s >= LONE_WORD_PAUSE_S)
+                )
+                or (self._buffered_s >= self._max_chunk_s and self._silence_s >= SOFT_FLUSH_GAP_S)
+                or self._buffered_s >= self._max_chunk_s * HARD_MAX_FACTOR
             ):
                 emit = True
                 self.reset_chunk()

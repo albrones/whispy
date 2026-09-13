@@ -187,3 +187,13 @@ def test_mentions_toggle_mode(html: str):
     """Toggle mode (press once to start, press again to stop) is a real
     capability and must be documented, not just push-to-talk hold."""
     assert "toggle mode" in html.lower(), "site must mention toggle mode"
+
+
+def test_mentions_type_while_speaking(html: str):
+    """Type while speaking (toggle mode types each chunk as it's transcribed,
+    instead of once at stop) is a real setting and must be documented."""
+    lowered = html.lower()
+    assert "type while speaking" in lowered, "site must mention the Type while speaking setting"
+    assert "after each pause" in lowered or "pause by pause" in lowered, (
+        "site must describe typing while speaking / after each pause"
+    )

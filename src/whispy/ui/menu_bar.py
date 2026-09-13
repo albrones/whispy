@@ -156,6 +156,19 @@ class WhisperMenuBarApp(rumps.App):
             menu_theme.toggle_title("Toggle mode", cfg.get("trigger_mode", "hold") == "toggle"),
         )
 
+        # Type while speaking — toggle mode only: types each streaming chunk's
+        # text as soon as it is transcribed instead of waiting for release.
+        # Inert in hold mode (the trigger key is held for the whole dictation).
+        # Modelled on the clipboard toggle above.
+        self.type_while_speaking_menu = rumps.MenuItem(
+            "Type while speaking", callback=self._on_toggle_type_while_speaking
+        )
+        self.type_while_speaking_menu._label = "Type while speaking"
+        menu_theme.apply_title(
+            self.type_while_speaking_menu,
+            menu_theme.toggle_title("Type while speaking", cfg.get("type_while_speaking", True)),
+        )
+
         # Trigger (push-to-talk key) selection — submenu title reflects the
         # current choice, each item shows a check, mirroring Model/Language.
         self.trigger_menu = rumps.MenuItem("Trigger")
@@ -197,6 +210,7 @@ class WhisperMenuBarApp(rumps.App):
             settings_header,
             self.copy_menu,
             self.toggle_mode_menu,
+            self.type_while_speaking_menu,
             self.trigger_menu,
             *([self.login_item_menu] if self.login_item_menu is not None else []),
             None,
@@ -245,6 +259,10 @@ class WhisperMenuBarApp(rumps.App):
         menu_theme.apply_title(
             self.toggle_mode_menu,
             menu_theme.toggle_title(self.toggle_mode_menu._label, cfg.get("trigger_mode", "hold") == "toggle"),
+        )
+        menu_theme.apply_title(
+            self.type_while_speaking_menu,
+            menu_theme.toggle_title(self.type_while_speaking_menu._label, cfg.get("type_while_speaking", True)),
         )
         for item in self._trigger_items:
             menu_theme.apply_title(
@@ -439,6 +457,11 @@ class WhisperMenuBarApp(rumps.App):
         new_mode = "hold" if current == "toggle" else "toggle"
         menu_theme.apply_title(sender, menu_theme.toggle_title(sender._label, new_mode == "toggle"))
         self.engine.update_config({"trigger_mode": new_mode})
+
+    def _on_toggle_type_while_speaking(self, sender: rumps.MenuItem) -> None:
+        enabled = not self.engine.state.config.get("type_while_speaking", True)
+        menu_theme.apply_title(sender, menu_theme.toggle_title(sender._label, enabled))
+        self.engine.update_config({"type_while_speaking": enabled})
 
     @staticmethod
     def _reconcile_login_item(want_enabled: bool) -> None:

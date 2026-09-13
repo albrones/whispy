@@ -6,6 +6,8 @@ and the Wayland-vs-X11 session detection with env/binaries patched.
 """
 
 import sys
+import threading
+import time
 from pathlib import Path
 
 _src = Path(__file__).parent.parent / "src"
@@ -43,6 +45,55 @@ class TestXdotoolProbe:
         injector = XdotoolInjector()
         injector.inject("")
         run.assert_not_called()
+
+
+def _wait_until(predicate, timeout=2.0):
+    """Poll ``predicate`` until it's truthy or the timeout elapses."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
+
+
+class TestInjectionOrdering:
+    """Successive inject() calls are serialized in call order without blocking the caller."""
+
+    def test_second_inject_waits_for_first_keystroke_injection(self, mocker):
+        mocker.patch.object(linux_injection.shutil, "which", return_value="/usr/bin/xdotool")
+        release_event = threading.Event()
+        calls: list[list[str]] = []
+        call_index = [0]
+
+        def _run_side_effect(cmd, **kwargs):
+            call_index[0] += 1
+            calls.append(cmd)
+            if call_index[0] == 1:
+                release_event.wait(timeout=2.0)
+            return mocker.Mock(returncode=0)
+
+        run = mocker.patch.object(linux_injection.subprocess, "run", side_effect=_run_side_effect)
+
+        injector = XdotoolInjector(copy_to_clipboard=False)
+        injector.inject("A")
+        injector.inject("B")
+
+        # Wait for A's step to actually reach subprocess.run -- inject() itself
+        # returns immediately, well before that happens.
+        assert _wait_until(lambda: run.call_count >= 1)
+        # inject() did not block the caller: we get here while the first
+        # job is still parked on the event.
+        assert not release_event.is_set()
+        # B's step must not have been dispatched yet -- the worker is still
+        # busy with A.
+        assert run.call_count == 1
+
+        release_event.set()
+        assert _wait_until(lambda: run.call_count >= 2)
+        # Keystroke mode passes the text as the trailing argv element.
+        assert calls[0][-1] == "A"
+        assert calls[1][-1] == "B"
 
 
 class TestWaylandDetection:

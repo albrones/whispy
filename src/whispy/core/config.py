@@ -57,6 +57,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # text is typed near-instantly on release instead of after a multi-second
     # whole-file pass. Disable to use the legacy record-then-transcribe path.
     "streaming_enabled": True,
+    # Toggle mode only — type each chunk's text as soon as it is transcribed,
+    # instead of waiting for the whole dictation to finish. Hold mode always
+    # types once at release regardless of this setting: the trigger key is
+    # physically held while recording, and typing under a held modifier alters
+    # every character.
+    "type_while_speaking": True,
     # Minimum trailing silence (milliseconds) that closes a chunk.
     "pause_ms": 600,
     # Minimum *voiced* seconds a chunk must hold before a pause may close it.
@@ -159,6 +165,15 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
             file=sys.stderr,
         )
         validated["streaming_enabled"] = DEFAULT_CONFIG["streaming_enabled"]
+
+    # Validate type_while_speaking (must be bool).
+    tws = validated.get("type_while_speaking")
+    if not isinstance(tws, bool):
+        print(
+            f"[config] Invalid type_while_speaking '{tws}', defaulting to {DEFAULT_CONFIG['type_while_speaking']}",
+            file=sys.stderr,
+        )
+        validated["type_while_speaking"] = DEFAULT_CONFIG["type_while_speaking"]
 
     # Validate pause_ms (must be a positive number; bool rejected).
     pause = validated.get("pause_ms")

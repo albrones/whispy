@@ -466,7 +466,7 @@ class TestTranscribe:
         audio = AudioEngine(sm)
         audio_path = self._clip(tmp_path)
         audio._get_audio_duration = MagicMock(return_value=2.0)
-        audio._get_audio_rms = MagicMock(return_value=0.0006)
+        audio._get_peak_rms = MagicMock(return_value=0.0006)
 
         assert audio.transcribe(audio_path, mock_asr_model) is None
         mock_asr_model.recognize.assert_not_called()
@@ -475,7 +475,7 @@ class TestTranscribe:
         audio = AudioEngine(sm)
         audio_path = self._clip(tmp_path)
         audio._get_audio_duration = MagicMock(return_value=2.0)
-        audio._get_audio_rms = MagicMock(return_value=0.15)
+        audio._get_peak_rms = MagicMock(return_value=0.15)
         mock_asr_model.recognize.return_value = "bonjour"
 
         assert audio.transcribe(audio_path, mock_asr_model) == "bonjour"
@@ -484,7 +484,7 @@ class TestTranscribe:
         """An unmeasurable clip is transcribed rather than silently dropped."""
         audio = AudioEngine(sm)
         audio_path = self._clip(tmp_path)
-        audio._get_audio_rms = MagicMock(return_value=None)
+        audio._get_peak_rms = MagicMock(return_value=None)
         mock_asr_model.recognize.return_value = "bonjour"
 
         assert audio.transcribe(audio_path, mock_asr_model) == "bonjour"
@@ -703,6 +703,75 @@ class TestAudioRms:
         bad.write_bytes(b"not a wav")
         assert audio._get_audio_rms(str(bad)) is None
 
+
+class TestPeakRms:
+    """The near-silence gate measures the loudest window, not the clip mean.
+
+    Live-drive case: one word held by the segmenter for context, then flushed
+    inside 10 s of silence, averaged 0.00496 -- under the 0.005 gate by 1% --
+    and was discarded. The word itself was ~0.025 RMS.
+    """
+
+    def _wav(self, path, samples, rate=16000):
+        with wave.open(str(path), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(rate)
+            wf.writeframes(samples.astype("<i2").tobytes())
+        return str(path)
+
+    def _word_in_silence(self, tmp_path, silence_s=10.0, word_s=0.4, level=0.025):
+        import numpy as np
+
+        rate = 16000
+        t = np.arange(int(word_s * rate)) / rate
+        word = np.sin(2 * np.pi * 200 * t) * level * np.sqrt(2) * np.iinfo(np.int16).max
+        clip = np.concatenate([np.zeros(int(silence_s * rate / 2)), word, np.zeros(int(silence_s * rate / 2))])
+        return self._wav(tmp_path / "word.wav", clip)
+
+    def test_one_word_in_long_silence_clears_the_gate(self, tmp_path):
+        audio = AudioEngine(MagicMock())
+        path = self._word_in_silence(tmp_path)
+        assert audio._get_audio_rms(path) < SILENCE_RMS_THRESHOLD  # the old metric lost it
+        assert audio._get_peak_rms(path) > SILENCE_RMS_THRESHOLD  # the gate now keeps it
+
+    def test_quiet_noise_still_fails_the_gate(self, tmp_path):
+        import numpy as np
+
+        audio = AudioEngine(MagicMock())
+        quiet = np.random.default_rng(3).normal(0, 0.002 * np.iinfo(np.int16).max, 16000 * 3)
+        path = self._wav(tmp_path / "quiet.wav", quiet)
+        assert audio._get_peak_rms(path) < SILENCE_RMS_THRESHOLD
+
+    def test_digital_silence_measures_zero(self, tmp_path):
+        import numpy as np
+
+        audio = AudioEngine(MagicMock())
+        assert audio._get_peak_rms(self._wav(tmp_path / "sil.wav", np.zeros(16000))) == 0.0
+
+    def test_clip_shorter_than_window_is_measured_whole(self, tmp_path):
+        import numpy as np
+
+        audio = AudioEngine(MagicMock())
+        short = np.full(1000, int(0.1 * np.iinfo(np.int16).max))
+        path = self._wav(tmp_path / "short.wav", short)
+        assert audio._get_peak_rms(path) == pytest.approx(audio._get_audio_rms(path))
+
+    def test_uniform_clip_peak_equals_mean(self, tmp_path):
+        import numpy as np
+
+        audio = AudioEngine(MagicMock())
+        loud = np.full(16000, int(0.3 * np.iinfo(np.int16).max))
+        path = self._wav(tmp_path / "flat.wav", loud)
+        assert audio._get_peak_rms(path) == pytest.approx(audio._get_audio_rms(path), rel=1e-6)
+
+    def test_returns_none_for_unreadable_file(self, tmp_path):
+        audio = AudioEngine(MagicMock())
+        bad = tmp_path / "x.mp3"
+        bad.write_bytes(b"not a wav")
+        assert audio._get_peak_rms(str(bad)) is None
+        assert audio._get_peak_rms("/nonexistent/file.wav") is None
+
     def test_returns_none_for_missing_file(self):
         audio = AudioEngine(MagicMock())
         assert audio._get_audio_rms("/nonexistent/file.wav") is None
@@ -856,3 +925,111 @@ class TestSpeechGateAgainstCommittedAudio:
         path = self.FIXTURES / "silence.wav"
         audio = AudioEngine(MagicMock())
         assert audio._carries_speech(str(path)) is False
+
+
+@requires_vad
+class TestTrimToSpeech:
+    """The model sees the clip cut to its voiced span, not the silence around it.
+
+    Measured (`scripts/asr-bench/probe_lone_word.py`): an isolated word with
+    10 s of trailing silence was recognized 3-5/15, trimmed 10/15. The live
+    drive's lone "test" arrived with seconds of silence and came back empty
+    7 times out of 9.
+    """
+
+    FIXTURE = Path(__file__).parent / "fixtures" / "audio" / "fr_speech.wav"
+
+    def _padded(self, tmp_path, lead_s, tail_s, gap_s=None):
+        import numpy as np
+
+        with wave.open(str(self.FIXTURE)) as w:
+            rate = w.getframerate()
+            speech = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+        parts = [np.zeros(int(lead_s * rate), dtype=np.int16), speech]
+        if gap_s is not None:
+            parts += [np.zeros(int(gap_s * rate), dtype=np.int16), speech]
+        parts.append(np.zeros(int(tail_s * rate), dtype=np.int16))
+        path = tmp_path / "padded.wav"
+        with wave.open(str(path), "wb") as out:
+            out.setnchannels(1)
+            out.setsampwidth(2)
+            out.setframerate(rate)
+            out.writeframes(np.concatenate(parts).tobytes())
+        return str(path), rate
+
+    def _model(self, captured):
+        model = MagicMock()
+
+        def recognize(path):
+            with wave.open(path) as w:
+                captured.append((path, w.getnframes() / w.getframerate()))
+            return "bonjour"
+
+        model.recognize.side_effect = recognize
+        return model
+
+    def test_long_silence_around_speech_is_cut_before_the_model(self, tmp_path):
+        from whispy.core.audio import TRIM_MARGIN_S
+
+        audio = AudioEngine(MagicMock())
+        path, _ = self._padded(tmp_path, lead_s=3.0, tail_s=10.0)
+        seen = []
+
+        assert audio.transcribe(path, self._model(seen)) == "bonjour"
+
+        ((model_path, model_s),) = seen
+        assert model_path != path  # a trimmed copy went to the model
+        speech_s = wave.open(str(self.FIXTURE)).getnframes() / 16000
+        assert model_s < speech_s + 2 * TRIM_MARGIN_S + 0.5  # the padding is gone
+        assert model_s > speech_s - 0.5  # the speech is not
+        assert not Path(model_path).exists()  # copy removed after the call
+        assert Path(path).exists()  # the caller's file untouched
+
+    def test_internal_silence_is_kept(self, tmp_path):
+        audio = AudioEngine(MagicMock())
+        path, _ = self._padded(tmp_path, lead_s=2.0, tail_s=2.0, gap_s=3.0)
+        seen = []
+
+        audio.transcribe(path, self._model(seen))
+
+        ((_, model_s),) = seen
+        speech_s = wave.open(str(self.FIXTURE)).getnframes() / 16000
+        assert model_s > 2 * speech_s + 3.0 - 0.5  # both utterances and the gap between them
+
+    def test_clip_already_tight_is_sent_as_is(self, tmp_path):
+        audio = AudioEngine(MagicMock())
+        path, _ = self._padded(tmp_path, lead_s=0.0, tail_s=0.0)
+        seen = []
+
+        audio.transcribe(path, self._model(seen))
+
+        ((model_path, _),) = seen
+        assert model_path == path
+
+    def test_unmeasurable_span_sends_the_original(self, tmp_path):
+        audio = AudioEngine(MagicMock())
+        path, _ = self._padded(tmp_path, lead_s=3.0, tail_s=3.0)
+        audio._speech_span = MagicMock(return_value=None)
+        seen = []
+
+        audio.transcribe(path, self._model(seen))
+
+        ((model_path, _),) = seen
+        assert model_path == path
+
+    def test_trim_failure_falls_back_to_the_original(self, tmp_path, monkeypatch):
+        audio = AudioEngine(MagicMock())
+        path, _ = self._padded(tmp_path, lead_s=3.0, tail_s=3.0)
+        real_open = wave.open
+
+        def failing_open(p, mode="rb"):
+            if mode == "wb":
+                raise OSError("disk full")
+            return real_open(p, mode)
+
+        monkeypatch.setattr("whispy.core.audio.wave.open", failing_open)
+        seen = []
+
+        assert audio.transcribe(path, self._model(seen)) == "bonjour"
+        ((model_path, _),) = seen
+        assert model_path == path
