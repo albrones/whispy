@@ -2,5 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "buildCommand": "",
-  "outputDirectory": "website"
+  "outputDirectory": "website",
+  "ignoreCommand": "[ \"$VERCEL_ENV\" != \"production\" ]"
 }
