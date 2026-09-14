@@ -313,6 +313,7 @@ class AudioEngine:
         # transcription still reading the previous recording).
         self._recording_path = self._new_recording_path()
         self._level = 0.0
+        self._peak_level = 0.0
 
         # Fresh segmenter + empty chunk buffer for a streaming recording.
         if self._streaming:
@@ -339,6 +340,8 @@ class AudioEngine:
                 if samples.size:
                     rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2))) / 32768.0
                     self._level = min(rms * 10.0, 1.0)
+                    if self._level > self._peak_level:
+                        self._peak_level = self._level
 
                 if self._streaming:
                     # Segment the live stream: buffer the chunk, and on a silence/
@@ -385,8 +388,21 @@ class AudioEngine:
                 self._ready.set()
                 return True
 
+        # One line per recording naming what is being listened to. A recording
+        # that captures only the room's noise floor is otherwise
+        # indistinguishable in the log from one where the user said nothing
+        # (live drive, 2026-09-14: 84 s of RMS 0.0036, no device recorded).
+        logger.info("[audio] capture open: input %s, stream %d Hz", self._describe_input_device(), SAMPLE_RATE)
         self._wait_for_recording_ready()
         return True
+
+    def _describe_input_device(self) -> str:
+        """Human-readable current default input device, for the capture log line."""
+        try:
+            info = sd.query_devices(kind="input")
+            return f"{info['name']!r} (native {float(info['default_samplerate']):.0f} Hz)"
+        except Exception as exc:  # no device, backend quirk -- never fail a recording over a log line
+            return f"unknown ({exc})"
 
     def _refresh_devices(self) -> None:
         """Force PortAudio to re-scan audio devices (terminate + re-initialize).
@@ -464,6 +480,17 @@ class AudioEngine:
             except Exception as exc:
                 logger.debug("[audio] stream close error: %s", exc)
             self._stream = None
+            # Peak level is the waveform's own scale (normalized RMS x10, so the
+            # near-silence gate sits at 0.05). Speech reads 0.2 and above; a
+            # whole recording under the gate means the microphone did not hear
+            # the user -- lid closed, stale input after sleep, wrong device.
+            seconds = self._frames_written / SAMPLE_RATE
+            hint = (
+                ""
+                if self._peak_level >= SILENCE_RMS_THRESHOLD * 10
+                else " -- at the noise floor, check the input device"
+            )
+            logger.info("[audio] capture closed: %.1fs, peak level %.3f%s", seconds, self._peak_level, hint)
 
         # Streaming tail: the stream is stopped, so the callback can no longer
         # touch the buffer; flush any pending speech as the final chunk.

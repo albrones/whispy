@@ -149,6 +149,13 @@
   flip the menu row) to restore type-once-at-stop in toggle mode. Trade-off:
   text goes to whatever field is focused at that moment, so switching windows
   mid-dictation scatters text across them.
+- **Each recording logs its input device and peak level.** `capture open:
+  input 'Micro MacBook Pro' (native 44100 Hz), stream 16000 Hz` at start and
+  `capture closed: 12.3s, peak level 0.412` at stop, with a "noise floor"
+  hint when the whole recording stayed under the silence gate — so a
+  microphone that did not hear the user (lid closed, stale input after
+  sleep, wrong device) is readable in `~/.whispy.log` instead of looking like
+  a dictation of nothing.
 - **Serialized text injection.** Text injections now run through a single
   FIFO worker inside the injector, in call order, so streaming chunks typed
   live can never interleave with one another or with the stop-time injection.

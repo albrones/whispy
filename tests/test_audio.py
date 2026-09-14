@@ -1,5 +1,6 @@
 """Tests for AudioEngine with a faked sounddevice capture backend."""
 
+import logging
 import os
 import sys
 import wave
@@ -1033,3 +1034,49 @@ class TestTrimToSpeech:
         assert audio.transcribe(path, self._model(seen)) == "bonjour"
         ((model_path, _),) = seen
         assert model_path == path
+
+
+class TestCaptureDiagnosticsLog:
+    """Each recording logs what it listened to and how loud it got.
+
+    Live drive, 2026-09-14: 84 s of room noise (RMS 0.0036) and seven
+    recordings with no speech frame at all, and nothing in the log said which
+    input device was open or how quiet the capture had been.
+    """
+
+    def _engine(self, mocker):
+        spy = _install_spy_sd(mocker)
+        audio_module.sd.query_devices.return_value = {"name": "Micro MacBook Pro", "default_samplerate": 44100.0}
+        return AudioEngine(MagicMock()), spy
+
+    def test_start_logs_the_input_device(self, mocker, caplog):
+        audio, _ = self._engine(mocker)
+        with caplog.at_level(logging.INFO, logger="whispy.core.audio"):
+            audio.start()
+        assert "capture open: input 'Micro MacBook Pro' (native 44100 Hz), stream 16000 Hz" in caplog.text
+
+    def test_device_query_failure_does_not_break_start(self, mocker, caplog):
+        audio, _ = self._engine(mocker)
+        audio_module.sd.query_devices.side_effect = RuntimeError("no default input")
+        with caplog.at_level(logging.INFO, logger="whispy.core.audio"):
+            assert audio.start() is True
+        assert "capture open: input unknown (no default input)" in caplog.text
+
+    def test_stop_logs_peak_level_with_a_noise_floor_hint_on_silence(self, mocker, caplog):
+        audio, _ = self._engine(mocker)
+        audio.start()  # the spy stream feeds one second of digital silence
+        with caplog.at_level(logging.INFO, logger="whispy.core.audio"):
+            audio.stop()
+        assert "capture closed: 1.0s, peak level 0.000 -- at the noise floor, check the input device" in caplog.text
+
+    def test_stop_logs_peak_level_without_hint_on_speech_level_audio(self, mocker, caplog):
+        import numpy as np
+
+        audio, spy = self._engine(mocker)
+        audio.start()
+        loud = (np.full(1600, 0.05 * 32767)).astype("<i2").tobytes()  # RMS 0.05 -> level 0.5
+        spy.instances[-1]._callback(loud, 1600, None, None)
+        with caplog.at_level(logging.INFO, logger="whispy.core.audio"):
+            audio.stop()
+        assert "peak level 0.500" in caplog.text
+        assert "noise floor" not in caplog.text
