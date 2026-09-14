@@ -39,8 +39,14 @@ but SHALL be emitted once the silence reaches about 2 s, so a word that nothing
 follows is typed rather than held. The system SHALL NOT emit a chunk that never
 contained speech.
 
+The length cut SHALL remain independent of the voiced-speech threshold, so a
+chunk withheld for want of speech still flushes once it is long, and audio can
+never be held indefinitely. The final tail flush SHALL likewise remain
+independent of it, so a dictation consisting entirely of one short utterance is
+still transcribed.
+
 #### Scenario: Pause triggers a chunk
-- **WHEN** the input level stays below the silence threshold for at least `pause_ms` after speech was detected
+- **WHEN** the input level stays below the silence threshold for at least `pause_ms` after speech was detected, and the chunk holds at least `min_speech_s` of voiced audio
 - **THEN** the system SHALL emit the accumulated speech as a chunk and begin a new (empty) chunk
 
 #### Scenario: Run-on speech is force-flushed at max length
@@ -54,6 +60,10 @@ contained speech.
 #### Scenario: A short gap before max length is not a boundary
 - **WHEN** a gap of about 200 ms occurs in a chunk that has not yet reached `max_chunk_s`
 - **THEN** the system SHALL NOT emit a chunk on that gap alone
+
+#### Scenario: A chunk below the speech threshold is force-flushed at max length
+- **WHEN** a chunk has not reached `min_speech_s` of voiced audio but its audio reaches `max_chunk_s`
+- **THEN** the system SHALL emit it at the next short gap, or unconditionally at the hard cap, so withholding a boundary can never strand audio
 
 #### Scenario: A lone short word is emitted once the speaker has clearly stopped
 - **WHEN** a chunk holds less than `min_speech_s` of voiced audio and the silence after it reaches about 2 s
@@ -237,3 +247,75 @@ config update. The website menu mockup SHALL show the same row.
 #### Scenario: Website mockup matches the menu
 - **WHEN** the website menu mockup is rendered
 - **THEN** it SHALL list a "Type while speaking" row alongside "Toggle mode"
+
+### Requirement: Chunk boundaries are gated on voiced speech
+
+A pause SHALL close a chunk only when the chunk carries at least `min_speech_s`
+of **voiced** audio, measured from the same frame classification the segmenter
+already uses to detect silence. A chunk holding less SHALL NOT be emitted at a
+pause: the segmenter SHALL keep accumulating, so the speech is carried into the
+following chunk rather than reaching the model alone.
+
+The guard SHALL measure voiced duration rather than elapsed buffered duration.
+Measurement is why: through the production transcription gates, an isolated
+`oui` chunk of 1.11 s total but 0.39 s voiced was recognized as English in 5 of 5
+realizations, while the same word with 0.5 s of preceding speech — 1.61 s total,
+0.72 s voiced — was correct in 5 of 5. Elapsed duration does not separate the two
+outcomes; voiced duration does. An elapsed-time guard is additionally unreachable
+in this rule, since the pause condition already implies more elapsed time than
+any sensible minimum.
+
+The system SHALL NOT discard audio to satisfy this guard.
+
+#### Scenario: A chunk with too little speech does not close at a pause
+
+- **WHEN** a qualifying pause occurs and the current chunk holds less than `min_speech_s` of voiced audio
+- **THEN** the segmenter SHALL NOT signal a boundary, and the buffered speech SHALL remain in the current chunk
+
+_Tier: unit-pure — `test_segmentation.py`._
+
+#### Scenario: A chunk with enough speech closes at a pause
+
+- **WHEN** a qualifying pause occurs and the current chunk holds at least `min_speech_s` of voiced audio
+- **THEN** the segmenter SHALL signal a boundary and begin a new empty chunk
+
+_Tier: unit-pure — `test_segmentation.py`._
+
+#### Scenario: Short speech is carried into the next chunk
+
+- **WHEN** a short utterance is followed by a pause and then further speech
+- **THEN** both SHALL be emitted as one chunk, so the short utterance reaches the model with surrounding context
+
+_Tier: unit-pure — `test_segmentation.py`._
+
+#### Scenario: The guard cannot become unreachable
+
+- **WHEN** the minimum-size guard is evaluated at a pause boundary
+- **THEN** it SHALL be capable of blocking that boundary — a guard that the pause condition already implies (as an elapsed-time guard does) SHALL NOT be relied on
+
+_Tier: unit-pure — `test_segmentation.py` (regression: the previous rule compared total buffered seconds against a value smaller than `pause_ms`, so it could never block)._
+
+### Requirement: The voiced-speech threshold is configurable
+
+The threshold SHALL be exposed as the `min_speech_s` configuration key, validated
+as a non-negative number, and SHALL be applied at runtime like the other
+streaming parameters — a change SHALL re-wire segmentation without a restart.
+
+It SHALL be configuration rather than a constant because its default is derived
+from synthesized speech with a single voice, so a real microphone, speaker or
+room may move where voice-activity detection counts a frame as voiced. The
+mechanism it guards is established; the value is provisional.
+
+#### Scenario: Invalid value falls back
+
+- **WHEN** `min_speech_s` is absent, negative, or not a number
+- **THEN** the system SHALL use the default and report the substitution, as it does for the other streaming parameters
+
+_Tier: unit-pure — `test_config_validation.py`._
+
+#### Scenario: Change applies without a restart
+
+- **WHEN** `min_speech_s` changes while the engine is running
+- **THEN** the engine SHALL re-wire audio segmentation to the new value with no restart
+
+_Tier: unit-mocked — `test_engine.py`._
