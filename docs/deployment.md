@@ -7,17 +7,22 @@ This document covers how the Whispy promotional website is deployed.
 The static site under [`website/`](../website) is deployed by **Vercel's
 native Git integration**, connected directly to the `albrones/whispy`
 repository (Vercel project: `whispy`). There is no GitHub Actions workflow
-involved — Vercel watches the repo itself and builds/deploys on every push:
+involved — Vercel watches the repo itself and deploys on merge to `main`:
 
-| Trigger                    | Result                        |
-| --------------------------- | ------------------------------ |
-| Push to `main`               | Vercel **production** deploy   |
-| Pull request (any branch)   | Vercel **preview** deploy       |
+| Trigger                    | Result                                  |
+| --------------------------- | ---------------------------------------- |
+| Push to `main`               | Vercel **production** deploy             |
+| Pull request (any branch)   | **skipped** — no preview deployment      |
 
-Because the site has no build step (see below), Vercel deploys on *every*
-push, not just ones touching `website/**` — there is no path filter. For a
+Preview deployments are disabled through `ignoreCommand` in `vercel.json`:
+the command exits 0 (skip the build) whenever `VERCEL_ENV` is not
+`production`. Vercel still registers a "Canceled" deployment for each
+branch push, but nothing is built or aliased.
+
+Because the site has no build step (see below), every push to `main`
+deploys, not just ones touching `website/**` — there is no path filter. For a
 static, build-free site this is cheap and acceptable; it also means an
-app-only commit still triggers a (no-op, near-instant) deploy.
+app-only merge still triggers a (no-op, near-instant) deploy.
 
 ## Configuration
 
@@ -25,15 +30,16 @@ All configuration is versioned in the repo root, so it travels with the code
 instead of living in unversioned Vercel project settings:
 
 - **[`vercel.json`](../vercel.json)** — tells Vercel this is a static site
-  with no build step and that the deployable output is the `website/`
-  directory:
+  with no build step, that the deployable output is the `website/`
+  directory, and that only production builds should run:
 
   ```json
   {
     "$schema": "https://openapi.vercel.sh/vercel.json",
     "framework": null,
     "buildCommand": "",
-    "outputDirectory": "website"
+    "outputDirectory": "website",
+    "ignoreCommand": "[ \"$VERCEL_ENV\" != \"production\" ]"
   }
   ```
 
@@ -52,7 +58,7 @@ the repository's **Settings → Secrets and variables → Actions**.
 
 ## Manual deploy fallback
 
-If you ever need to deploy outside of the normal push/PR flow (e.g. to debug
+If you ever need to deploy outside of the normal merge-to-`main` flow (e.g. to debug
 a Vercel-specific issue locally), run from the repo root:
 
 ```bash
