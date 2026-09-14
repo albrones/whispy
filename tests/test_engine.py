@@ -1459,3 +1459,173 @@ class TestRecordingLimitDelivery:
         src = inspect.getsource(Engine.start_transcription_worker)
         assert "self._deliver_to_clipboard = False" in src
         assert "self._deliver_to_clipboard = False" not in inspect.getsource(Engine._deliver)
+
+
+# ---------------------------------------------------------------------------
+# Type while speaking (toggle mode: chunks typed as they land)
+# ---------------------------------------------------------------------------
+
+
+def _make_toggle_streaming_engine(config_path, mocker, type_while_speaking=True):
+    eng = _make_streaming_engine(config_path, mocker)
+    eng.state.config["trigger_mode"] = "toggle"
+    eng.state.config["type_while_speaking"] = type_while_speaking
+    eng._trigger_mode = "toggle"
+    return eng
+
+
+class TestTypeWhileSpeakingSnapshot:
+    """The live-typing decision is taken once per recording, at recording start."""
+
+    def test_toggle_mode_with_key_on_is_live(self, config_path, mocker):
+        eng = _make_toggle_streaming_engine(config_path, mocker)
+        eng._on_fsm_recording(None)
+        assert eng._live_typing is True
+        assert eng._live_typed_any is False
+
+    def test_hold_mode_is_never_live(self, config_path, mocker):
+        eng = _make_streaming_engine(config_path, mocker)
+        eng.state.config["type_while_speaking"] = True
+        eng._on_fsm_recording(None)
+        assert eng._live_typing is False
+
+    def test_toggle_mode_with_key_off_is_not_live(self, config_path, mocker):
+        eng = _make_toggle_streaming_engine(config_path, mocker, type_while_speaking=False)
+        eng._on_fsm_recording(None)
+        assert eng._live_typing is False
+
+    def test_force_recover_clears_live_flags(self, config_path, mocker):
+        eng = _make_toggle_streaming_engine(config_path, mocker)
+        eng._on_fsm_recording(None)
+        eng._live_typed_any = True
+        eng._force_recover()
+        assert eng._live_typing is False
+        assert eng._live_typed_any is False
+
+
+class TestTypeWhileSpeakingChunks:
+    def test_chunks_are_typed_as_they_land_with_one_space_between(self, config_path, mocker, tmp_path):
+        eng = _make_toggle_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["alpha", "beta"])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        wait = mocker.patch.object(eng, "_wait_trigger_released")
+        eng._on_fsm_recording(None)
+
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"))
+
+        assert [c.args[0] for c in inject.call_args_list] == ["alpha", " beta"]
+        assert wait.call_count == 2  # release gate before every live inject
+        # Accumulation is kept so last_transcription / the limit copy see everything.
+        assert eng._chunk_texts == ["alpha", "beta"]
+
+    def test_empty_chunk_types_nothing_and_does_not_add_a_space(self, config_path, mocker, tmp_path):
+        eng = _make_toggle_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=[None, "beta"])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        eng._on_fsm_recording(None)
+
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"))
+
+        inject.assert_called_once_with("beta")
+
+    def test_hold_mode_still_accumulates_only(self, config_path, mocker, tmp_path):
+        eng = _make_streaming_engine(config_path, mocker)
+        eng.state.config["type_while_speaking"] = True  # inert in hold mode
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["alpha"])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        eng._on_fsm_recording(None)
+
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+
+        inject.assert_not_called()
+        assert eng._chunk_texts == ["alpha"]
+
+
+class TestTypeWhileSpeakingStop:
+    def _run_live_cycle(self, eng, tmp_path, texts):
+        eng.start_chunk_worker()
+        eng.start_transcription_worker()
+        try:
+            eng._on_fsm_recording(None)
+            eng._state_machine.start_recording()
+            for i, _ in enumerate(texts):
+                eng._enqueue_chunk(_chunk_file(tmp_path, f"c{i}.wav"))
+                eng._chunk_queue.join()
+            return eng.stop_and_wait_for_transcription(timeout=5.0)
+        finally:
+            eng.stop_transcription_worker()
+            eng.stop_chunk_worker()
+
+    def test_stop_does_not_retype_the_assembled_text(self, config_path, mocker, tmp_path):
+        eng = _make_toggle_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["bonjour", "le monde"])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        mocker.patch.object(eng._notifier, "transcription_succeeded")
+
+        text = self._run_live_cycle(eng, tmp_path, ["bonjour", "le monde"])
+
+        assert text == "bonjour le monde"
+        assert [c.args[0] for c in inject.call_args_list] == ["bonjour", " le monde"]
+        assert eng.state.last_transcription == "bonjour le monde"
+        assert eng._state_machine.current_state.name == "IDLE"
+        assert eng._live_typing is False
+
+    def test_limit_stop_still_copies_the_whole_transcript(self, config_path, mocker, tmp_path):
+        eng = _make_toggle_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["bonjour", "le monde"])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        copy = mocker.patch.object(eng._text_injector, "copy_only")
+        mocker.patch.object(eng._notifier, "transcription_succeeded")
+        eng._deliver_to_clipboard = True  # what _handle_recording_limit sets
+
+        self._run_live_cycle(eng, tmp_path, ["bonjour", "le monde"])
+
+        copy.assert_called_once_with("bonjour le monde")
+        assert [c.args[0] for c in inject.call_args_list] == ["bonjour", " le monde"]
+        assert eng._deliver_to_clipboard is False  # consumed once per cycle
+
+    def test_key_off_in_toggle_mode_types_once_at_stop(self, config_path, mocker, tmp_path):
+        eng = _make_toggle_streaming_engine(config_path, mocker, type_while_speaking=False)
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["bonjour", "le monde"])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        mocker.patch.object(eng._notifier, "transcription_succeeded")
+
+        self._run_live_cycle(eng, tmp_path, ["bonjour", "le monde"])
+
+        inject.assert_called_once_with("bonjour le monde")
+
+
+class TestTypeWhileSpeakingRuntimeConfig:
+    def test_mid_recording_flip_applies_to_the_next_recording(self, config_path, mocker, tmp_path):
+        eng = _make_toggle_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["alpha", "beta", "gamma"])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        eng._on_fsm_recording(None)
+
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+        eng.update_config({"type_while_speaking": False})
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"))
+        # Snapshot holds for the recording in progress.
+        assert [c.args[0] for c in inject.call_args_list] == ["alpha", " beta"]
+
+        eng._on_fsm_recording(None)  # next recording
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "c.wav"))
+        assert inject.call_count == 2  # gamma accumulated, not typed
+        assert eng._chunk_texts == ["gamma"]
+
+    def test_update_rewires_streaming_without_restarting_the_worker(self, config_path, mocker):
+        eng = _make_toggle_streaming_engine(config_path, mocker)
+        apply = mocker.patch.object(eng, "_apply_streaming_config")
+        stop = mocker.patch.object(eng, "stop_chunk_worker")
+        eng._transcription_running = True  # "engine started"
+        eng._streaming = True
+        start = mocker.patch.object(eng, "start_chunk_worker")
+
+        eng.update_config({"type_while_speaking": False})
+
+        apply.assert_called_once()
+        stop.assert_not_called()
+        start.assert_called_once()  # idempotent no-op when already running
+        assert eng.state.config["type_while_speaking"] is False

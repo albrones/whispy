@@ -13,7 +13,17 @@ _src = Path(__file__).parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
-from whispy.core.segmentation import FRAME_BYTES, SAMPLE_RATE, SpeechSegmenter, speech_duration_s, webrtcvad
+from whispy.core.segmentation import (
+    FRAME_BYTES,
+    HARD_MAX_FACTOR,
+    LONE_WORD_PAUSE_S,
+    SAMPLE_RATE,
+    SOFT_FLUSH_GAP_S,
+    SpeechSegmenter,
+    speech_duration_s,
+    speech_span_s,
+    webrtcvad,
+)
 
 # `speech_duration_s` returns None without webrtcvad, and every caller treats that
 # as "transcribe anyway". That is a supported configuration -- the segmenter ships
@@ -54,11 +64,44 @@ class TestPauseEmit:
 
 
 class TestMaxLengthFlush:
-    def test_run_on_speech_is_force_flushed(self):
+    # `_voiced_block` (below) reads as speech on every frame; `_speech_block`
+    # is only voiced for its first frames (the VAD adapts to a steady tone), so
+    # it cannot stand in for run-on speech here.
+
+    @requires_vad
+    def test_run_on_speech_is_force_flushed_at_the_hard_cap(self):
         seg = SpeechSegmenter(pause_ms=600, max_chunk_s=1.0)
-        # Continuous speech, no pause: must flush near max_chunk_s (1.0s ≈ 34 frames).
-        emitted = seg.feed(_speech_block(40))
-        assert emitted is True
+        # Continuous speech with no gap at all: nothing to cut on until the
+        # unconditional ceiling (1.0s * HARD_MAX_FACTOR = 1.5s = 50 frames).
+        assert seg.feed(_voiced_block(40)) is False  # past max_chunk_s, still speaking
+        assert seg.feed(_voiced_block(15)) is True  # past the hard cap
+
+    @requires_vad
+    def test_past_max_chunk_the_cut_waits_for_a_short_gap(self):
+        # Measured on a live dictation: a cut at an arbitrary frame lands
+        # mid-word and the two halves come back as "mais" / "Mais". Past
+        # max_chunk_s the segmenter therefore cuts on the first short gap.
+        seg = SpeechSegmenter(pause_ms=600, max_chunk_s=1.0)
+        assert seg.feed(_voiced_block(40)) is False  # 1.2s: past max_chunk_s, no gap yet
+        gap_frames = int(round(SOFT_FLUSH_GAP_S / 0.03))
+        # WebRTC VAD has a few frames of hangover after speech, so the gap is
+        # counted from when the VAD flips, not from the first zero frame.
+        hangover_allowance = 8
+        cut_at = next((i for i in range(1, gap_frames + hangover_allowance + 1) if seg.feed(_silence_block(1))), None)
+        assert cut_at is not None  # a short gap is enough once past max_chunk_s
+        assert cut_at >= gap_frames  # ...but not before the gap is real
+
+    @requires_vad
+    def test_gap_before_max_chunk_does_not_cut(self):
+        # The soft rule only arms once the chunk is long; a 200 ms gap in a
+        # short chunk is an ordinary between-words breath, not a boundary.
+        seg = SpeechSegmenter(pause_ms=600, max_chunk_s=5.0)
+        seg.feed(_voiced_block(20))  # 0.6s
+        gap_frames = int(round(SOFT_FLUSH_GAP_S / 0.03)) + 2
+        assert not any(seg.feed(_silence_block(1)) for _ in range(gap_frames))
+
+    def test_hard_cap_is_a_multiple_of_max_chunk(self):
+        assert HARD_MAX_FACTOR > 1.0
 
 
 class TestPureSilence:
@@ -210,10 +253,26 @@ class TestVoicedSpeechGate:
 
     @requires_vad
     def test_max_chunk_still_force_flushes_below_threshold(self):
-        # Audio can never be held indefinitely for want of voiced seconds.
+        # Audio can never be held indefinitely for want of voiced seconds. The
+        # trailing silence is itself the gap the soft rule cuts on.
         seg = SpeechSegmenter(pause_ms=600, min_speech_s=0.7, max_chunk_s=1.0)
         seg.feed(_voiced_block(10))  # 0.30s voiced, below the threshold
-        assert self._pause(seg, frames=40) is True  # flushed at max_chunk_s
+        assert self._pause(seg, frames=40) is True  # flushed once past max_chunk_s
+
+    @requires_vad
+    def test_lone_word_is_emitted_once_the_speaker_has_clearly_stopped(self):
+        # Live-drive case: "test" alone, nothing after it. Held for context it
+        # waited for the 12 s cut and drowned in the RMS gate. Past
+        # LONE_WORD_PAUSE_S of silence there is no next utterance to ride with.
+        seg = SpeechSegmenter(pause_ms=600, min_speech_s=0.7, max_chunk_s=30.0)
+        seg.feed(_voiced_block(13))  # 0.39s voiced, below the threshold
+        frames_to_lone = int(round(LONE_WORD_PAUSE_S / 0.03))
+        assert self._pause(seg, frames=frames_to_lone - 2) is False  # still held
+        assert self._pause(seg, frames=12) is True  # emitted once the silence is long
+
+    @requires_vad
+    def test_lone_word_pause_is_longer_than_the_ordinary_pause(self):
+        assert LONE_WORD_PAUSE_S > 0.6  # otherwise min_speech_s would never bind
 
     @requires_vad
     def test_tail_flush_ignores_the_threshold(self):
@@ -222,3 +281,31 @@ class TestVoicedSpeechGate:
         seg.feed(_voiced_block(5))  # 0.15s voiced
         assert self._pause(seg) is False
         assert seg.flush_tail() is True
+
+
+class TestSpeechSpan:
+    """`speech_span_s` — where the speech starts and ends, for trimming."""
+
+    @requires_vad
+    def test_span_brackets_the_voiced_frames(self):
+        first, last, voiced = speech_span_s(_silence_block(100) + _voiced_block(17) + _silence_block(50))
+        # WebRTC VAD carries a few frames of hangover after speech, so `last`
+        # and `voiced` may run up to ~0.2 s past the 17 voiced frames.
+        assert first == pytest.approx(3.0, abs=0.06)
+        assert 3.51 - 0.06 <= last <= 3.51 + 0.2
+        assert 0.51 - 0.06 <= voiced <= 0.51 + 0.2
+
+    @requires_vad
+    def test_pure_silence_is_an_empty_span(self):
+        assert speech_span_s(_silence_block(30)) == (0.0, 0.0, 0.0)
+
+    @requires_vad
+    def test_duration_is_the_span_voiced_total(self):
+        pcm = _silence_block(10) + _voiced_block(17) + _silence_block(10)
+        assert speech_duration_s(pcm) == speech_span_s(pcm)[2]
+
+    def test_returns_none_without_webrtcvad(self, monkeypatch):
+        import whispy.core.segmentation as seg_mod
+
+        monkeypatch.setattr(seg_mod, "webrtcvad", None)
+        assert speech_span_s(_voiced_block(17)) is None

@@ -12,10 +12,15 @@ errAEEventNotPermitted) the clipboard is still set but nothing is typed — a
 silent failure. We detect that code (locale-independent: the number appears
 whatever the system language) and surface it via a debounced callback so the
 UI can prompt the user to fix the grant instead of failing quietly.
+
+Injections are serialized in call order: each ``inject``/``copy_only`` call
+enqueues its work and returns immediately, while a single worker thread drains
+the queue one job at a time so two overlapping injections never interleave.
 """
 
 import logging
 import os
+import queue
 import subprocess
 import threading
 import time
@@ -44,7 +49,13 @@ _UTF8_ENV = {**os.environ, "LC_ALL": "en_US.UTF-8", "LANG": "en_US.UTF-8"}
 
 
 class TextInjector:
-    """Injects text into the focused application via osascript."""
+    """Injects text into the focused application via osascript.
+
+    ``inject``/``copy_only`` calls are serialized in call order: each one
+    enqueues its subprocess steps and returns immediately, and one worker
+    thread drains the queue in FIFO order so overlapping calls never
+    interleave their keystrokes.
+    """
 
     def __init__(
         self,
@@ -57,6 +68,32 @@ class TextInjector:
         # next successful injection. Keeps us to one notification per
         # permission-state transition instead of one per utterance.
         self._keystroke_denied = False
+        # FIFO job queue draining into one worker thread, so injections run in
+        # call order and never interleave while inject()/copy_only() stay
+        # non-blocking.
+        self._jobs: queue.Queue[Callable[[], None]] = queue.Queue()
+        self._worker_lock = threading.Lock()
+        self._worker: threading.Thread | None = None
+
+    def _ensure_worker(self) -> None:
+        """Start the single FIFO worker thread on first use, if not already running."""
+        if self._worker is not None:
+            return
+        with self._worker_lock:
+            if self._worker is None:
+                # ponytail: one worker thread per injector, started lazily and
+                # never stopped (daemon) -- fine since there is exactly one
+                # injector per process.
+                self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+                self._worker.start()
+
+    def _worker_loop(self) -> None:
+        while True:
+            job = self._jobs.get()
+            try:
+                job()
+            except Exception:
+                logger.exception("[inject] queued job failed")
 
     def update_config(self, copy_to_clipboard: bool) -> None:
         """Update the clipboard copy setting."""
@@ -106,11 +143,11 @@ class TextInjector:
         text reaches ``pbcopy``/``osascript`` — as data, never interpolated
         into a script). The optional ``delay`` (seconds) is slept before that
         step runs, e.g. to give a pasted-into app time to read the clipboard
-        before a later step restores it. Steps run sequentially in one worker
-        thread, stopping at the first failure. The failing (or final) step's
-        exit is classified: a ``1002`` failure is a keystroke-permission
-        denial that fires the debounced callback; a clean run resets the
-        debounce so a later denial is surfaced again.
+        before a later step restores it. Steps run sequentially on the shared
+        FIFO worker thread, stopping at the first failure. The failing (or
+        final) step's exit is classified: a ``1002`` failure is a
+        keystroke-permission denial that fires the debounced callback; a
+        clean run resets the debounce so a later denial is surfaced again.
         """
 
         def _run() -> None:
@@ -150,7 +187,8 @@ class TextInjector:
                 logger.info("[inject] (%s) ok", mode)
                 self._keystroke_denied = False
 
-        threading.Thread(target=_run, daemon=True).start()
+        self._ensure_worker()
+        self._jobs.put(_run)
 
     def _handle_keystroke_denied(self) -> None:
         """Surface a keystroke-permission denial, debounced to one per transition."""

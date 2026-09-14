@@ -260,9 +260,18 @@ class Engine:
         # inter-chunk separating space) and whether any chunk produced text at all
         # (drives the single success sound on release).
         self._chunk_any_text = False
-        # Chunk texts accumulate here during recording and are typed once on
-        # release (avoids mid-recording focus disruption in full-screen apps).
+        # Chunk texts accumulate here during recording. In hold mode (or with
+        # type_while_speaking off) they are typed once on release; in toggle
+        # mode each chunk is typed as it lands, and the accumulation is kept so
+        # last_transcription and the recording-limit clipboard copy still hold
+        # the whole dictation.
         self._chunk_texts: list[str] = []
+        # Per-recording, decided once at recording start (a mid-recording config
+        # flip must not leave half the chunks typed live and then re-typed at
+        # stop): whether this cycle types chunks live, and whether any chunk of
+        # this cycle has been typed yet (drives the inter-chunk space).
+        self._live_typing = False
+        self._live_typed_any = False
 
         # --- Hang-recovery watchdog ---
         # Monotonic timestamps of when the FSM entered a non-idle state (None when
@@ -293,6 +302,13 @@ class Engine:
         with self.state.lock:
             self._chunk_any_text = False
             self._chunk_texts = []
+            # Live typing only exists in toggle mode: in hold mode the trigger
+            # key is physically held for the whole recording, and typing under
+            # a held modifier alters every character.
+            self._live_typing = self._trigger_mode == "toggle" and bool(
+                self.state.config.get("type_while_speaking", True)
+            )
+            self._live_typed_any = False
         self._notify_recording_start()
 
     def _on_fsm_transcribing(self, _state: State) -> None:
@@ -634,6 +650,18 @@ class Engine:
             with self.state.lock:
                 self._chunk_any_text = True
                 self._chunk_texts.append(cleaned)
+                live = self._live_typing
+                prefix = " " if self._live_typed_any else ""
+                if live:
+                    self._live_typed_any = True
+            if live:
+                # Toggle mode: type this chunk now. Same join rule as the
+                # stop-time assembly (one space between chunks that produced
+                # text). The injector serializes calls, so the order is the
+                # queue's. The release gate is cheap here -- in toggle mode
+                # the key is let go a few hundred ms after the starting press.
+                self._wait_trigger_released()
+                self._text_injector.inject(prefix + cleaned)
         except Exception:
             logger.exception("[engine] chunk transcription failed")
         finally:
@@ -968,15 +996,26 @@ class Engine:
                             with self.state.lock:
                                 chunk_texts = self._chunk_texts
                                 chunk_any_text = self._chunk_any_text
+                                live_typed = self._live_typing
                                 self._chunk_texts = []
                                 self._chunk_any_text = False
+                                self._live_typing = False
+                                self._live_typed_any = False
                             # Type the assembled text once, now that recording
-                            # stopped (no mid-recording injection / focus steal).
+                            # stopped -- unless this cycle already typed its
+                            # chunks live (toggle mode), in which case the tail
+                            # was typed by the chunk worker during the drain and
+                            # only the limit-stop clipboard copy still needs the
+                            # whole text.
+                            # ponytail: injection is async, so the FSM can reach
+                            # IDLE (and the success sound play) while the tail's
+                            # last keystrokes are still in flight. Cosmetic.
                             assembled = " ".join(chunk_texts).strip()
                             if assembled:
                                 self.state.last_transcription = assembled
                                 self._wait_trigger_released()
-                                self._deliver(assembled)
+                                if not live_typed or self._deliver_to_clipboard:
+                                    self._deliver(assembled)
                             produced_text = chunk_any_text
                         else:
                             produced_text = bool(self.run_transcription())
@@ -1113,6 +1152,8 @@ class Engine:
         with self.state.lock:
             self._chunk_texts = []
             self._chunk_any_text = False
+            self._live_typing = False
+            self._live_typed_any = False
         self._state_machine.force_idle()
         # Release any caller blocked in stop_and_wait_for_transcription(): the
         # watchdog just resolved the cycle itself, so a waiter must not sit out
@@ -1161,6 +1202,7 @@ class Engine:
             "min_chunk_s",
             "max_chunk_s",
             "vad_aggressiveness",
+            "type_while_speaking",
         }
         if streaming_keys & updates.keys():
             self._apply_streaming_config()

@@ -140,6 +140,46 @@
 ## [Unreleased]
 
 ### Added
+- **Type while speaking.** New config key `type_while_speaking` (bool, default
+  `true`), also shown as a **Settings → Type while speaking** menu row right
+  after **Toggle mode**. In toggle mode, each streaming chunk's text is now
+  typed as soon as it is transcribed — text appears about a second after each
+  pause in speech — instead of all at once when dictation stops; hold mode is
+  unaffected, text still types once on release. Set the key to `false` (or
+  flip the menu row) to restore type-once-at-stop in toggle mode. Trade-off:
+  text goes to whatever field is focused at that moment, so switching windows
+  mid-dictation scatters text across them.
+- **Each recording logs its input device and peak level.** `capture open:
+  input 'Micro MacBook Pro' (native 44100 Hz), stream 16000 Hz` at start and
+  `capture closed: 12.3s, peak level 0.412` at stop, with a "noise floor"
+  hint when the whole recording stayed under the silence gate — so a
+  microphone that did not hear the user (lid closed, stale input after
+  sleep, wrong device) is readable in `~/.whispy.log` instead of looking like
+  a dictation of nothing.
+- **Serialized text injection.** Text injections now run through a single
+  FIFO worker inside the injector, in call order, so streaming chunks typed
+  live can never interleave with one another or with the stop-time injection.
+
+### Fixed
+- **Long chunks no longer cut mid-word.** Past `max_chunk_s` the segmenter
+  waits for the first ~200 ms gap in speech before cutting (unconditional cut
+  at 1.5× `max_chunk_s`). A cut placed at an arbitrary frame split a word in
+  two, and the halves came back duplicated ("mais" / "Mais") or empty —
+  visible as lost words while typing live.
+- **A model call that returns no text is now logged**, and a transcription
+  exception goes to the log instead of a stderr the bundled app never shows.
+- **A single word is no longer lost or typed 12 s late.** The near-silence
+  gate now measures the loudest half-second of a clip instead of the whole-clip
+  mean, which drowned one word in the silence around it (measured 0.00496
+  against the 0.005 gate). And a chunk holding less than `min_speech_s` of
+  voice is emitted on its own once the silence after it reaches 2 s, instead of
+  waiting for the next utterance or the length cap.
+- **The model no longer receives the silence around an utterance.** Each clip
+  is trimmed to its voice-detected span (plus 0.3 s each side) before
+  recognition. Measured on isolated synthesized words, recognition fell from
+  12/15 with 0.6 s of trailing silence to 3–5/15 with 10 s; trimmed, it holds
+  at 10–12/15 whatever the tail. A lone word always arrived with seconds of
+  silence attached and came back empty 7 times out of 9 on a live drive.
 - **Trigger key selection from the menu (macOS).** The **Settings → Trigger**
   menu lets you pick the push-to-talk key from presets (Fn, Right Command,
   Right Option, F13); the change applies live, with no restart.

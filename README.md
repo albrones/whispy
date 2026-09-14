@@ -178,7 +178,7 @@ If you changed permissions, restart Whispy so the daemon picks up the new settin
 3. **Speak**.
 4. **Release the trigger key** → a sound indicates transcription and automatic typing/insertion of the text.
 
-> With **Toggle mode** enabled (`trigger_mode: "toggle"`), step 2 is a single press to start recording and step 4 is a second press — instead of a release — to stop it.
+> With **Toggle mode** enabled (`trigger_mode: "toggle"`), step 2 is a single press to start recording and step 4 is a second press — instead of a release — to stop it. With the default `type_while_speaking` setting, text also appears earlier: each chunk is typed as soon as it is transcribed, about a second after each pause, rather than all at once in step 4 — flip **Type while speaking** off in the menu (or set `type_while_speaking: false`) to go back to typing everything at once when you stop.
 
 ## The Transcription Model
 
@@ -306,11 +306,12 @@ You can edit `~/.config/whispy/config.json` to change any of the following keys
 | `custom_vocabulary` | `[]` | User-curated terms (names, brands, jargon). Applied **after** transcription: an output word is corrected when its spelling *or* its pronunciation matches one of your terms (`wispy` → `Whispy`, `parakite` → `Parakeet`). Weaker than biasing the decoder — a word rendered far from the target on both counts is left alone — but it cannot leak your terms into text you did not say. Add proper nouns and anglicisms here; it is the intended fix for them |
 | `trigger` | `null` | Push-to-talk key/combo. `null` uses the platform default: the **Fn** key on macOS, **Right Ctrl** (`ctrl_r`) on Linux. Set a macOS keycode (integer) or a key/combo name (string) to override |
 | `trigger_mode` | `"hold"` | `"hold"` (push-to-talk: hold the trigger to record, release to stop) or `"toggle"` (press once to start, press again to stop). Composable with any trigger; an invalid value falls back to `"hold"` |
+| `type_while_speaking` | `true` | Toggle mode only — type each chunk's text as soon as it is transcribed, so text appears after each pause instead of all at once when dictation stops. Hold mode is unaffected: it always types once, on release. Set to `false` to restore type-once-at-stop in toggle mode. Because text goes to whichever field is focused at the moment each chunk is typed, switching windows mid-dictation scatters text across them |
 | `streaming_enabled` | `true` | Transcribe audio in chunks during recording (typed near-instantly on release) instead of the legacy record-then-transcribe path |
 | `pause_ms` | `600` | Minimum trailing silence (milliseconds) that closes a streaming chunk |
-| `min_speech_s` | `0.7` | Minimum *voiced* seconds a streaming chunk must hold before a pause may close it. Below this the chunk keeps buffering, so a short word is carried into the next one instead of reaching the model alone (where it can come back in the wrong language) |
+| `min_speech_s` | `0.7` | Minimum *voiced* seconds a streaming chunk must hold before an ordinary pause may close it. Below this the chunk keeps buffering, so a short word is carried into the next one instead of reaching the model alone (where it can come back in the wrong language). A word that nothing follows is still emitted on its own once the silence reaches ~2 s |
 | `min_chunk_s` | `0.4` | A streaming chunk shorter than this (seconds) is discarded rather than transcribed |
-| `max_chunk_s` | `12.0` | Hard cap (seconds) on streaming chunk length, so run-on speech with no pause still makes progress |
+| `max_chunk_s` | `12.0` | Length (seconds) past which a streaming chunk is cut at the next short gap in speech (~200 ms), so run-on speech still makes progress without cutting mid-word; speech with no gap at all is cut unconditionally at 1.5× this value |
 | `vad_aggressiveness` | `2` | WebRTC VAD aggressiveness (0-3); higher classifies more audio as non-speech when finding chunk boundaries |
 
 On macOS you can also pick the trigger from the menu bar (**Settings → Trigger**:

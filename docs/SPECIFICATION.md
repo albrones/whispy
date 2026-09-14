@@ -4,7 +4,7 @@
 
 **Whispy** is a local voice dictation utility that runs as a menu bar / tray daemon on **macOS** and **Linux (X11)**. A configurable trigger key — the **Fn** key by default on macOS, **Right Ctrl** on Linux, both selectable — starts and stops recording. By default (`trigger_mode: "hold"`) it is a push-to-talk key: held to record, released to transcribe and inject the text into the active text field. In the optional `trigger_mode: "toggle"`, one press starts recording and the next press stops it. On macOS the trigger is selectable from the menu (Fn, Right Command, Right Option, F13). All processing is local — no audio or text leaves the machine.
 
-By default transcription is **streaming**: while recording, the audio is segmented on silence and each chunk is transcribed in the background, so the assembled text is typed near-instantly on release rather than after a single whole-file pass.
+By default transcription is **streaming**: while recording, the audio is segmented on silence and each chunk is transcribed in the background. In `trigger_mode: "hold"`, the assembled text is typed once, near-instantly, on release. In `trigger_mode: "toggle"`, when `type_while_speaking` (default `true`) is also on, each chunk's text is instead typed as soon as it is transcribed — text appears about a second after each pause in speech — while the full text keeps accumulating for the stop path; setting `type_while_speaking` to `false` restores the type-once-at-stop behavior in toggle mode too.
 
 ### Tech Stack
 
@@ -63,19 +63,26 @@ whispy_daemon.py                ← Entry point (main / --headless / --doctor)
 [during recording — streaming]
   → on a silence boundary (or max chunk length), AudioEngine emits a chunk WAV
   → Engine chunk worker transcribes each chunk in order (clean_text), accumulating text
+  → in toggle mode with `type_while_speaking` true, the chunk worker also injects
+    each chunk's text immediately, in order (space-prefixed after the first typed
+    chunk of the recording; the FIFO injector serializes it against any other
+    pending injection); the full text keeps accumulating regardless, for the
+    stop path and the recording-limit clipboard copy
 
 [Trigger released]
   → Engine._handle_trigger_release() → AudioEngine.stop()  (flushes the tail chunk)
       → FSM: RECORDING → TRANSCRIBING
-  → transcription worker waits for the chunk queue to drain, assembles the text,
-    injects it once via the text injector (avoids mid-recording focus steal)
+  → transcription worker waits for the chunk queue to drain, assembles the full text
+  → if chunks were not already typed live during this recording, the assembled
+    text is injected once via the text injector (avoids mid-recording focus steal);
+    if they were, only the tail chunk is injected here — the rest were already typed
   → notifier.transcription_succeeded()  (success sound, only if text was produced)
   → FSM: TRANSCRIBING → IDLE; status "Ready"
 ```
 
 When `streaming_enabled` is `False`, the legacy record-then-transcribe path runs: `run_transcription()` transcribes the whole WAV once on release.
 
-The diagram above is the `trigger_mode: "hold"` flow. In `trigger_mode: "toggle"`, a trigger *press* while RECORDING runs the `[Trigger released]` half above (stop and transcribe) instead of starting a new recording, and the physical key release only clears the held-modifier bookkeeping — it never stops the recording.
+The diagram above is the `trigger_mode: "hold"` flow — hold mode never types live, regardless of `type_while_speaking`, because the trigger key is physically held for the whole recording and typing under a held modifier would alter every character. In `trigger_mode: "toggle"`, a trigger *press* while RECORDING runs the `[Trigger released]` half above (stop and transcribe) instead of starting a new recording, and the physical key release only clears the held-modifier bookkeeping — it never stops the recording. With `type_while_speaking` true (the default), toggle-mode recordings type each chunk live as described above instead of buffering until release; the whole assembled text is still tracked throughout, so a recording-duration-limit stop still places the full transcript on the clipboard.
 
 ---
 
@@ -116,7 +123,7 @@ Owns loading, validation, and migration of the config file (previously inline in
     "pause_ms": 600,                  # trailing silence that closes a chunk
     "min_speech_s": 0.7,              # voiced seconds a chunk needs before a pause closes it
     "min_chunk_s": 0.4,               # chunk shorter than this is discarded
-    "max_chunk_s": 12.0,              # hard cap: force-flush run-on speech
+    "max_chunk_s": 12.0,              # past this, cut at the next ~200 ms gap (hard cap at 1.5x)
     "vad_aggressiveness": 2,          # WebRTC VAD 0-3
 }
 ```
@@ -169,7 +176,7 @@ There is **no** `compute_key` — the model always loads with `device="cpu", com
 | `resolve_trigger()` | Configured trigger, or `adapters.default_trigger` (Fn keycode 63 / `"ctrl_r"`) when unset. |
 | `start_fn_listener()` / `stop_fn_listener()` | Build/start/stop the hotkey listener from the adapter; press starts recording, release stops + wakes the worker. |
 | `run_transcription()` | Whole-file path: transcribe `recording_path`, `clean_text`, inject, cleanup. |
-| `_enqueue_chunk` / `_chunk_worker_loop` / `start_chunk_worker` / `stop_chunk_worker` | Streaming chunk pipeline: a single FIFO worker transcribes chunk WAVs in order and accumulates text; the assembled text is injected once on release. |
+| `_enqueue_chunk` / `_chunk_worker_loop` / `start_chunk_worker` / `stop_chunk_worker` | Streaming chunk pipeline: a single FIFO worker transcribes chunk WAVs in order and accumulates text. In toggle mode with `type_while_speaking` true it also injects each chunk's text live, as soon as it is transcribed; otherwise (hold mode, or `type_while_speaking` false) chunks are only accumulated and the assembled text is injected once on release. |
 | `transcribe_file(path)` | Deterministic seam: transcribe an allow-listed WAV with the current config; no inject, no delete. (`POST /transcribe-file`) |
 | `stream_file(path)` | Deterministic seam: replay a WAV through live segmentation + per-chunk transcription; returns ordered chunk texts. (`POST /stream-file`) |
 | `update_config(updates)` | Apply known keys, persist, react live: clipboard toggle, model reload flag, restart listener on trigger change, re-wire streaming on streaming-key change. Returns `True` if a model reload is needed. |
@@ -199,7 +206,7 @@ Valid transitions: `IDLE → RECORDING → TRANSCRIBING → IDLE`. `start_record
 | `start()` | FSM IDLE→RECORDING, open the capture stream, wait until audio actually flows (cold-start), arm the segmenter when streaming. |
 | `stop()` | Stop/close the stream, flush the tail chunk, FSM RECORDING→TRANSCRIBING. |
 | `get_level()` | Live mic level 0.0–1.0 for the waveform UI. |
-| `transcribe(...)` | `model.recognize(audio_path)` behind three gates: min-duration, an RMS silence gate (`SILENCE_RMS_THRESHOLD = 0.005`), then a speech gate (`MIN_SPEECH_DURATION_S = 0.20`) via `_carries_speech`. Both energy gates fail open when their measurement is unavailable. No decoder arguments: the transducer detects language itself, decodes greedily, and exposes no prompt/hotword channel. |
+| `transcribe(...)` | `model.recognize(audio_path)` behind three gates: min-duration, an RMS silence gate (`SILENCE_RMS_THRESHOLD = 0.005`, measured on the loudest 0.5 s window via `_get_peak_rms`, not the whole-clip mean, so one word in a long silence is not drowned), then a speech gate (`MIN_SPEECH_DURATION_S = 0.20`) on the VAD span; the clip is then trimmed to that voiced span plus `TRIM_MARGIN_S` (0.3 s) before `recognize` (`_trim_to_speech`, a temp copy deleted after the call) because silence around an utterance makes the model return nothing. Both energy gates fail open when their measurement is unavailable. No decoder arguments: the transducer detects language itself, decodes greedily, and exposes no prompt/hotword channel. |
 | `configure_streaming(enabled, on_chunk, *, pause_ms, min_speech_s, max_chunk_s, aggressiveness)` | Enable/disable live segmentation and register the chunk sink. |
 | `segment_pcm(pcm, ...)` | Replay raw PCM through the live segmenter; returns chunk WAV paths (drives `stream_file`). |
 | `_get_audio_duration` / `cleanup_audio_file` | WAV-header duration; temp-file cleanup. |
@@ -214,7 +221,7 @@ Valid transitions: `IDLE → RECORDING → TRANSCRIBING → IDLE`. `start_record
 
 Deliberately a duration rather than a voiced/silent ratio: one word inside a 10 s key-hold is ~6% voiced frames, the same as steady room noise, while its voiced duration (0.66 s) is unmistakable. Measured separation across 125 noise realizations above the RMS gate: worst 0.12 s voiced against 0.33 s for the shortest real one-word dictation. Known ceiling — past roughly 0.04 normalized RMS `webrtcvad` labels steady noise fully voiced and the gate stops discriminating; that band is left to the model, which returned an empty string for every such clip measured.
 
-`SpeechSegmenter` decides chunk boundaries frame-by-frame for streaming. It uses `webrtcvad` when available (gain-independent), falling back to a normalized-RMS energy gate. Capture is 16 kHz mono int16; frames are 30 ms (480 samples / 960 bytes). A boundary is emitted when buffered speech carrying ≥ `min_speech_s` of **voiced** audio is followed by ≥ `pause_ms` of silence, or when the buffer reaches `max_chunk_s` (forced flush). The minimum-size guard measures voiced seconds, not elapsed buffered seconds: each chunk is one independent model call, and measured through the production gates an isolated "oui" chunk of 1.11 s total but 0.39 s voiced came back as English 5/5, while the same word with 0.72 s voiced was correct 5/5 — elapsed duration does not separate the two, voiced duration does. Below the threshold the segmenter keeps buffering, so the short word is carried into the next chunk; nothing is discarded. The `max_chunk_s` branch and `flush_tail()` are deliberately independent of the threshold, so audio can neither be held indefinitely nor lost when a dictation is one short word. `feed(raw) → bool` (boundary occurred), `flush_tail() → bool` (pending chunk on stop), `reset_chunk()`, `has_pending`. The segmenter never drops audio — it only decides cut points.
+`SpeechSegmenter` decides chunk boundaries frame-by-frame for streaming. It uses `webrtcvad` when available (gain-independent), falling back to a normalized-RMS energy gate. Capture is 16 kHz mono int16; frames are 30 ms (480 samples / 960 bytes). A boundary is emitted when buffered speech carrying ≥ `min_speech_s` of **voiced** audio is followed by ≥ `pause_ms` of silence, or, once the buffer has reached `max_chunk_s`, at the first ~200 ms gap in speech (`SOFT_FLUSH_GAP_S`) — a cut placed at an arbitrary frame lands mid-word and the two halves come back duplicated or empty — with an unconditional cut at `max_chunk_s * HARD_MAX_FACTOR` (18 s by default) for speech with no gap at all. The minimum-size guard measures voiced seconds, not elapsed buffered seconds: each chunk is one independent model call, and measured through the production gates an isolated "oui" chunk of 1.11 s total but 0.39 s voiced came back as English 5/5, while the same word with 0.72 s voiced was correct 5/5 — elapsed duration does not separate the two, voiced duration does. Below the threshold the segmenter keeps buffering, so the short word is carried into the next chunk; nothing is discarded. When nothing follows for `LONE_WORD_PAUSE_S` (2 s) the held word is emitted alone, so a one-word dictation is typed within seconds rather than at the next long cut. The `max_chunk_s` branch and `flush_tail()` are deliberately independent of the threshold, so audio can neither be held indefinitely nor lost when a dictation is one short word. `feed(raw) → bool` (boundary occurred), `flush_tail() → bool` (pending chunk on stop), `reset_chunk()`, `has_pending`. The segmenter never drops audio — it only decides cut points.
 
 ---
 
@@ -257,7 +264,7 @@ Restart
 Quit (⌘Q)
 ```
 
-There is **no** Compute submenu, **no** Model or Language submenu (one model, language auto-detected), and **no** "Fn: ✓ active" line. Streaming is always on (no toggle). Selecting a trigger/clipboard option calls `engine.update_config(...)` and applies live (listener restart). **Restart** spawns a detached waiter (`_RELAUNCH_WAITER`) that polls the `:9090` single-instance lock until this instance releases it, then relaunches — so the new daemon never races the old one onto a fallback port. A `WaveformWindow` shows an audio-reactive visualization during recording, driven by `engine.get_level()` (never a second mic stream).
+There is **no** Compute submenu, **no** Model or Language submenu (one model, language auto-detected), and **no** "Fn: ✓ active" line. Streaming is always on (no toggle). Settings also includes a **Toggle mode** row and, right after it, a **Type while speaking** row (toggle, reflects `type_while_speaking`) — toggle mode only, it controls whether each streaming chunk is typed as it is transcribed instead of once at stop. Selecting a trigger/clipboard/type-while-speaking option calls `engine.update_config(...)` and applies live (listener restart, or on the next recording for `type_while_speaking`). **Restart** spawns a detached waiter (`_RELAUNCH_WAITER`) that polls the `:9090` single-instance lock until this instance releases it, then relaunches — so the new daemon never races the old one onto a fallback port. A `WaveformWindow` shows an audio-reactive visualization during recording, driven by `engine.get_level()` (never a second mic stream).
 
 ---
 
@@ -352,6 +359,7 @@ Run via `python whispy_daemon.py --doctor` (or `make doctor`). Each check return
 | `custom_vocabulary` | list[str] | `[]` | terms biasing the decoder (`initial_prompt`) |
 | `trigger` | int \| str \| null | `null` | `null` = platform default; macOS keycode, key name, or a `ctrl+alt+cmd+<key>` combination string |
 | `trigger_mode` | str | `"hold"` | `"hold"` (push-to-talk: hold to record, release to stop) or `"toggle"` (press to start, press again to stop); an invalid value falls back to `"hold"` |
+| `type_while_speaking` | bool | `True` | toggle mode only: type each chunk as soon as it is transcribed instead of once at stop; hold mode always types once, on release |
 | `streaming_enabled` | bool | `True` | streaming vs. whole-file transcription |
 | `pause_ms` | number | `600` | > 0 |
 | `min_speech_s` | number | `0.7` | ≥ 0 |

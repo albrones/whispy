@@ -372,3 +372,33 @@ class TestStreamingConfig:
         # And the defaults were persisted back.
         on_disk = json.loads(config_file.read_text())
         assert "streaming_enabled" in on_disk
+
+
+# ---------------------------------------------------------------------------
+# Type-while-speaking config (toggle mode only)
+# ---------------------------------------------------------------------------
+
+
+class TestTypeWhileSpeakingConfig:
+    """Validation and migration of the type_while_speaking config key."""
+
+    def test_default_present(self):
+        assert DEFAULT_CONFIG["type_while_speaking"] is True
+
+    def test_missing_key_migrated_to_true(self, tmp_path):
+        config_file = tmp_path / "config.json"
+        # A pre-existing config without the new key.
+        config_file.write_text(json.dumps({"copy_to_clipboard": False, "_version": 0}))
+
+        loaded = load_config(config_file)
+        assert loaded["type_while_speaking"] is True
+        # And the default was persisted back.
+        on_disk = json.loads(config_file.read_text())
+        assert on_disk["type_while_speaking"] is True
+
+    def test_non_bool_resets_to_true(self):
+        assert _validate_config({"type_while_speaking": "yes"})["type_while_speaking"] is True
+        assert _validate_config({"type_while_speaking": 1})["type_while_speaking"] is True
+
+    def test_explicit_false_preserved(self):
+        assert _validate_config({"type_while_speaking": False})["type_while_speaking"] is False

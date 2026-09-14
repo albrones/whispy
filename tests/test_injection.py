@@ -212,7 +212,9 @@ class TestEmptyText:
         _, popen_mock, _ = mock_subprocess
         injector = TextInjector(copy_to_clipboard=True)
         injector.inject("   ")
-        assert popen_mock.called
+        # inject() enqueues onto the worker thread and returns immediately, so
+        # wait for the queued job to actually reach Popen.
+        assert _wait_calls(popen_mock, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +408,114 @@ class TestKeystrokeDenialDebounce:
         threading.Event().wait(0.3)
 
         assert len(calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# Ordering: successive inject()/copy_only() calls run in call order, never
+# concurrently, without blocking the caller.
+# ---------------------------------------------------------------------------
+
+
+class TestInjectionOrdering:
+    """Successive inject()/copy_only() calls are serialized through the FIFO worker."""
+
+    def test_second_inject_waits_for_first_keystroke_injection(self, mock_subprocess):
+        _, popen_mock, popen_instance = mock_subprocess
+        popen_instance.returncode = 0
+        release_event = threading.Event()
+        call_index = [0]
+
+        def _communicate(*args, **kwargs):
+            call_index[0] += 1
+            if call_index[0] == 1:
+                release_event.wait(timeout=2.0)
+            return (b"", b"")
+
+        popen_instance.communicate.side_effect = _communicate
+
+        injector = TextInjector(copy_to_clipboard=False)
+        injector.inject("A")
+        injector.inject("B")
+
+        # Wait for A's step to actually reach Popen (inject() itself returns
+        # immediately, well before that happens).
+        assert _wait_calls(popen_mock, 1)
+        # inject() did not block the caller: we get here while the first
+        # job's communicate() is still parked on the event.
+        assert not release_event.is_set()
+        # B's step must not have been dispatched yet -- the worker is still
+        # busy with A, so only one Popen call has been made so far.
+        assert popen_mock.call_count == 1
+
+        release_event.set()
+        assert _wait_calls(popen_mock, 2)
+        cmds = _commands(popen_mock)
+        # Keystroke mode passes the text as the trailing argv element.
+        assert cmds[0][-1] == "A"
+        assert cmds[1][-1] == "B"
+
+    def test_failing_injection_does_not_block_the_next_one(self, mock_subprocess):
+        _, popen_mock, popen_instance = mock_subprocess
+        call_index = [0]
+
+        def _communicate(*args, **kwargs):
+            call_index[0] += 1
+            if call_index[0] == 1:
+                popen_instance.returncode = 1
+                return (b"", DENIED_STDERR)
+            popen_instance.returncode = 0
+            return (b"", b"")
+
+        popen_instance.communicate.side_effect = _communicate
+
+        fired = threading.Event()
+        messages: list[str] = []
+
+        def _cb(msg):
+            messages.append(msg)
+            fired.set()
+
+        injector = TextInjector(copy_to_clipboard=False)
+        injector.set_permission_denied_callback(_cb)
+        injector.inject("A")
+        injector.inject("B")
+
+        assert fired.wait(timeout=2.0)
+        assert _wait_calls(popen_mock, 2)
+        cmds = _commands(popen_mock)
+        assert cmds[0][-1] == "A"
+        assert cmds[1][-1] == "B"
+        assert len(messages) == 1
+
+    def test_copy_only_queued_behind_inject_runs_after_it(self, mock_subprocess):
+        _, popen_mock, popen_instance = mock_subprocess
+        popen_instance.returncode = 0
+        release_event = threading.Event()
+        call_index = [0]
+
+        def _communicate(*args, **kwargs):
+            call_index[0] += 1
+            if call_index[0] == 1:
+                release_event.wait(timeout=2.0)
+            return (b"", b"")
+
+        popen_instance.communicate.side_effect = _communicate
+
+        injector = TextInjector(copy_to_clipboard=False)
+        injector.inject("A")
+        injector.copy_only("B")
+
+        # Wait for A's step to actually reach Popen, then confirm copy_only()
+        # for B did not run ahead of the still-in-flight inject("A").
+        assert _wait_calls(popen_mock, 1)
+        assert popen_mock.call_count == 1
+
+        release_event.set()
+        assert _wait_calls(popen_mock, 2)
+        cmds = _commands(popen_mock)
+        assert cmds[0][-1] == "A"  # A's keystroke step
+        assert cmds[1] == ["pbcopy"]  # B's copy-only step, queued behind A
+        assert popen_instance.communicate.call_args_list[1].kwargs.get("input") == b"B"
 
 
 # ---------------------------------------------------------------------------
