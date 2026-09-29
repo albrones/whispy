@@ -230,3 +230,30 @@ class SpeechSegmenter:
     def flush_tail(self) -> bool:
         """Return True if there is a pending speech chunk to flush on stop."""
         return self._have_speech
+
+
+def split_pcm(pcm: bytes, max_piece_s: float, block_bytes: int = FRAME_BYTES * 10) -> list[bytes]:
+    """Split int16 16 kHz mono PCM into pieces no longer than ``max_piece_s``.
+
+    Cuts where the live segmenter would -- on pauses, else at its own ceiling --
+    so a long recording reaches the model in the same shape streaming gives it.
+    A piece that still exceeds the bound (a long silence before the first word
+    is never cut, because the segmenter only cuts once speech started) is
+    sliced at fixed offsets. Every byte of ``pcm`` lands in exactly one piece.
+    """
+    segmenter = SpeechSegmenter()
+    pieces: list[bytes] = []
+    start = 0
+    for offset in range(0, len(pcm), block_bytes):
+        end = min(offset + block_bytes, len(pcm))
+        if segmenter.feed(pcm[offset:end]):
+            pieces.append(pcm[start:end])
+            start = end
+    if start < len(pcm):
+        pieces.append(pcm[start:])
+
+    max_bytes = int(max_piece_s * SAMPLE_RATE) * 2
+    bounded: list[bytes] = []
+    for piece in pieces:
+        bounded.extend(piece[i : i + max_bytes] for i in range(0, len(piece), max_bytes))
+    return bounded

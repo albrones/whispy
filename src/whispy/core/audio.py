@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 
-from .segmentation import SpeechSegmenter, speech_span_s
+from .segmentation import SpeechSegmenter, speech_span_s, split_pcm
 from .state_machine import StateMachine
 
 # ``sounddevice`` loads libportaudio at import time, which is absent on headless
@@ -101,6 +101,15 @@ MIN_SPEECH_DURATION_S = 0.20
 # with seconds of silence attached, and was coming back empty 7 times out of 9
 # on a live drive. Internal silences are kept: only the ends are cut.
 TRIM_MARGIN_S = 0.3
+
+# Longest clip handed to the model in one call; a longer file is split first
+# (see ``_transcribe_in_pieces``). Measured with the int8 model on the pinned
+# CPU provider (M1 Pro): peak RSS 1268 MB at 8 s, 1476 MB at 30 s, 1688 MB at
+# 60 s, 3503 MB at 180 s -- memory and latency grow with clip length. The same
+# 180 s clip under CoreML reached 25 GB and took the whole machine down
+# (userspace watchdog panic, 2026-09-29). Streaming chunks never come near
+# this; it bounds the whole-file paths (streaming disabled, /transcribe-file).
+MODEL_INPUT_MAX_S = 30.0
 # Rewrite the clip only when it saves at least this much; a clip that already
 # starts and ends on speech goes to the model as is.
 TRIM_MIN_GAIN_S = 0.25
@@ -555,6 +564,8 @@ class AudioEngine:
                 min_recording_duration,
             )
             return None
+        if duration is not None and duration > MODEL_INPUT_MAX_S:
+            return self._transcribe_in_pieces(audio_path, model, min_recording_duration)
 
         # Near-silent audio must never reach the model. Parakeet invents short
         # backchannel fillers on it -- "Yeah.", "Okay.", "Mm-hmm.", "No.",
@@ -597,6 +608,41 @@ class AudioEngine:
             logger.info("[audio] Model returned no text for a %.2fs clip — discarding.", duration or 0.0)
             return None
         return text
+
+    def _transcribe_in_pieces(self, audio_path: str, model: Any, min_recording_duration: float) -> str | None:
+        """Transcribe a clip longer than ``MODEL_INPUT_MAX_S`` piece by piece.
+
+        Each piece goes back through ``transcribe`` -- same gates, same trim --
+        and is short enough not to recurse again.
+        """
+        with wave.open(audio_path, "rb") as wf:
+            params = (wf.getnchannels(), wf.getsampwidth(), wf.getframerate())
+            pcm = wf.readframes(wf.getnframes())
+        if params != (CHANNELS, SAMPLE_WIDTH, SAMPLE_RATE):
+            logger.error(
+                "[audio] Cannot split %s: (channels, sample width, rate) is %s, expected %s — not transcribed.",
+                audio_path,
+                params,
+                (CHANNELS, SAMPLE_WIDTH, SAMPLE_RATE),
+            )
+            return None
+        texts: list[str] = []
+        for piece in split_pcm(pcm, MODEL_INPUT_MAX_S):
+            path = self._new_recording_path()
+            with _open_recording_wav(path) as wf:
+                wf.setnchannels(CHANNELS)
+                wf.setsampwidth(SAMPLE_WIDTH)
+                wf.setframerate(SAMPLE_RATE)
+                wf.writeframes(piece)
+            try:
+                text = self.transcribe(path, model, min_recording_duration)
+            finally:
+                self.cleanup_audio_file(path)
+            if text:
+                texts.append(text)
+        # ponytail: plain space join; streaming's boundary-aware punctuation join
+        # is the upgrade if long whole-file dictation becomes a real path.
+        return " ".join(texts) or None
 
     def _speech_span(self, audio_path: str) -> tuple[float, float, float] | None:
         """``(first_s, last_s, voiced_s)`` of the clip's VAD speech, or None if unmeasurable.
