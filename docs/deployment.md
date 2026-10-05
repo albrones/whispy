@@ -14,10 +14,25 @@ involved — Vercel watches the repo itself and deploys on merge to `main`:
 | Push to `main`               | Vercel **production** deploy             |
 | Pull request (any branch)   | **skipped** — no preview deployment      |
 
-Preview deployments are disabled through `ignoreCommand` in `vercel.json`:
-the command exits 0 (skip the build) whenever `VERCEL_ENV` is not
-`production`. Vercel still registers a "Canceled" deployment for each
-branch push, but nothing is built or aliased.
+Preview deployments are suppressed through `ignoreCommand` in `vercel.json`.
+Vercel's [Ignored Build Step](https://vercel.com/docs/project-configuration/git-settings#ignored-build-step)
+reads the command's **exit code**: `0` skips the build, `1` runs it. The
+command therefore tests for the case it wants to skip — `VERCEL_ENV` being
+`preview` — and nothing else.
+
+**The test must not be inverted.** It was first written as
+`[ "$VERCEL_ENV" != "production" ]`, which reads correctly but fails open on
+the wrong side: if `VERCEL_ENV` is not exposed to the ignore step, it is the
+empty string, `"" != "production"` is true, the command exits 0, and *every*
+build is skipped — production included. That is what happened between
+2026-09-14 and 2026-10-05: three weeks of merges to `main` recorded as
+"Canceled" deployments with the site frozen on the commit before the change,
+with no failure anywhere to notice. Written as `= "preview"`, an unset
+variable falls through to a build, so the worst case is a preview deploy
+nobody reads rather than a production deploy nobody gets.
+
+Vercel still registers a "Canceled" deployment for each skipped build; a
+canceled *production* deployment is the signal that this has broken again.
 
 Because the site has no build step (see below), every push to `main`
 deploys, not just ones touching `website/**` — there is no path filter. For a
@@ -39,7 +54,7 @@ instead of living in unversioned Vercel project settings:
     "framework": null,
     "buildCommand": "",
     "outputDirectory": "website",
-    "ignoreCommand": "[ \"$VERCEL_ENV\" != \"production\" ]"
+    "ignoreCommand": "[ \"$VERCEL_ENV\" = \"preview\" ]"
   }
   ```
 
