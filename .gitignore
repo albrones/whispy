@@ -155,9 +155,6 @@ venv/
 *.egg-info/
 build/
 
-# Generated knowledge graph (regenerate with `graphify update .`)
-graphify-out/
-
 # customs skills
 .agents/skills
 
