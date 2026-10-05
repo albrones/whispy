@@ -7,10 +7,15 @@ Provides shared fixtures for Engine, DictationState, and temporary directories.
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+# Longer than the injector's clipboard-restore delay, so one quiet interval
+# proves the worker has no further step pending rather than merely sleeping.
+_WORKER_QUIET_S = 0.25
 
 # Mock macOS-only dependencies before any whispy imports
 if "Quartz" not in sys.modules:
@@ -149,13 +154,33 @@ def mock_asr_model(mocker):
 
 @pytest.fixture
 def mock_subprocess(mocker):
-    """Mock subprocess.run and subprocess.Popen."""
+    """Mock subprocess.run and subprocess.Popen.
+
+    Teardown waits for the injector's worker thread to go quiet before the
+    patches come off. ``TextInjector`` runs its steps on a daemon thread and
+    sleeps ``_CLIPBOARD_RESTORE_DELAY`` before the clipboard-restore step, so a
+    test that returns without draining the full sequence leaves a ``Popen``
+    pending. That call lands either in the *next* test's mock -- shifting every
+    index in ``call_args_list`` and failing assertions in a test that did
+    nothing wrong -- or, once unpatched, on the real pasteboard.
+    """
     run_mock = mocker.patch("subprocess.run")
     popen_mock = mocker.patch("subprocess.Popen")
     popen_instance = MagicMock()
     popen_mock.return_value = popen_instance
     popen_instance.poll.return_value = None
-    return run_mock, popen_mock, popen_instance
+
+    yield run_mock, popen_mock, popen_instance
+
+    # Only tests that actually spawned something can have work in flight, so
+    # the common case costs nothing.
+    if not popen_mock.call_count:
+        return
+    deadline = time.monotonic() + 2.0
+    seen = -1
+    while popen_mock.call_count != seen and time.monotonic() < deadline:
+        seen = popen_mock.call_count
+        time.sleep(_WORKER_QUIET_S)
 
 
 @pytest.fixture(scope="session")
