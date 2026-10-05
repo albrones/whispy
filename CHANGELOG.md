@@ -35,6 +35,28 @@
 
 ### Fixed
 
+- **The trigger key was named after the wrong key.** The keycode-to-name table
+  was written from memory and was wrong from keycode 9 onward: the right-hand
+  modifier block carried `f1`–`f4`, so a Right Option trigger was shown as
+  `f3` in the menu bar, Right Command was missing entirely although it is an
+  offered preset, and keycode 255 claimed to be `command`. The same table
+  resolves a hand-written string trigger such as `ctrl+alt+cmd+p`, which bound
+  the quote key instead of `p`. Rebuilt against Carbon's `<HIToolbox/Events.h>`,
+  with a test asserting every name resolves back to the keycode it came from.
+- **A corrupted config file reset every setting on the next change.** A config
+  update re-reads the file to merge onto, and an unparseable file read as the
+  defaults meant the next menu toggle persisted those defaults over everything
+  the user had set. The merge now falls back to the configuration the app is
+  running with, so a bad file costs only the edits that broke it.
+- **The config file was rewritten on every launch, destroying the migration
+  backup.** The migration ran unconditionally, so each start copied the
+  already-migrated config over `config.json.v<n>.bak` — replacing the only
+  snapshot of the pre-upgrade settings with a copy of the current ones. It is
+  now a no-op when there is nothing to migrate.
+- **The line confirming the trigger listener came up never reached the log.** It
+  was printed to stdout, which the bundled `.app` discards, so the first thing
+  to check when the hotkey is dead was missing from `~/.whispy.log`. It now goes
+  through the logger, on macOS and Linux.
 - **French dictation could come back partly in English.** Not a
   language-detection failure: streaming transcribes every chunk as an
   independent model call, and the guard meant to stop over-short chunks
@@ -159,6 +181,18 @@
 - **Serialized text injection.** Text injections now run through a single
   FIFO worker inside the injector, in call order, so streaming chunks typed
   live can never interleave with one another or with the stop-time injection.
+- **New config key `soft_gap_ms` (default `350`), replacing the hardcoded
+  ~200 ms soft-flush gap.** Past `max_chunk_s`, the segmenter now waits for at
+  least `soft_gap_ms` of silence before cutting, instead of the previous fixed
+  200 ms — short enough to occur *inside* ordinary speech. Measured on a live
+  French dictation at `vad_aggressiveness: 3`, the old threshold cut the word
+  *Régie* in half — the chunk ended `...je suis dans Rég.` and the next began
+  `la version app`, with the final syllable lost outright. Lowering
+  `max_chunk_s` from 12 s to 8 s made the cut fire roughly half again as often,
+  which turned a rare defect into a visible one. Retunable at runtime, like the
+  other streaming parameters. Trade-off: a higher gap threshold routes more
+  run-on speech to the unconditional hard cap (`max_chunk_s * 1.5`), which
+  still cuts at an arbitrary frame — a rarer failure, not no failure.
 
 ### Fixed
 - **Long chunks no longer cut mid-word.** Past `max_chunk_s` the segmenter
@@ -183,6 +217,14 @@
 - **Trigger key selection from the menu (macOS).** The **Settings → Trigger**
   menu lets you pick the push-to-talk key from presets (Fn, Right Command,
   Right Option, F13); the change applies live, with no restart.
+- **A migration now backs up the config file it replaces.** Before persisting
+  a migrated config, `config.json` is copied to
+  `config.json.v<previous_version>.bak` beside it, and the keys the migration
+  changed are logged at INFO. Previously, a migration that changed settings
+  left nothing on disk to compare against and no log line naming what changed,
+  so the cause of an unexpected reset could not be established after the fact.
+  A backup that cannot be written is logged at WARNING and does not block the
+  migration.
 - Module `src/whispy/core/config.py`: config validation and migration.
 - Module `src/whispy/core/text_cleaner.py`: text cleaning.
 - Error-handling tests (`test_error_handling.py`): missing sox, unavailable
@@ -191,6 +233,25 @@
 - Validation of config values.
 
 ### Changed
+- **BREAKING — `copy_to_clipboard` now defaults to `true`.** Clipboard-paste
+  hands the transcript over as data and never resolves it against a keyboard
+  layout; keystroke mode (`osascript keystroke`) does, and is only correct on
+  a US layout — measured on a French AZERTY layout over a 178-second
+  dictation, every `,` arrived as `.` and every `â` as `q`. Keystroke mode
+  stays available as an explicit opt-out, documented as US-layout-only. A
+  one-time `_version` 1→2 config migration sets `copy_to_clipboard` to `true`
+  unconditionally on first launch after the upgrade, so existing installs
+  pick up the fix without user action. Rollback leaves `_version: 2` and
+  `copy_to_clipboard: true` on disk — harmless, since the old build reads and
+  honours both keys — but the setting does not revert itself.
+- **`max_chunk_s` default lowered from 12 s to 8 s**, pulling the hard cap
+  (`max_chunk_s * 1.5`) from 18 s to 12 s with it. The backend resolves
+  language once per model call, so a long chunk bets a lot of audio on a
+  single guess: over one daemon log of 610 chunks from a French dictation,
+  the chunks that came back in English had a median duration of 12.03 s
+  against 7.0 s overall. The same migration lowers `max_chunk_s` to `8.0` when
+  it is still at the old `12.0` default; a value already tuned away from
+  `12.0` is left untouched.
 - **macOS install consolidated on `Whispy.app`.** A single command
   (`curl … | bash`) detects the OS: on macOS it builds and installs the
   signed `Whispy.app` bundle into `/Applications`; Linux/X11 keeps venv +

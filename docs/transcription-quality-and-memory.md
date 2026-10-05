@@ -246,6 +246,36 @@ dependency is missing, the segmenter degrades to a simple energy gate.
 
 One caveat, unchanged by the backend swap: cutting on a fixed interval rather
 than on silence degrades output for any model — a chunk boundary mid-word is
-mid-word regardless of architecture. The VAD thresholds (`pause_ms`,
-`min_chunk_s`, `max_chunk_s`) have not been retuned against the new latency
-budget, and there is now far more headroom to spend on shorter, cleaner chunks.
+mid-word regardless of architecture. `max_chunk_s` has now been retuned, on a
+daemon log of 610 chunks from a French dictation: the chunks that came back in
+English had a median duration of 12.03 s against 7.0 s overall, so a chunk that
+reaches the old 12 s ceiling was already betting on the failure mode. The
+default drops from 12.0 s to 8.0 s, which pulls the hard cap (`max_chunk_s *
+1.5`) from 18 s to 12 s along with it — the worst drifted chunk in that log was
+14.19 s, reachable under the old hard cap and not under the new one. `pause_ms`
+and `min_chunk_s` remain untuned against the new latency budget, and there is
+still headroom to spend on shorter, cleaner chunks.
+
+Lowering `max_chunk_s` was not the whole story, and a second measurement showed
+why: past the length ceiling, the cut does not fall immediately — it waits for
+a short gap in speech (`soft_gap_ms`), so it does not land at an arbitrary
+frame mid-word. That gap was a 200 ms constant, and 200 ms is short enough to
+occur *inside* ordinary speech. On a live French dictation at
+`vad_aggressiveness: 3`, the ceiling cut the word *Régie* in half — the chunk
+ended `...je suis dans Rég.` and the next began `la version app`, with the
+final syllable lost outright, not merely misjoined. `soft_gap_ms` is now a
+configurable key defaulting to 350 ms.
+
+The two settings are a pair, not two independent knobs: `max_chunk_s` sets how
+often a chunk reaches the point where a cut becomes possible, and `soft_gap_ms`
+sets how forgiving that cut is once it does. Lowering `max_chunk_s` from 12 s to
+8 s (above) raised how often the ceiling was reached by roughly half again,
+which is what turned the 200 ms gap's mid-word risk from rare into visible —
+the same gap threshold got exercised more often once the ceiling started
+firing on every long sentence. Raising `soft_gap_ms` alone, without the lower
+ceiling, would have left the cut firing less often but no less abruptly when it
+did. Raising it does have a cost of its own: a higher gap threshold routes more
+run-on speech to the unconditional hard cap (`max_chunk_s * 1.5`), which still
+cuts at an arbitrary frame — a rarer failure, not no failure, and the next
+lever if that hard cap becomes the visible problem is to make the hard cap seek
+a gap too, not to lower `soft_gap_ms` back down.
