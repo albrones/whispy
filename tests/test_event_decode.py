@@ -9,6 +9,11 @@ if str(_src) not in sys.path:
 
 from whispy.hardware.event_decode import (
     DEFAULT_TRIGGER_KEYCODE,
+    MASK_COMMAND,
+    MASK_OPTION,
+    NX_DEVICELALTKEYMASK,
+    NX_DEVICERALTKEYMASK,
+    NX_DEVICERCMDKEYMASK,
     NX_SECONDARYFNMASK,
     canonical_modifier,
     decode_key_match,
@@ -51,19 +56,31 @@ class TestDecodeNonFnTrigger:
 
     def test_modifier_flags_changed_decodes_press_then_release(self):
         # A non-Fn modifier trigger arrives only as flags_changed (no key_up).
-        # Press = its mask bit goes 0->1; release = 1->0, derived from prev_flags.
-        BIT = 0x40000  # arbitrary modifier mask
-        TRIG = 54  # a modifier keycode
-        press = decode_trigger_event("flags_changed", TRIG, BIT, TRIG, prev_flags=0)
-        release = decode_trigger_event("flags_changed", TRIG, 0, TRIG, prev_flags=BIT)
+        # Flags are the ones Right Command actually produces (captured live):
+        # command mask + its device bit on press, everything clear on release.
+        # The earlier version of this test used 0x40000 (the CONTROL mask) for
+        # keycode 54, a combination the hardware never emits.
+        TRIG = 54  # Right Command
+        DOWN = MASK_COMMAND | NX_DEVICERCMDKEYMASK
+        press = decode_trigger_event("flags_changed", TRIG, DOWN, TRIG, prev_flags=0)
+        release = decode_trigger_event("flags_changed", TRIG, 0, TRIG, prev_flags=DOWN)
         assert press == "press"
         assert release == "release"
 
-    def test_modifier_flags_changed_no_transition_is_none(self):
+    def test_modifier_flags_changed_no_transition_is_none_on_the_fallback_path(self):
         # No bit changed for the trigger → neither press nor release (avoids the
-        # old behavior of latching "press" forever).
-        BIT = 0x40000
-        assert decode_trigger_event("flags_changed", 54, BIT, 54, prev_flags=BIT) is None
+        # old behavior of latching "press" forever). This is the flag-diff
+        # path, which now applies only to a keycode with no verified device
+        # bit; 55 (Left Command) is deliberately absent from _TRIGGER_DEVICE_MASK.
+        BIT = MASK_COMMAND
+        assert decode_trigger_event("flags_changed", 55, BIT, 55, prev_flags=BIT) is None
+
+    def test_device_bit_does_not_need_a_transition(self):
+        # The point of the device-bit path: the current event is sufficient, so
+        # a stale prev_flags cannot suppress the decision. The old flag-diff
+        # returned None here, which is exactly how a stopping press was lost.
+        DOWN = MASK_OPTION | NX_DEVICERALTKEYMASK
+        assert decode_trigger_event("flags_changed", 61, DOWN, 61, prev_flags=DOWN) == "press"
 
 
 class TestDecodeIgnored:
@@ -93,6 +110,40 @@ class TestKeycodeToName:
         # The table previously had these swapped/missing; see 2.5.
         assert keycode_to_name(14) == "e"
         assert keycode_to_name(8) == "c"
+
+    def test_every_trigger_preset_names_the_key_it_is(self):
+        """The menu bar and the daemon log both print this name back to the user.
+
+        Right Option (61) used to come out as "f3", because the table carried
+        f1-f4 over the right-hand modifier block.
+        """
+        from whispy.core.config import TRIGGER_PRESETS
+
+        named = {label: keycode_to_name(code) for label, code in TRIGGER_PRESETS if code is not None}
+        assert named == {
+            "Right Command": "right_command",
+            "Right Option": "right_option",
+            "F13": "f13",
+        }
+
+    def test_the_keycodes_this_table_used_to_get_wrong(self):
+        # Spot checks across the blocks that were shifted, one per block.
+        assert keycode_to_name(9) == "v"  # was "w"
+        assert keycode_to_name(18) == "1"  # was "2"
+        assert keycode_to_name(36) == "enter"  # was "["
+        assert keycode_to_name(49) == "space"  # was "/"
+        assert keycode_to_name(59) == "control"  # was "f1"
+        assert keycode_to_name(122) == "f1"  # was unmapped
+        assert keycode_to_name(255) == "key255"  # was "command"
+
+    def test_names_round_trip_back_to_their_keycode(self):
+        # parse_trigger resolves a hand-written trigger through the reverse of
+        # this table, so a duplicate name would silently bind the wrong key.
+        from whispy.hardware.event_decode import _KEYCODE_TO_NAME
+
+        assert len(set(_KEYCODE_TO_NAME.values())) == len(_KEYCODE_TO_NAME)
+        for code, name in _KEYCODE_TO_NAME.items():
+            assert parse_trigger(name) == (code, 0), name
 
 
 class TestParseTrigger:
@@ -251,3 +302,82 @@ class TestTriggerHeldAfterRearm:
 
     def test_tuple_flags_are_normalized(self):
         assert trigger_held_after_rearm(61, (0x80000,)) is True
+
+
+class TestModifierTriggerDeviceBit:
+    """The device-dependent bit path (fix-modifier-trigger-flag-desync).
+
+    Flag values here are the ones captured on real hardware:
+      Right Option  61 -> 0x00080140 pressed, 0x00000100 released
+      Left  Option  58 -> 0x00080120 pressed
+      Right Command 54 -> 0x00100110 pressed
+    0x100 is NX_NONCOALSESCEDMASK, present on every event and not a modifier.
+    """
+
+    NONCOALESCED = 0x100
+    R_OPT_DOWN = MASK_OPTION | NX_DEVICERALTKEYMASK | NONCOALESCED  # 0x00080140
+    L_OPT_DOWN = MASK_OPTION | NX_DEVICELALTKEYMASK | NONCOALESCED  # 0x00080120
+    ALL_UP = NONCOALESCED  # 0x00000100
+
+    def test_press_from_device_bit(self):
+        assert decode_trigger_event("flags_changed", 61, self.R_OPT_DOWN, 61) == "press"
+
+    def test_release_from_device_bit(self):
+        assert decode_trigger_event("flags_changed", 61, self.ALL_UP, 61) == "release"
+
+    def test_press_decoded_although_prev_flags_already_carried_the_shared_mask(self):
+        # Stale baseline that already has MASK_OPTION: the old diff produced
+        # `changed == 0` and returned None. The device bit is unaffected.
+        assert decode_trigger_event("flags_changed", 61, self.R_OPT_DOWN, 61, prev_flags=MASK_OPTION) == "press"
+
+    def test_left_option_held_across_the_trigger_press(self):
+        """The regression this change exists to prevent.
+
+        Left Option is held (so MASK_OPTION is already set and prev_flags
+        reflects it), then Right Option is pressed to stop a toggle-mode
+        recording. Both keys share MASK_OPTION, so the flag-diff saw no change
+        and swallowed the stopping press — the daemon log's exact signature.
+        """
+        both_down = self.R_OPT_DOWN | NX_DEVICELALTKEYMASK
+        assert decode_trigger_event("flags_changed", 61, both_down, 61, prev_flags=self.L_OPT_DOWN) == "press"
+
+    def test_trigger_release_while_the_other_side_is_still_held(self):
+        # Right Option let go, Left Option still down: MASK_OPTION stays set but
+        # 0x40 clears. Ambiguous from one event, so the diff resolves it.
+        assert decode_trigger_event("flags_changed", 61, self.L_OPT_DOWN, 61, prev_flags=self.R_OPT_DOWN) == "release"
+
+    def test_missed_event_does_not_strand_the_trigger(self):
+        # A flags_changed was never delivered, so prev_flags is arbitrarily
+        # stale. The next trigger event still decodes, with no resync step.
+        assert decode_trigger_event("flags_changed", 61, self.R_OPT_DOWN, 61, prev_flags=0xDEAD) == "press"
+
+    def test_right_command_uses_its_own_device_bit(self):
+        down = MASK_COMMAND | NX_DEVICERCMDKEYMASK | self.NONCOALESCED
+        assert decode_trigger_event("flags_changed", 54, down, 54, prev_flags=MASK_COMMAND) == "press"
+        assert decode_trigger_event("flags_changed", 54, self.ALL_UP, 54) == "release"
+
+    def test_keyboard_that_sets_no_device_bit_falls_back_to_the_diff(self):
+        """A remapper or external keyboard that never sets device bits.
+
+        Reading "bit clear" as a release there would mean a press never starts
+        a recording — strictly worse than today. The modifier still being held
+        while its device bit is absent is the tell, and the diff takes over.
+        """
+        press = decode_trigger_event("flags_changed", 61, MASK_OPTION, 61, prev_flags=0)
+        release = decode_trigger_event("flags_changed", 61, 0, 61, prev_flags=MASK_OPTION)
+        assert press == "press"
+        assert release == "release"
+
+    def test_unverified_modifier_keycode_still_uses_the_diff(self):
+        # 55 (Left Command) has no entry in _TRIGGER_DEVICE_MASK.
+        press = decode_trigger_event("flags_changed", 55, MASK_COMMAND, 55, prev_flags=0)
+        release = decode_trigger_event("flags_changed", 55, 0, 55, prev_flags=MASK_COMMAND)
+        assert press == "press"
+        assert release == "release"
+
+    def test_fn_default_trigger_is_untouched(self):
+        assert decode_trigger_event("flags_changed", 63, NX_SECONDARYFNMASK, 63) == "press"
+        assert decode_trigger_event("flags_changed", 63, 0, 63) == "release"
+
+    def test_tuple_flags_are_normalized_on_the_device_path(self):
+        assert decode_trigger_event("flags_changed", 61, (self.R_OPT_DOWN,), 61) == "press"

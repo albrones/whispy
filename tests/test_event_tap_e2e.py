@@ -8,6 +8,7 @@ These tests verify:
 - Text injection after transcription
 """
 
+import logging
 import sys
 import tempfile
 from pathlib import Path
@@ -459,7 +460,7 @@ class TestEventTapCombinationTrigger:
         err = capsys.readouterr().err
         assert "not-a-real-trigger" in err
 
-    def test_startup_log_shows_combination_string(self, mocker, capsys):
+    def test_startup_log_shows_combination_string(self, mocker, caplog):
         mocker.patch("whispy.hardware.event_tap.QUARTZ_AVAILABLE", True)
         mocker.patch("whispy.hardware.event_tap.CGEventTapCreate", return_value=MagicMock())
         mocker.patch("whispy.hardware.event_tap.CFMachPortCreateRunLoopSource", return_value=MagicMock())
@@ -467,14 +468,16 @@ class TestEventTapCombinationTrigger:
         mocker.patch("whispy.hardware.event_tap.CGEventTapEnable")
         mocker.patch("whispy.hardware.event_tap.CFRunLoopRunInMode")
 
-        listener = EventTapListener(trigger_keycode="ctrl+alt+cmd+e")
-        listener.start()
-        assert listener._ready_event.wait(timeout=2)
-        listener.stop()
-        listener._run_loop_thread.join(timeout=1.0)
+        # The bundled .app has no stdout, so this line has to go through the
+        # logger to reach ~/.whispy.log at all.
+        with caplog.at_level(logging.INFO, logger="whispy.hardware.event_tap"):
+            listener = EventTapListener(trigger_keycode="ctrl+alt+cmd+e")
+            listener.start()
+            assert listener._ready_event.wait(timeout=2)
+            listener.stop()
+            listener._run_loop_thread.join(timeout=1.0)
 
-        out = capsys.readouterr().out
-        assert "ctrl+alt+cmd+e" in out
+        assert "ctrl+alt+cmd+e" in caplog.text
 
     def test_combination_press_requires_full_modifier_mask(self, captured_callbacks):
         """Only ctrl+alt held (missing cmd) must not fire a press."""
@@ -854,14 +857,15 @@ class TestFullFnWorkflowIntegration:
         assert engine.start_recording() is False
 
     def test_text_injector_copy_mode(self, state, tmp_config):
-        """TextInjector should be created with copy_to_clipboard=False by default."""
+        """TextInjector should be created with copy_to_clipboard=True by default."""
         engine = Engine(state, tmp_config)
-        assert engine._text_injector._copy_to_clipboard is False
+        assert engine._text_injector._copy_to_clipboard is True
 
     def test_text_injector_sync_with_config(self, state, tmp_config):
         """TextInjector config should sync with engine config."""
         engine = Engine(state, tmp_config)
-        assert engine._text_injector._copy_to_clipboard is False
+        # copy_to_clipboard defaults to True (config.DEFAULT_CONFIG).
+        assert engine._text_injector._copy_to_clipboard is True
 
         engine.update_config({"copy_to_clipboard": False})
         assert engine._text_injector._copy_to_clipboard is False
@@ -895,12 +899,16 @@ class TestFullFnWorkflowIntegration:
         }
         save_config(config, tmp_config)
 
+        # load_config migrates a file with no _version (or _version < 2): the
+        # v1->v2 migration unconditionally forces copy_to_clipboard to True,
+        # since an on-disk `false` is indistinguishable from the pre-migration
+        # default (see config._migrate_config).
         loaded = load_config(tmp_config)
         assert loaded["pause_ms"] == 800
         assert loaded["min_chunk_s"] == 0.6
         assert loaded["max_chunk_s"] == 10.0
         assert loaded["vad_aggressiveness"] == 3
-        assert loaded["copy_to_clipboard"] is False
+        assert loaded["copy_to_clipboard"] is True
         assert loaded["custom_vocabulary"] == ["Whispy"]
 
     def test_audio_engine_fsm_integration(self, sm):
@@ -1020,29 +1028,171 @@ class TestFullFnWorkflowIntegration:
 class TestEventTapRobustness:
     """The tap re-arms after the OS disables it and contains callback errors."""
 
-    def test_disabled_by_timeout_rearms_tap(self):
+    def test_disabled_by_timeout_rearms_tap(self, caplog):
         from whispy.hardware import event_tap as et
 
         listener = EventTapListener(trigger_keycode=63)
         listener._tap = MagicMock()
         with (
+            caplog.at_level(logging.WARNING, logger="whispy.hardware.event_tap"),
             patch.object(et, "CGEventGetType", return_value=et.kCGEventTapDisabledByTimeout),
             patch.object(et, "CGEventTapEnable") as enable,
         ):
             listener._event_callback(None, None, MagicMock(), None)
         enable.assert_called_once_with(listener._tap, True)
+        # The daemon log is where a re-arm has to be readable, next to the
+        # [fsm]/[audio] lines it strands — not on a discarded stderr stream.
+        assert "re-armed" in caplog.text
+        assert "timeout" in caplog.text
 
-    def test_disabled_by_user_input_rearms_tap(self):
+    def test_disabled_by_user_input_rearms_tap(self, caplog):
         from whispy.hardware import event_tap as et
 
         listener = EventTapListener(trigger_keycode=63)
         listener._tap = MagicMock()
         with (
+            caplog.at_level(logging.WARNING, logger="whispy.hardware.event_tap"),
             patch.object(et, "CGEventGetType", return_value=et.kCGEventTapDisabledByUserInput),
             patch.object(et, "CGEventTapEnable") as enable,
         ):
             listener._event_callback(None, None, MagicMock(), None)
         enable.assert_called_once_with(listener._tap, True)
+        assert "re-armed" in caplog.text
+        assert "user input" in caplog.text
+
+    def test_liveness_check_recovers_a_tap_with_no_notification(self, caplog):
+        """The failure this change exists for: the tap is down and no event says so."""
+        from whispy.hardware import event_tap as et
+
+        listener = EventTapListener(trigger_keycode=63)
+        listener._tap = MagicMock()
+        with (
+            caplog.at_level(logging.WARNING, logger="whispy.hardware.event_tap"),
+            patch.object(et, "CGEventTapIsEnabled", return_value=False),
+            patch.object(et, "CGEventTapEnable") as enable,
+            patch.object(listener, "_resync_after_rearm"),
+        ):
+            recovered = listener.check_tap_liveness()
+
+        assert recovered is True
+        enable.assert_called_once_with(listener._tap, True)
+        assert "re-enabled by liveness check" in caplog.text
+
+    def test_liveness_check_leaves_a_healthy_tap_alone(self, caplog):
+        """No re-enable and no log line — what keeps recoveries countable."""
+        from whispy.hardware import event_tap as et
+
+        listener = EventTapListener(trigger_keycode=63)
+        listener._tap = MagicMock()
+        with (
+            caplog.at_level(logging.WARNING, logger="whispy.hardware.event_tap"),
+            patch.object(et, "CGEventTapIsEnabled", return_value=True),
+            patch.object(et, "CGEventTapEnable") as enable,
+        ):
+            recovered = listener.check_tap_liveness()
+
+        assert recovered is False
+        enable.assert_not_called()
+        assert caplog.text == ""
+
+    def test_liveness_check_reports_once_per_outage(self, caplog):
+        """A flapping tap must not emit a WARNING on every 500 ms poll."""
+        from whispy.hardware import event_tap as et
+
+        listener = EventTapListener(trigger_keycode=63)
+        listener._tap = MagicMock()
+        # Disabled on every probe: the re-enable is attempted, but the tap keeps
+        # reporting down, so only the first transition should be logged.
+        with (
+            caplog.at_level(logging.WARNING, logger="whispy.hardware.event_tap"),
+            patch.object(et, "CGEventTapIsEnabled", return_value=False),
+            patch.object(et, "CGEventTapEnable") as enable,
+            patch.object(listener, "_resync_after_rearm") as resync,
+        ):
+            listener.check_tap_liveness()
+            first = caplog.text.count("re-enabled by liveness check")
+            listener.check_tap_liveness()
+            listener.check_tap_liveness()
+
+        assert first == 1
+        assert caplog.text.count("re-enabled by liveness check") == 1
+        # Reported once, but retried every poll: a re-enable that did not take
+        # must not leave the tap dead for the rest of the session.
+        assert enable.call_count == 3
+        # Resync can synthesize a missed release — once per outage, not per poll.
+        assert resync.call_count == 1
+
+    def test_liveness_check_reports_again_after_the_tap_recovers(self, caplog):
+        """A second, distinct outage is a new edge and must be reported."""
+        from whispy.hardware import event_tap as et
+
+        listener = EventTapListener(trigger_keycode=63)
+        listener._tap = MagicMock()
+        health = iter([False, True, False])
+        with (
+            caplog.at_level(logging.WARNING, logger="whispy.hardware.event_tap"),
+            patch.object(et, "CGEventTapIsEnabled", side_effect=lambda _tap: next(health)),
+            patch.object(et, "CGEventTapEnable"),
+            patch.object(listener, "_resync_after_rearm"),
+        ):
+            listener.check_tap_liveness()  # outage 1
+            listener.check_tap_liveness()  # recovered
+            listener.check_tap_liveness()  # outage 2
+
+        assert caplog.text.count("re-enabled by liveness check") == 2
+
+    def test_hold_mode_release_recovery_is_unchanged(self, captured_callbacks):
+        """Pins the asymmetry: a missed RELEASE is still recovered from live flags.
+
+        This change adds no press recovery on purpose — a release is verifiable
+        against live modifier state and a spurious one only ends a recording the
+        user already ended, while a spurious press would end one still in
+        progress. The release path must keep working exactly as before.
+        """
+        from whispy.hardware import event_tap as et
+
+        listener = EventTapListener(
+            trigger_keycode=61,  # Right Option — a modifier, so it is in _TRIGGER_HELD_MASK
+            on_trigger_release=captured_callbacks["release"],
+        )
+        listener._tap = MagicMock()
+        listener._pressed = True  # a press was emitted, no release yet
+
+        with (
+            patch.object(et, "CGEventTapIsEnabled", return_value=False),
+            patch.object(et, "CGEventTapEnable"),
+            # Live flags show the modifier is no longer held: the release was
+            # missed while the tap was down.
+            patch.object(et, "CGEventSourceFlagsState", return_value=0),
+        ):
+            listener.check_tap_liveness()
+
+        assert captured_callbacks["release_count"]() == 1
+        assert listener._pressed is False
+
+    def test_liveness_check_is_inert_without_a_tap(self):
+        listener = EventTapListener(trigger_keycode=63)
+        assert listener._tap is None
+        assert listener.check_tap_liveness() is False
+
+    def test_run_loop_polls_liveness_and_still_exits(self, mocker):
+        """The probe rides the existing wake without wedging the loop."""
+        mocker.patch("whispy.hardware.event_tap.QUARTZ_AVAILABLE", True)
+        mocker.patch("whispy.hardware.event_tap.CGEventTapCreate", return_value=MagicMock())
+        mocker.patch("whispy.hardware.event_tap.CFMachPortCreateRunLoopSource", return_value=MagicMock())
+        mocker.patch("whispy.hardware.event_tap.CFRunLoopAddSource")
+        mocker.patch("whispy.hardware.event_tap.CGEventTapEnable")
+        mocker.patch("whispy.hardware.event_tap.CFRunLoopRunInMode")
+        probe = mocker.patch.object(EventTapListener, "check_tap_liveness", return_value=False)
+
+        listener = EventTapListener()
+        listener.start()
+        assert listener._ready_event.wait(timeout=2)
+
+        listener.stop()
+        listener._run_loop_thread.join(timeout=1.0)
+        assert listener._run_loop_thread.is_alive() is False
+        assert probe.called
 
     def test_callback_exception_is_contained(self):
         from whispy.hardware import event_tap as et

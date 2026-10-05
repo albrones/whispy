@@ -20,6 +20,28 @@ MASK_CONTROL = 0x40000
 MASK_OPTION = 0x80000
 MASK_COMMAND = 0x100000
 
+# Device-dependent modifier bits (IOKit's IOLLEvent.h, not exported by pyobjc —
+# hardcoded here exactly as NX_SECONDARYFNMASK above is). macOS sets one bit per
+# *physical* key, where the MASK_* constants above are shared by the left and
+# right key of the same modifier. That sharing is the bug this table exists to
+# kill: a Left Option press sets MASK_OPTION just like Right Option, so a
+# decode that diffs MASK_OPTION against the previous event cannot tell the two
+# apart, and a Right Option press arriving while Left Option is held produces
+# no observable change at all.
+#
+# Values confirmed on real hardware (see the change's design.md for the capture):
+#   Right Option  keycode 61 -> 0x00080140 pressed, 0x00000100 released
+#   Left  Option  keycode 58 -> 0x00080120 pressed  (never touches 0x40)
+#   Right Command keycode 54 -> 0x00100110 pressed
+NX_DEVICELCTLKEYMASK = 0x00000001
+NX_DEVICELSHIFTKEYMASK = 0x00000002
+NX_DEVICERSHIFTKEYMASK = 0x00000004
+NX_DEVICELCMDKEYMASK = 0x00000008
+NX_DEVICERCMDKEYMASK = 0x00000010
+NX_DEVICELALTKEYMASK = 0x00000020
+NX_DEVICERALTKEYMASK = 0x00000040
+NX_DEVICERCTLKEYMASK = 0x00002000
+
 # macOS keycodes for common keys (physical key position).
 # See: https://developer.apple.com/documentation/coregraphics/kcgkeycode
 #
@@ -31,112 +53,116 @@ MASK_COMMAND = 0x100000
 # deliberately out of scope for this change; treat other letters with
 # suspicion until someone does that pass.
 _KEYCODE_TO_NAME: dict[int, str] = {
+    # macOS virtual keycodes, as published in Carbon's <HIToolbox/Events.h>
+    # (kVK_* constants). This table was previously written from memory and was
+    # wrong from keycode 9 onward -- Right Option (61) printed as "f3" in the
+    # menu bar and in the daemon log, and a hand-written string trigger such as
+    # "ctrl+alt+cmd+p" bound the quote key. Values below are the kVK_ ones; do
+    # not "tidy" them into numeric order without checking against that header.
+    # Letters
     0: "a",
-    1: "s",
-    2: "d",
-    3: "f",
-    4: "h",
-    5: "g",
-    6: "z",
-    7: "x",
+    11: "b",
     8: "c",
-    9: "w",
-    10: "r",
-    11: "y",
-    12: "t",
+    2: "d",
     14: "e",
-    16: "q",
-    17: "1",
-    18: "2",
-    19: "3",
-    20: "4",
-    21: "6",
-    22: "5",
+    3: "f",
+    5: "g",
+    4: "h",
+    34: "i",
+    38: "j",
+    40: "k",
+    37: "l",
+    46: "m",
+    45: "n",
+    31: "o",
+    35: "p",
+    12: "q",
+    15: "r",
+    1: "s",
+    17: "t",
+    32: "u",
+    9: "v",
+    13: "w",
+    7: "x",
+    16: "y",
+    6: "z",
+    # Digits
+    29: "0",
+    18: "1",
+    19: "2",
+    20: "3",
+    21: "4",
+    23: "5",
+    22: "6",
+    26: "7",
+    28: "8",
+    25: "9",
+    # Punctuation
+    27: "-",
     24: "=",
-    26: "9",
-    27: "7",
-    28: "-",
-    29: "8",
-    30: "0",
-    33: "]",
-    34: "o",
-    35: "u",
-    36: "[",
-    37: "i",
-    38: "&",
-    39: "p",
-    40: "enter",
-    41: "l",
-    42: "j",
-    43: "'",
-    44: "k",
-    46: ";",
-    47: "\\",
-    48: ",",
-    49: "/",
-    50: "n",
-    52: ".",
+    33: "[",
+    30: "]",
+    42: "\\",
+    41: ";",
+    39: "'",
+    43: ",",
+    47: ".",
+    44: "/",
+    50: "`",
+    # Editing and whitespace
+    36: "enter",
+    48: "tab",
+    49: "space",
+    51: "backspace",
     53: "escape",
-    57: "space",
-    59: "f1",
-    60: "f2",
-    61: "f3",
-    62: "f4",
+    117: "delete",
+    114: "help",
+    # Modifiers. These are the keys the trigger presets use, so a wrong value
+    # here mislabels the trigger the user actually configured.
+    55: "command",
+    54: "right_command",
+    56: "shift",
+    60: "right_shift",
+    58: "option",
+    61: "right_option",
+    59: "control",
+    62: "right_control",
+    57: "caps_lock",
     63: "fn",  # the default trigger (Fn / Globe); NOT F5 (which is keycode 96)
-    64: "f6",
-    65: "f7",
-    66: "f8",
-    67: "f9",
-    68: "f10",
-    69: "f11",
-    70: "f12",
+    # Function keys. Not contiguous and not in order -- this is the real layout.
+    122: "f1",
+    120: "f2",
+    99: "f3",
+    118: "f4",
+    96: "f5",
+    97: "f6",
+    98: "f7",
+    100: "f8",
+    101: "f9",
+    109: "f10",
+    103: "f11",
+    111: "f12",
     105: "f13",
-    106: "f14",
-    107: "f15",
-    108: "f16",
-    109: "f17",
-    110: "f18",
-    111: "f19",
-    112: "f20",
-    # Navigation keys
+    107: "f14",
+    113: "f15",
+    106: "f16",
+    64: "f17",
+    79: "f18",
+    80: "f19",
+    90: "f20",
+    # Navigation
     123: "left",
     124: "right",
     125: "down",
     126: "up",
+    115: "home",
+    119: "end",
     116: "page_up",
     121: "page_down",
-    115: "home",
-    114: "end",
-    118: "insert",
-    # Other keys
-    45: "tab",
-    55: "delete",
-    51: "backspace",
-    56: "caps_lock",
-    117: "help",
-    54: "decimal",
-    # International keys
-    85: "international4",
-    83: "international5",
-    82: "international6",
-    84: "international7",
-    87: "international8",
-    88: "international9",
-    # Language-specific keys
-    90: "lang1",
-    91: "lang2",
-    92: "lang3",
-    93: "lang4",
-    94: "lang5",
-    95: "lang6",
-    96: "f5",  # real macOS hardware keycode for F5
-    97: "lang8",
-    98: "lang9",
-    # Modifier keys (virtual/physical)
-    252: "shift",
-    253: "control",
-    254: "option",
-    255: "command",
+    # Media
+    72: "volume_up",
+    73: "volume_down",
+    74: "mute",
 }
 
 
@@ -242,9 +268,14 @@ def decode_trigger_event(
 
     - Fn (keycode 63): press vs release is the secondary-Fn flag bit.
     - A non-default *modifier* trigger arrives as ``flags_changed`` with no
-      matching ``key_up``; press vs release is derived from which flag bit
-      transitioned between ``prev_flags`` and ``flags`` (set → press, cleared →
-      release). This prevents the trigger latching "pressed" forever.
+      matching ``key_up``. When the keycode has a verified device-dependent bit
+      (``_TRIGGER_DEVICE_MASK``), press vs release is read off **that bit on
+      this event alone** — set → press, cleared → release — so the decode
+      carries no history and cannot desynchronise. Otherwise it falls back to
+      which flag bit transitioned between ``prev_flags`` and ``flags``. Both
+      paths prevent the trigger latching "pressed" forever; only the first also
+      survives a missed event or the opposite-side key of the same modifier,
+      which share the side-agnostic ``MASK_*`` bit.
     - A non-default *regular* key arrives as ``key_down``/``key_up``.
 
     ``required_mask`` supports a combination trigger (e.g. "ctrl+alt+cmd+e"):
@@ -273,8 +304,30 @@ def decode_trigger_event(
     if kind == "flags_changed":
         if trigger_keycode == DEFAULT_TRIGGER_KEYCODE:
             return "press" if (_normalize_flags(flags) & NX_SECONDARYFNMASK) else "release"
-        # Generic modifier: the key's mask bit toggles between events.
         now = _normalize_flags(flags)
+        device_bit = _TRIGGER_DEVICE_MASK.get(trigger_keycode)
+        if device_bit is not None:
+            if now & device_bit:
+                return "press"
+            # The bit is clear, which is a release *if* this event stream sets
+            # device bits at all. Some remappers and external keyboards do not,
+            # and there reading every event as a release would mean a press
+            # never starts a recording — strictly worse than the diff. Two
+            # checks settle it without guessing:
+            held_mask = _TRIGGER_HELD_MASK.get(trigger_keycode, 0)
+            if not (now & held_mask):
+                # The modifier is fully let go. Unambiguous.
+                return "release"
+            # The modifier is still held by *something*. If any device bit of
+            # this modifier's family is set, the stream does carry them, so our
+            # key's bit being clear means our key is the one that came up (the
+            # opposite-side key is what still holds the shared mask).
+            if now & _DEVICE_FAMILY.get(held_mask, 0):
+                return "release"
+            # Held, and not one device bit in sight: this keyboard does not
+            # emit them. Fall through to the diff, which is what it uses today.
+        # Generic modifier: the key's mask bit toggles between events. Reached
+        # for a trigger with no verified device bit, and as the fallback above.
         prev = _normalize_flags(prev_flags)
         changed = now ^ prev
         if changed & now:
@@ -303,6 +356,32 @@ _TRIGGER_HELD_MASK: dict[int, int] = {
     DEFAULT_TRIGGER_KEYCODE: NX_SECONDARYFNMASK,  # Fn
     54: MASK_COMMAND,  # Right Command (kCGEventFlagMaskCommand)
     61: MASK_OPTION,  # Right Option (kCGEventFlagMaskAlternate)
+}
+
+# Modifier trigger keycode -> the DEVICE-DEPENDENT bit set while that exact
+# physical key is held. Unlike _TRIGGER_HELD_MASK above (which answers "is this
+# modifier held by either side?"), this identifies the one key, which is what
+# makes press/release decodable from a single event with no history.
+#
+# Only keycodes verified on hardware belong here. A keycode absent from this
+# table decodes through the flag-diff path exactly as before, so an unverified
+# key degrades to today's behaviour rather than to a new failure mode. The two
+# entries are the modifier presets that ship in config.TRIGGER_PRESETS.
+_TRIGGER_DEVICE_MASK: dict[int, int] = {
+    54: NX_DEVICERCMDKEYMASK,  # Right Command
+    61: NX_DEVICERALTKEYMASK,  # Right Option
+}
+
+# Side-agnostic modifier mask -> both device bits of that modifier family.
+# Used to answer "does this event stream carry device bits at all?", which is
+# what separates "our key is up while the other side is still down" from "this
+# keyboard or remapper never sets device bits". Without that distinction a
+# cleared device bit is ambiguous and neither reading is safe.
+_DEVICE_FAMILY: dict[int, int] = {
+    MASK_SHIFT: NX_DEVICELSHIFTKEYMASK | NX_DEVICERSHIFTKEYMASK,
+    MASK_CONTROL: NX_DEVICELCTLKEYMASK | NX_DEVICERCTLKEYMASK,
+    MASK_OPTION: NX_DEVICELALTKEYMASK | NX_DEVICERALTKEYMASK,
+    MASK_COMMAND: NX_DEVICELCMDKEYMASK | NX_DEVICERCMDKEYMASK,
 }
 
 

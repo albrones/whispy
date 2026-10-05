@@ -5,10 +5,24 @@ of state changes via callbacks. Always uses the Fn key (keycode 63)
 as the trigger key.
 """
 
+import logging
 import sys
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
+
+# Recovery diagnostics go to the daemon log, not stderr: a re-arm line is only
+# useful read *next to* the [fsm] and [audio] lines around it. Startup failure
+# guidance stays on stderr — it addresses the user at launch, not an operator
+# reading back a session.
+logger = logging.getLogger(__name__)
+
+# Minimum seconds between two undecodable-trigger warnings. A held modifier
+# repeats flags_changed, so the condition this reports can fire continuously;
+# 5 s keeps a genuinely dead trigger visible without burying the [fsm] and
+# [audio] lines a strand is diagnosed against.
+UNDECODABLE_LOG_INTERVAL_S = 5.0
 
 QUARTZ_AVAILABLE = False
 
@@ -25,6 +39,7 @@ try:
         CGEventSourceFlagsState,
         CGEventTapCreate,
         CGEventTapEnable,
+        CGEventTapIsEnabled,
         kCFRunLoopDefaultMode,
         kCGEventFlagsChanged,
         kCGEventKeyDown,
@@ -101,6 +116,19 @@ class EventTapListener:
         # Whether we last emitted a press with no matching release yet. Lets the
         # re-arm path recover a modifier release that fired while the tap was down.
         self._pressed = False
+        # Last observed tap health, so check_tap_liveness can log the
+        # healthy -> disabled edge rather than every failing poll.
+        self._tap_was_enabled = True
+        # Rate-limit state for the undecodable-trigger warning. flags_changed
+        # repeats while a key is held, so an unbounded warning would be the
+        # loudest line in the log exactly when the log matters most.
+        self._undecodable_last_log = 0.0
+        self._undecodable_suppressed = 0
+        # Optional engine-side hook fired once per tap outage, by whichever
+        # recovery path ran. Set by the engine after construction so the
+        # platform adapter signature (shared with Linux's pynput listener,
+        # which has no tap) stays unchanged.
+        self.on_rearm: Callable | None = None
         self.active = False
 
     def start(self) -> None:
@@ -152,10 +180,17 @@ class EventTapListener:
             # "ctrl+alt+cmd+e") — show the configured combination string when
             # there is one.
             key_name = self._trigger_label or _keycode_to_name(self._trigger_keycode)
-            print(f"[event-tap] Trigger key listener active (key: {key_name})")
+            # logger, not print: a bundled .app has no stdout, so a bare print
+            # is discarded and the one line that proves the listener came up
+            # never reaches ~/.whispy.log.
+            logger.info("[event-tap] Trigger key listener active (key: %s)", key_name)
             self._ready_event.set()
             while not self._stop_event.is_set():
                 CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.5, False)
+                # This wake already existed and did nothing with itself; the
+                # probe rides it, so a disabled tap is back within 500 ms
+                # whether or not the OS notification ever arrived.
+                self.check_tap_liveness()
 
         self._run_loop_thread = threading.Thread(target=_run, name="trigger-event-tap", daemon=True)
         self._run_loop_thread.start()
@@ -166,6 +201,61 @@ class EventTapListener:
                 "[event-tap] Timed out waiting for CFRunLoop to start — Input Monitoring may not be granted to Whispy",
                 file=sys.stderr,
             )
+
+    def _notify_rearm(self) -> None:
+        """Fire the engine-side re-arm hook, containing any error it raises."""
+        if self.on_rearm is None:
+            return
+        try:
+            self.on_rearm()
+        except Exception:
+            logger.exception("[event-tap] re-arm callback raised")
+
+    def check_tap_liveness(self) -> bool:
+        """Re-enable the tap if the OS has disabled it. Returns True if it recovered.
+
+        The event-driven recovery in ``_event_callback`` only fires if the
+        disablement notification is actually delivered — through the very tap
+        whose health is in question, and exactly once. Nothing retries it and
+        nothing verifies the result, so a missed notification leaves the trigger
+        key dead for the rest of the session with no way back. This probe is the
+        path that does not depend on the failing channel: it runs on the
+        listener's own run-loop thread, so it costs one call per existing wake
+        and cannot itself make a callback slow enough to be disabled.
+
+        Deliberately edge-triggered. An unconditional ``CGEventTapEnable`` every
+        pass would recover just as well and log nothing useful — the point is to
+        be able to *count* recoveries, which means distinguishing "healthy" from
+        "recovered 340 times this session". Logging only the healthy -> disabled
+        transition also bounds the log line rate if the tap ever flaps.
+        """
+        if self._tap is None or not QUARTZ_AVAILABLE:
+            return False
+        try:
+            enabled = bool(CGEventTapIsEnabled(self._tap))
+        except Exception:  # pragma: no cover - defensive; a probe must never kill the loop
+            return False
+
+        if enabled:
+            # Only an observed healthy tap clears the edge. Clearing it right
+            # after a re-enable instead would assume the re-enable took.
+            self._tap_was_enabled = True
+            return False
+
+        # Disabled. Retry the re-enable on EVERY poll — a re-enable that did not
+        # take must not leave the tap dead for the session, which is the whole
+        # failure this probe exists to break. Only the healthy -> disabled edge
+        # is reported, so a tap that stays down cannot flood the log.
+        first_seen = self._tap_was_enabled
+        self._tap_was_enabled = False
+        CGEventTapEnable(self._tap, True)
+        if first_seen:
+            logger.warning("[event-tap] tap was disabled (no notification received) — re-enabled by liveness check")
+            # Edge only: resync can synthesize a missed release, and that must
+            # happen once per outage, not once per poll.
+            self._resync_after_rearm()
+            self._notify_rearm()
+        return first_seen
 
     def stop(self) -> None:
         """Stop the event tap listener."""
@@ -189,8 +279,13 @@ class EventTapListener:
         if event_type in (kCGEventTapDisabledByTimeout, kCGEventTapDisabledByUserInput):
             if self._tap is not None:
                 CGEventTapEnable(self._tap, True)
+                # The reason is the whole value of this path over the liveness
+                # probe: only the notification says *why* the OS cut the tap,
+                # which is what attributes recurring outages to a cause.
+                reason = "timeout" if event_type == kCGEventTapDisabledByTimeout else "user input"
+                logger.warning("[event-tap] tap disabled by the OS (%s) — re-armed", reason)
                 self._resync_after_rearm()
-                print("[event-tap] tap was disabled by the OS — re-armed", file=sys.stderr)
+                self._notify_rearm()
             return event
 
         keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
@@ -208,9 +303,25 @@ class EventTapListener:
         action = decode_trigger_event(
             kind, keycode, flags, self._trigger_keycode, self._prev_flags, self._required_mask
         )
-        # Track the latest flags so the next modifier transition decodes correctly.
-        if kind == "flags_changed":
+        # Track the latest flags so the next modifier transition decodes
+        # correctly. Every CGEvent carries the live modifier state, not just
+        # flags_changed, so key_down/key_up are taken too: a flags_changed the
+        # tap never received leaves _prev_flags stale until the next one, and
+        # any keystroke in between is a free chance to catch up. This bounds
+        # the staleness of the flag-diff decode path; it does not remove the
+        # dependency on history (see decode_trigger_event's device-bit path).
+        if kind in ("flags_changed", "key_down", "key_up"):
             self._prev_flags = _normalize_flags(flags)
+
+        if action is None and keycode == self._trigger_keycode and not self._required_mask:
+            # An event on the trigger's own keycode that resolves to neither
+            # press nor release means the decode lost track, which is exactly
+            # how the trigger goes dead with the tap still healthy. Without
+            # this line that failure is visible only as the *absence* of
+            # later lines. Combination triggers are excluded: there, a
+            # rejected key_down is the modifier gate doing its job on an
+            # ordinary keystroke, not an anomaly.
+            self._report_undecodable_trigger(kind, flags)
 
         try:
             if action == "press":
@@ -224,12 +335,32 @@ class EventTapListener:
         except Exception:
             # An engine-side error must not propagate into the pyobjc run loop
             # (which can disable the tap or kill this thread).
-            import traceback
-
-            print("[event-tap] trigger callback raised:", file=sys.stderr)
-            traceback.print_exc()
+            logger.exception("[event-tap] trigger callback raised")
 
         return event
+
+    def _report_undecodable_trigger(self, kind: str, flags: Any) -> None:
+        """Log a trigger-keycode event that decoded to neither press nor release.
+
+        Rate-limited to one line per ``UNDECODABLE_LOG_INTERVAL_S``, carrying the
+        count suppressed since the last one so a burst is still quantified. The
+        count is what distinguishes "this fired once" from "the trigger has been
+        dead for a minute", which is the question the next strand has to answer.
+        """
+        now = time.monotonic()
+        if self._undecodable_last_log and now - self._undecodable_last_log < UNDECODABLE_LOG_INTERVAL_S:
+            self._undecodable_suppressed += 1
+            return
+        suppressed = self._undecodable_suppressed
+        self._undecodable_suppressed = 0
+        self._undecodable_last_log = now
+        logger.warning(
+            "[event-tap] trigger event decoded to neither press nor release (kind=%s, keycode=%s, flags=0x%x)%s",
+            kind,
+            self._trigger_keycode,
+            _normalize_flags(flags),
+            f" — {suppressed} more suppressed since the last line" if suppressed else "",
+        )
 
     def _resync_after_rearm(self) -> None:
         """Re-sync modifier flag state after the OS disabled and we re-armed the tap.
@@ -262,15 +393,12 @@ class EventTapListener:
         if held is False:
             # The trigger was released while the tap was disabled.
             self._pressed = False
-            print("[event-tap] recovered a trigger release missed during tap outage", file=sys.stderr)
+            logger.warning("[event-tap] recovered a trigger release missed during tap outage")
             if self._on_trigger_release:
                 try:
                     self._on_trigger_release()
                 except Exception:
-                    import traceback
-
-                    print("[event-tap] trigger release callback raised:", file=sys.stderr)
-                    traceback.print_exc()
+                    logger.exception("[event-tap] trigger release callback raised")
 
 
 # Backward-compatible alias: the human-readable name lookup now lives in
