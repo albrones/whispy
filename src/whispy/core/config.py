@@ -4,10 +4,14 @@ Handles loading, saving, validation, and migration of the user config file.
 """
 
 import json
+import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Curated push-to-talk trigger presets for the menu UI: ordered (label, value)
 # where value is None for the platform default (Fn on macOS) or a macOS keycode
@@ -31,7 +35,14 @@ TRIGGER_PRESETS: list[tuple[str, int | str | None]] = [
 
 # Default configuration values
 DEFAULT_CONFIG: dict[str, Any] = {
-    "copy_to_clipboard": False,
+    # Clipboard paste is the layout-safe delivery path: it snapshots and
+    # restores the clipboard and forces UTF-8 through every helper, so
+    # accented characters and punctuation survive regardless of the active
+    # keyboard layout. The keystroke opt-out (osascript's `keystroke`,
+    # resolved character-by-character against the active layout) is only
+    # correct when that layout is US; on any other layout it silently
+    # corrupts accented characters and punctuation.
+    "copy_to_clipboard": True,
     # Register the app as a macOS login item (start at login). macOS .app
     # bundle only; ignored on the loose-script path (LaunchAgent handles it).
     "start_at_login": False,
@@ -80,14 +91,32 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "min_chunk_s": 0.4,
     # Hard cap (seconds) on chunk length: force-flush run-on speech with no pause
     # so streaming keeps making progress and never builds one huge packet.
-    "max_chunk_s": 12.0,
+    # Measured: over one daemon log of 610 chunks from a French dictation,
+    # chunks that came back in English had a median duration of 12.03s against
+    # 7.0s overall, and six of seven were at least 8.5s. The backend resolves
+    # language once per model call, so this ceiling bounds how much audio one
+    # wrong language decision can carry away.
+    "max_chunk_s": 8.0,
+    # Once a chunk has passed max_chunk_s, the cut waits for a gap of at least
+    # this many milliseconds instead of falling at the next frame. The gap is the
+    # only thing between the ceiling and a cut placed mid-word, and 200 ms (the
+    # previous value) is short enough to occur inside ordinary speech: measured
+    # on a live French dictation at vad_aggressiveness 3, the ceiling cut the
+    # word "Régie" in half -- the chunk ended "...je suis dans Rég." and the next
+    # began "la version app", the final syllable lost outright. Lowering
+    # max_chunk_s from 12 s to 8 s made the cut fire half again as often, which
+    # is what turned a rare defect into a visible one. Raising this routes more
+    # run-on speech to the unconditional hard cap, which cuts at an arbitrary
+    # frame -- a rarer failure, not no failure. Provisional: one speaker, one VAD
+    # aggressiveness, which is exactly why it is a key and not a constant.
+    "soft_gap_ms": 350,
     # WebRTC VAD aggressiveness (0-3): higher = more aggressive at classifying
     # audio as non-speech. Used to find chunk boundaries (gain-independent).
     "vad_aggressiveness": 2,
 }
 
 # Config version for migration tracking
-CONFIG_VERSION = 1
+CONFIG_VERSION = 2
 
 
 def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -211,6 +240,15 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
         )
         validated["max_chunk_s"] = DEFAULT_CONFIG["max_chunk_s"]
 
+    # Validate soft_gap_ms (must be a positive number)
+    sgm = validated.get("soft_gap_ms")
+    if not isinstance(sgm, int | float) or isinstance(sgm, bool) or sgm <= 0:
+        print(
+            f"[config] Invalid soft_gap_ms '{sgm}', defaulting to {DEFAULT_CONFIG['soft_gap_ms']}",
+            file=sys.stderr,
+        )
+        validated["soft_gap_ms"] = DEFAULT_CONFIG["soft_gap_ms"]
+
     # Validate vad_aggressiveness (integer 0-3; bool rejected).
     va = validated.get("vad_aggressiveness")
     if not isinstance(va, int) or isinstance(va, bool) or va < 0 or va > 3:
@@ -243,9 +281,20 @@ def _migrate_config(config: dict[str, Any], config_path: Path) -> dict[str, Any]
     """
     migrated = dict(config)
 
-    # No version-specific step remains: the only one (v0 -> v1) added
-    # auto_detect_min_duration, a key the Parakeet backend no longer has.
-    # Filling in missing defaults below covers every version.
+    # v0 -> v1 added auto_detect_min_duration, a key the Parakeet backend no
+    # longer has. Filling in missing defaults below covers that version.
+
+    # v1 -> v2: clipboard paste becomes the delivery default (unconditional —
+    # an existing `copy_to_clipboard: false` is indistinguishable from the old
+    # default, and leaving it means shipping the text-fidelity fix to nobody),
+    # and max_chunk_s drops from 12.0 to the new default, but only when the
+    # on-disk value still equals the old default of 12.0 — a value the user
+    # tuned to something else is left alone. Gated on `_version` so this runs
+    # once per install and never re-applies.
+    if migrated.get("_version", 0) < 2:
+        migrated["copy_to_clipboard"] = True
+        if migrated.get("max_chunk_s") == 12.0:
+            migrated["max_chunk_s"] = DEFAULT_CONFIG["max_chunk_s"]
 
     # Add any missing default keys
     for key, value in DEFAULT_CONFIG.items():
@@ -253,7 +302,38 @@ def _migrate_config(config: dict[str, Any], config_path: Path) -> dict[str, Any]
             migrated[key] = value
 
     # Set current version
+    previous_version = config.get("_version", 0)
     migrated["_version"] = CONFIG_VERSION
+
+    # Nothing to migrate: no backup, no log, no write. Without this guard every
+    # single launch rewrites the file and copies the already-migrated config
+    # over `config.json.v<n>.bak` -- destroying the one snapshot of the user's
+    # pre-migration settings that the backup exists to keep.
+    if migrated == config:
+        return migrated
+
+    # A migration is the one write the user did not ask for: it rewrites a file
+    # they own, from rules they never saw. Keep the file it replaces, named for
+    # the version it came from -- bounded (one per version crossed), and enough
+    # to answer "did the upgrade touch my settings?" from what is on disk rather
+    # than from memory. Failing to write it is logged and does not block the
+    # migration: refusing to start over a backup is worse than the loss.
+    if config_path.exists():
+        backup_path = config_path.with_name(f"{config_path.name}.v{previous_version}.bak")
+        try:
+            shutil.copy2(config_path, backup_path)
+        except OSError as exc:
+            logger.warning("[config] Could not back up %s to %s: %s", config_path, backup_path, exc)
+        else:
+            logger.info("[config] Backed up the pre-migration config to %s", backup_path)
+
+    changed = sorted(key for key in migrated if key != "_version" and config.get(key) != migrated[key])
+    logger.info(
+        "[config] Migrated config v%s -> v%s; keys changed: %s",
+        previous_version,
+        CONFIG_VERSION,
+        ", ".join(changed) if changed else "none",
+    )
 
     # Save the migrated config
     save_config(migrated, config_path)
@@ -261,14 +341,13 @@ def _migrate_config(config: dict[str, Any], config_path: Path) -> dict[str, Any]
     return migrated
 
 
-def load_config(config_path: Path) -> dict[str, Any]:
-    """Load config from disk, falling back to defaults.
+def _read_validated(config_path: Path) -> tuple[dict[str, Any], bool]:
+    """Parse the config file over the defaults and validate it. Never writes.
 
-    Args:
-        config_path: Path to the JSON config file.
-
-    Returns:
-        Validated and migrated config dict.
+    Returns ``(config, file_loaded)``, where ``file_loaded`` is True only when
+    the file existed AND parsed into a dict — a corrupted file yields the
+    defaults with False, so the caller can tell "no usable file" from "file
+    read successfully".
     """
     config = dict(DEFAULT_CONFIG)
     file_loaded = False
@@ -284,8 +363,42 @@ def load_config(config_path: Path) -> dict[str, Any]:
             print(f"[config] Failed to load {config_path}: {exc}", file=sys.stderr)
             # Corrupted file: return defaults without migration
 
-    # Validate
-    config = _validate_config(config)
+    return _validate_config(config), file_loaded
+
+
+def read_config(config_path: Path, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return the validated on-disk config WITHOUT migrating (and without writing).
+
+    ``load_config`` migrates, and migration persists — so using it to re-read
+    the file would write on every read. Config updates need the current on-disk
+    values to merge onto, several times per session, and must not turn each one
+    into an extra write of a file the user may be editing by hand.
+
+    Validation still applies, so a hand-edited value that is out of range or the
+    wrong type degrades to its default here rather than reaching the engine.
+
+    ``fallback`` is the base to return when the file is missing or unparseable.
+    Without it an unreadable file yields ``DEFAULT_CONFIG``, which an update
+    would then persist over every setting the user has — a corrupted file would
+    silently reset the whole configuration on the next menu toggle. Callers that
+    hold the running configuration pass it here so a bad file costs nothing.
+    """
+    config, file_loaded = _read_validated(config_path)
+    if not file_loaded and fallback is not None:
+        return _validate_config(dict(fallback))
+    return config
+
+
+def load_config(config_path: Path) -> dict[str, Any]:
+    """Load config from disk, falling back to defaults.
+
+    Args:
+        config_path: Path to the JSON config file.
+
+    Returns:
+        Validated and migrated config dict.
+    """
+    config, file_loaded = _read_validated(config_path)
 
     # Migrate only if the file was successfully loaded
     if file_loaded:
