@@ -3,5 +3,5 @@
   "framework": null,
   "buildCommand": "",
   "outputDirectory": "website",
-  "ignoreCommand": "[ \"$VERCEL_ENV\" != \"production\" ]"
+  "ignoreCommand": "[ \"$VERCEL_ENV\" = \"preview\" ]"
 }
