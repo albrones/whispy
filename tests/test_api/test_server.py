@@ -16,6 +16,7 @@ import pytest
 
 from whispy.api.server import RequestHandler
 from whispy.core.engine import DictationState, Engine
+from whispy.core.segmentation import SENTENCE
 
 
 def _find_free_port():
@@ -138,7 +139,9 @@ class TestGetConfig:
         _, port, engine = test_server
         status, body = _get(port, "/config")
         assert status == 200
-        assert body["copy_to_clipboard"] is False
+        # Clipboard paste is the default delivery path: it hands the text over as
+        # data, so accents and punctuation survive a non-US keyboard layout.
+        assert body["copy_to_clipboard"] is True
         assert body["streaming_enabled"] is True
 
 
@@ -252,7 +255,7 @@ class TestPostStopSyncViaWorker:
             for name in ("c1.wav", "c2.wav"):
                 chunk = tmp_path / name
                 chunk.write_bytes(b"\x00" * 100)
-                engine._enqueue_chunk(str(chunk))
+                engine._enqueue_chunk(str(chunk), SENTENCE)
             engine._chunk_queue.join()
 
             status, body = _post(port, "/stop")

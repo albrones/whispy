@@ -12,13 +12,16 @@ _src = Path(__file__).parent.parent / "src"
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
+from whispy.core.segmentation import CONTINUATION, SENTENCE
 from whispy.core.text_cleaner import (
     MIN_TOKEN_LENGTH,
     PHONETIC_CUTOFF,
     VOCABULARY_CUTOFF,
     apply_vocabulary,
     clean_text,
+    join_chunk,
     phonetic_key,
+    withhold_period,
 )
 
 VOCAB = ["Whispy", "Parakeet", "OpenSpec", "onnx", "Zenika"]
@@ -222,3 +225,111 @@ class TestTuningConstants:
 
         ratio = difflib.SequenceMatcher(None, phonetic_key("parakite"), phonetic_key("parakeet")).ratio()
         assert ratio >= PHONETIC_CUTOFF, f"'parakite'~'parakeet' is {ratio:.3f}, cutoff {PHONETIC_CUTOFF}"
+
+
+# ---------------------------------------------------------------------------
+# withhold_period
+# ---------------------------------------------------------------------------
+
+
+class TestWithholdPeriod:
+    """Drops a trailing lone period; never touches ?, ! or an ellipsis."""
+
+    def test_trailing_period_withheld(self):
+        assert withhold_period("Done.") == ("Done", True)
+
+    def test_question_mark_untouched(self):
+        assert withhold_period("Really?") == ("Really?", False)
+
+    def test_exclamation_mark_untouched(self):
+        assert withhold_period("Wow!") == ("Wow!", False)
+
+    def test_ellipsis_untouched(self):
+        assert withhold_period("Wait...") == ("Wait...", False)
+
+    def test_no_trailing_period_is_a_noop(self):
+        assert withhold_period("no punctuation here") == ("no punctuation here", False)
+
+
+# ---------------------------------------------------------------------------
+# join_chunk
+# ---------------------------------------------------------------------------
+
+
+class TestJoinChunk:
+    """Assembles one chunk's delivered text from the segmenter's boundary reasons."""
+
+    def test_first_chunk_of_recording_gets_no_prefix(self):
+        # previous_reason is None only for the first chunk of a recording.
+        delivered, withheld = join_chunk("Hello world", SENTENCE, previous_reason=None, previous_withheld=False)
+        assert delivered == "Hello world"
+        assert withheld is False
+
+    def test_sentence_boundary_keeps_a_plain_space_and_the_capital(self):
+        # previous_reason == SENTENCE (a real pause): plain space, capital kept.
+        delivered, _ = join_chunk("Hello world.", CONTINUATION, previous_reason=SENTENCE, previous_withheld=False)
+        assert delivered == " Hello world"
+
+    def test_continuation_with_withheld_period_joins_with_comma_and_lowers(self):
+        # The previous chunk was cut mid-sentence and gave up its period: rejoin
+        # with ", " and lower the next chunk's leading capital.
+        delivered, withheld = join_chunk(
+            "Hello world.", CONTINUATION, previous_reason=CONTINUATION, previous_withheld=True
+        )
+        assert delivered == ", hello world"
+        assert withheld is True  # this chunk is itself a CONTINUATION, so it withholds too
+
+    def test_all_caps_leading_token_is_not_lowered(self):
+        delivered, _ = join_chunk(
+            "NASA launched a rocket", SENTENCE, previous_reason=CONTINUATION, previous_withheld=True
+        )
+        assert delivered == ", NASA launched a rocket"
+
+    def test_vocabulary_term_is_not_lowered(self):
+        delivered, _ = join_chunk(
+            "Whispy is great",
+            SENTENCE,
+            previous_reason=CONTINUATION,
+            previous_withheld=True,
+            vocabulary=["Whispy"],
+        )
+        assert delivered == ", Whispy is great"
+
+    def test_vocabulary_match_is_case_insensitive(self):
+        delivered, _ = join_chunk(
+            "whispy is great",
+            SENTENCE,
+            previous_reason=CONTINUATION,
+            previous_withheld=True,
+            vocabulary=["Whispy"],
+        )
+        assert delivered == ", whispy is great"
+
+    def test_continuation_ending_on_question_mark_withholds_nothing(self):
+        # A continuation that ends on ? or ! keeps its mark and withholds
+        # nothing, so the *next* join falls back to a plain space rather than
+        # treating it as a rejoin-with-comma case.
+        delivered1, withheld1 = join_chunk("Are you sure?", CONTINUATION, previous_reason=None, previous_withheld=False)
+        assert delivered1 == "Are you sure?"
+        assert withheld1 is False
+
+        delivered2, _ = join_chunk("Yes I am.", SENTENCE, previous_reason=CONTINUATION, previous_withheld=withheld1)
+        assert delivered2 == " Yes I am."
+
+    def test_continuation_ending_on_exclamation_mark_withholds_nothing(self):
+        delivered1, withheld1 = join_chunk("Watch out!", CONTINUATION, previous_reason=None, previous_withheld=False)
+        assert delivered1 == "Watch out!"
+        assert withheld1 is False
+
+        delivered2, _ = join_chunk("It fell.", SENTENCE, previous_reason=CONTINUATION, previous_withheld=withheld1)
+        assert delivered2 == " It fell."
+
+    def test_chunk_own_reason_continuation_withholds_its_trailing_period(self):
+        delivered, withheld = join_chunk("more text.", CONTINUATION, previous_reason=None, previous_withheld=False)
+        assert delivered == "more text"
+        assert withheld is True
+
+    def test_chunk_own_reason_sentence_keeps_its_trailing_period(self):
+        delivered, withheld = join_chunk("more text.", SENTENCE, previous_reason=None, previous_withheld=False)
+        assert delivered == "more text."
+        assert withheld is False

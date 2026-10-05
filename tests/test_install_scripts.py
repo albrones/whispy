@@ -11,6 +11,7 @@ install.sh must branch per-OS rather than writing a macOS LaunchAgent on
 Linux.
 """
 
+import os
 import re
 from pathlib import Path
 
@@ -156,3 +157,130 @@ def test_bootstrap_uninstall_delegates_to_install(bootstrap: str):
     # bootstrap.sh must not duplicate the user-data prompt itself (that would
     # risk a second, un-gated blocking read); it delegates to install.sh.
     assert '"$WHISPY_HOME/install.sh" --uninstall' in bootstrap
+
+
+# ---------------------------------------------------------------------------
+# packaging/macos/reinstall.sh (make reinstall)
+# ---------------------------------------------------------------------------
+
+REINSTALL = ROOT / "packaging" / "macos" / "reinstall.sh"
+MAKEFILE = ROOT / "Makefile"
+
+
+@pytest.fixture(scope="module")
+def reinstall() -> str:
+    return REINSTALL.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def reinstall_code(reinstall: str) -> str:
+    """reinstall.sh with comment lines stripped.
+
+    Ordering and absence assertions must look at what the script *does*, not at
+    what its comments say about it -- several comments deliberately quote the
+    very commands the script must not run.
+    """
+    return "\n".join(line for line in reinstall.splitlines() if not line.lstrip().startswith("#"))
+
+
+@pytest.fixture(scope="module")
+def makefile() -> str:
+    return MAKEFILE.read_text(encoding="utf-8")
+
+
+def test_reinstall_script_exists_and_is_executable():
+    assert REINSTALL.is_file()
+    assert os.access(REINSTALL, os.X_OK), "make reinstall invokes it directly"
+
+
+def test_reinstall_uses_strict_bash(reinstall: str):
+    assert "set -euo pipefail" in reinstall
+
+
+def test_reinstall_builds_before_stopping_the_app(reinstall_code: str):
+    # Order is the whole fail-safe: a build failure must leave the running app
+    # untouched. Quitting first trades a working app for a broken build.
+    build = reinstall_code.index("build_app.sh")
+    quit_ = reinstall_code.index("to quit")
+    assert build < quit_, "the build must run before the running app is quit"
+
+
+def test_reinstall_checks_for_a_running_process_before_the_apple_event(reinstall_code: str):
+    # `tell application "Whispy" to quit` resolves through LaunchServices and
+    # can LAUNCH the app to deliver the event -- so it must be gated on a real
+    # process, or a fresh install would start the app it is about to replace.
+    pgrep = reinstall_code.index("pgrep")
+    quit_ = reinstall_code.index("to quit")
+    assert pgrep < quit_
+
+
+def test_reinstall_waits_on_pids_not_only_on_the_port(reinstall: str):
+    # The daemon's SIGTERM handler releases :9090 before the process exits, so
+    # a free port does not prove the old instance is gone.
+    assert "kill -0" in reinstall
+
+
+def test_reinstall_replaces_applications_only_after_the_app_is_stopped(reinstall_code: str):
+    quit_ = reinstall_code.index("to quit")
+    replace = reinstall_code.index('rm -rf "$APP_DST"')
+    assert quit_ < replace, "never replace a bundle that is still executing"
+
+
+def test_reinstall_installs_to_applications(reinstall: str):
+    assert 'APP_DST="/Applications/Whispy.app"' in reinstall
+    assert 'mv "$APP_STAGE" "$APP_DST"' in reinstall
+
+
+def test_reinstall_stages_the_copy(reinstall: str):
+    # An interrupted copy must not leave a half-written bundle at $APP_DST.
+    assert "APP_STAGE=" in reinstall
+    assert 'ditto "$APP_SRC" "$APP_STAGE"' in reinstall
+
+
+def test_reinstall_launches_the_installed_copy_not_dist(reinstall_code: str):
+    # Both bundles declare com.whispy, so `open dist/Whispy.app` may start the
+    # /Applications copy instead -- the exact trap this target exists to avoid.
+    assert '/usr/bin/open "$APP_DST"' in reinstall_code
+    assert "open dist/Whispy.app" not in reinstall_code
+
+
+def test_reinstall_never_skips_the_build_on_a_build_hash(reinstall_code: str):
+    # bootstrap.sh skips when .whispy-build-hash == git HEAD. That is correct
+    # for bootstrap and a footgun here: uncommitted edits do not move HEAD, so
+    # the skip would ship the previous bundle while reporting success.
+    assert "rev-parse HEAD" not in reinstall_code
+    assert "INSTALLED_HASH" not in reinstall_code
+
+
+def test_reinstall_waits_for_the_daemon_to_answer(reinstall: str):
+    assert "check_daemon" in reinstall
+    assert "9090" in reinstall
+
+
+def test_reinstall_warns_when_the_bundle_is_adhoc_signed(reinstall: str):
+    # Ad-hoc signing silently breaks TCC grant persistence.
+    assert "Signature=adhoc" in reinstall
+    assert "create_signing_cert.sh" in reinstall
+
+
+def test_makefile_exposes_reinstall(makefile: str):
+    assert "\nreinstall:" in makefile
+    assert "./packaging/macos/reinstall.sh" in makefile
+    phony = next(line for line in makefile.splitlines() if line.startswith(".PHONY:"))
+    assert "reinstall" in phony
+
+
+def test_reinstall_never_touches_user_settings(reinstall_code: str):
+    # Settings, the bearer token and the model cache all live outside the
+    # bundle (~/.config/whispy, ~/.cache). Reinstalling must replace the app
+    # and nothing else -- a reinstall that resets the user's trigger key or
+    # rotates their API token would be worse than the manual steps it replaces.
+    assert ".config/whispy" not in reinstall_code
+    assert "config.json" not in reinstall_code
+    assert "config.token" not in reinstall_code
+    assert "$HOME" not in reinstall_code
+    assert ".cache" not in reinstall_code
+    # The only paths it may remove are the bundle and its staging directory.
+    # rstrip("'") because one removal lives inside a trap: trap 'rm -rf "$APP_STAGE"' EXIT
+    removed = {m.rstrip("'") for m in re.findall(r"rm -rf (\S+)", reinstall_code)}
+    assert removed <= {'"$APP_DST"', '"$APP_STAGE"'}, removed

@@ -22,10 +22,11 @@ from .config import (
     DEFAULT_CONFIG,
     TRIGGER_PRESETS,
     load_config,
+    read_config,
     save_config,
 )
 from .state_machine import State, StateMachine
-from .text_cleaner import clean_text
+from .text_cleaner import clean_text, join_chunk
 
 # Public API — re-exported for the UI and API layers (and kept out of ruff's
 # unused-import sweep). Consumers import config constants from here.
@@ -253,7 +254,7 @@ class Engine:
         # this queue during RECORDING; a single chunk worker transcribes + injects
         # them in order while recording continues (FSM-1: the FSM stays RECORDING).
         self._streaming = bool(state.config.get("streaming_enabled", False))
-        self._chunk_queue: queue.Queue[str] = queue.Queue()
+        self._chunk_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self._chunk_thread: threading.Thread | None = None
         self._chunk_worker_running = False
         # Reset per recording: whether any chunk has injected text yet (drives the
@@ -271,7 +272,14 @@ class Engine:
         # stop): whether this cycle types chunks live, and whether any chunk of
         # this cycle has been typed yet (drives the inter-chunk space).
         self._live_typing = False
-        self._live_typed_any = False
+        # The boundary reason of the last chunk of this cycle that produced text,
+        # and whether that chunk's trailing period was withheld. Together they
+        # decide the next chunk's separator. ``None`` means nothing has been
+        # delivered yet, so the next chunk carries no prefix. A chunk that yields
+        # no text leaves both untouched, so it cannot shift the separator of the
+        # chunk after it.
+        self._prev_boundary: str | None = None
+        self._pending_period = False
 
         # --- Hang-recovery watchdog ---
         # Monotonic timestamps of when the FSM entered a non-idle state (None when
@@ -308,7 +316,8 @@ class Engine:
             self._live_typing = self._trigger_mode == "toggle" and bool(
                 self.state.config.get("type_while_speaking", True)
             )
-            self._live_typed_any = False
+            self._prev_boundary = None
+            self._pending_period = False
         self._notify_recording_start()
 
     def _on_fsm_transcribing(self, _state: State) -> None:
@@ -608,24 +617,30 @@ class Engine:
             self._enqueue_chunk,
             pause_ms=cfg.get("pause_ms", 600),
             min_speech_s=cfg.get("min_speech_s", 0.7),
-            max_chunk_s=cfg.get("max_chunk_s", 12.0),
+            max_chunk_s=cfg.get("max_chunk_s", 8.0),
+            soft_gap_ms=cfg.get("soft_gap_ms", 350),
             aggressiveness=cfg.get("vad_aggressiveness", 2),
         )
 
-    def _enqueue_chunk(self, path: str) -> None:
-        """Audio-callback sink: queue a chunk WAV for the chunk worker.
+    def _enqueue_chunk(self, path: str, reason: str) -> None:
+        """Audio-callback sink: queue a chunk WAV and its boundary reason.
 
         Runs on the capture-callback thread (and on ``stop()`` for the tail), so
-        it must stay cheap — it only enqueues.
+        it must stay cheap — it only enqueues. ``reason`` is why the segmenter
+        closed the chunk; the worker needs it to join the text without inventing
+        a sentence break.
         """
-        self._chunk_queue.put(path)
+        self._chunk_queue.put((path, reason))
 
-    def _transcribe_and_inject_chunk(self, path: str) -> None:
+    def _transcribe_and_inject_chunk(self, path: str, reason: str) -> None:
         """Transcribe one chunk and inject its text in order, append-only.
 
         Reuses the same cleaning as the whole-recording path. Chunks stay
         independent because the transducer carries no cross-call decoder context,
-        not because a flag says so. Always removes the chunk file when done.
+        not because a flag says so. ``reason`` — why the segmenter closed this
+        chunk — drives the join with the previous chunk, since typing is
+        append-only and nothing already delivered can be revised. Always removes
+        the chunk file when done.
         """
         try:
             if self.state.model is None or not os.path.exists(path):
@@ -649,19 +664,27 @@ class Engine:
             self.state.last_transcription = cleaned
             with self.state.lock:
                 self._chunk_any_text = True
-                self._chunk_texts.append(cleaned)
+                # One join for both paths: the string appended here is the exact
+                # string typed live, so the assembled text and the live-typed
+                # text cannot drift apart.
+                delivered, withheld = join_chunk(
+                    cleaned,
+                    reason,
+                    previous_reason=self._prev_boundary,
+                    previous_withheld=self._pending_period,
+                    vocabulary=self.state.config.get("custom_vocabulary"),
+                )
+                self._chunk_texts.append(delivered)
+                self._prev_boundary = reason
+                self._pending_period = withheld
                 live = self._live_typing
-                prefix = " " if self._live_typed_any else ""
-                if live:
-                    self._live_typed_any = True
             if live:
-                # Toggle mode: type this chunk now. Same join rule as the
-                # stop-time assembly (one space between chunks that produced
-                # text). The injector serializes calls, so the order is the
-                # queue's. The release gate is cheap here -- in toggle mode
-                # the key is let go a few hundred ms after the starting press.
+                # Toggle mode: type this chunk now. The injector serializes
+                # calls, so the order is the queue's. The release gate is cheap
+                # here -- in toggle mode the key is let go a few hundred ms
+                # after the starting press.
                 self._wait_trigger_released()
-                self._text_injector.inject(prefix + cleaned)
+                self._text_injector.inject(delivered)
         except Exception:
             logger.exception("[engine] chunk transcription failed")
         finally:
@@ -671,11 +694,11 @@ class Engine:
         """Single ordered consumer of the chunk queue (FIFO → in-order inject)."""
         while self._chunk_worker_running:
             try:
-                path = self._chunk_queue.get(timeout=0.1)
+                path, reason = self._chunk_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
             try:
-                self._transcribe_and_inject_chunk(path)
+                self._transcribe_and_inject_chunk(path, reason)
             finally:
                 self._chunk_queue.task_done()
 
@@ -772,7 +795,8 @@ class Engine:
             pcm,
             pause_ms=cfg.get("pause_ms", 600),
             min_speech_s=cfg.get("min_speech_s", 0.7),
-            max_chunk_s=cfg.get("max_chunk_s", 12.0),
+            max_chunk_s=cfg.get("max_chunk_s", 8.0),
+            soft_gap_ms=cfg.get("soft_gap_ms", 350),
             aggressiveness=cfg.get("vad_aggressiveness", 2),
         )
 
@@ -835,8 +859,37 @@ class Engine:
             on_trigger_press=_on_trigger_press,
             on_trigger_release=_on_trigger_release,
         )
+        # Set post-construction rather than through the adapter signature: only
+        # the macOS event tap can be disabled by the OS, and Linux's pynput
+        # listener shares that factory.
+        if hasattr(self._fn_listener, "on_rearm"):
+            self._fn_listener.on_rearm = self._handle_tap_rearm
         self._fn_listener.start()
         self.state.fn_listener_active = self._fn_listener.active
+
+    def _handle_tap_rearm(self) -> None:
+        """Report a tap outage that may have swallowed a toggle-mode stop-press.
+
+        Runs once per outage, fired by whichever tap recovery path ran.
+
+        In hold mode the listener can recover a missed *release* by reading the
+        live modifier flags, so an outage there is already handled. Toggle mode
+        has no equivalent: a release is a no-op and only the press carries
+        meaning, so an outage that swallowed the stopping press leaves the FSM
+        in RECORDING with nothing to reconstruct it from.
+
+        This deliberately only reports. A press means *stop the recording*, and
+        whether one happened while the tap was down is an edge that no amount of
+        reading state afterwards reveals. Synthesizing one on a guess would end a
+        dictation the user is still speaking into -- turning "press again" into
+        lost speech. The recovery asymmetry is the point, not an oversight.
+        """
+        if self._trigger_mode != "toggle" or not self._state_machine.is_recording:
+            return
+        logger.warning(
+            "[engine] tap recovered while RECORDING in toggle mode — a stop-press may have been "
+            "lost during the outage; press the trigger again to stop this dictation"
+        )
 
     def _handle_trigger_press_work(self) -> None:
         """Perform the press-side work: notify, then the recording-started
@@ -997,10 +1050,12 @@ class Engine:
                                 chunk_texts = self._chunk_texts
                                 chunk_any_text = self._chunk_any_text
                                 live_typed = self._live_typing
+                                pending_period = self._pending_period
                                 self._chunk_texts = []
                                 self._chunk_any_text = False
                                 self._live_typing = False
-                                self._live_typed_any = False
+                                self._prev_boundary = None
+                                self._pending_period = False
                             # Type the assembled text once, now that recording
                             # stopped -- unless this cycle already typed its
                             # chunks live (toggle mode), in which case the tail
@@ -1010,12 +1065,23 @@ class Engine:
                             # ponytail: injection is async, so the FSM can reach
                             # IDLE (and the success sound play) while the tail's
                             # last keystrokes are still in flight. Cosmetic.
-                            assembled = " ".join(chunk_texts).strip()
+                            # Each chunk already carries the separator its
+                            # boundary called for, so this is a bare concat, not
+                            # a " ".join. A period withheld from the last chunk
+                            # is restored here: no further boundary follows it.
+                            assembled = "".join(chunk_texts).strip()
+                            if assembled and pending_period:
+                                assembled += "."
                             if assembled:
                                 self.state.last_transcription = assembled
                                 self._wait_trigger_released()
                                 if not live_typed or self._deliver_to_clipboard:
                                     self._deliver(assembled)
+                                if live_typed and pending_period:
+                                    # Live typing already delivered every chunk;
+                                    # only the withheld final period is missing
+                                    # from the field.
+                                    self._text_injector.inject(".")
                             produced_text = chunk_any_text
                         else:
                             produced_text = bool(self.run_transcription())
@@ -1153,7 +1219,8 @@ class Engine:
             self._chunk_texts = []
             self._chunk_any_text = False
             self._live_typing = False
-            self._live_typed_any = False
+            self._prev_boundary = None
+            self._pending_period = False
         self._state_machine.force_idle()
         # Release any caller blocked in stop_and_wait_for_transcription(): the
         # watchdog just resolved the cycle itself, so a waiter must not sit out
@@ -1164,24 +1231,58 @@ class Engine:
     # -- Config --
 
     def update_config(self, updates: dict[str, Any]) -> None:
-        """Apply config updates.
+        """Apply config updates, merging them onto the CURRENT on-disk config.
+
+        The config file is read once, at daemon start. Persisting the in-memory
+        copy therefore replays a boot-time snapshot over the whole file, wiping
+        any edit made to it while the app was running — and most config keys
+        have no UI, so editing the file is the only way to set them. Re-reading
+        here makes the file authoritative for keys this update does not name.
 
         No update can require a model reload any more: there is one model, and
         nothing in the config selects it. The old boolean return said "reload
         the model now", which only `model_size` ever triggered.
         """
-        for key, value in updates.items():
-            if key in DEFAULT_CONFIG:
-                self.state.config[key] = value
+        # Read-merge-assign under the lock so two concurrent updates (menu bar
+        # on the main thread, HTTP API on the server thread) cannot interleave
+        # and lose one. save_config and the side effects stay OUTSIDE it: the
+        # former does file I/O and the latter joins listener threads.
+        with self.state.lock:
+            # What the engine is actually running with -- not what the file
+            # says. Diffing against this catches both the caller's updates and
+            # anything hand-edited since startup.
+            before = dict(self.state.config)
+
+            # The file wins for keys this update does not name -- but only if it
+            # is readable. An unparseable file falls back to what the engine is
+            # running with, so a corrupted config costs the user nothing more
+            # than the edits that corrupted it.
+            merged = read_config(self._config_path, fallback=before)
+            for key, value in updates.items():
+                if key in DEFAULT_CONFIG:
+                    merged[key] = value  # the caller wins for keys it names
+
+            changed = {key for key, value in merged.items() if before.get(key) != value}
+
+            # In place, never rebound: this dict is shared by reference with the
+            # audio engine and the menu bar, which would otherwise keep reading
+            # a detached copy.
+            self.state.config.clear()
+            self.state.config.update(merged)
+
         save_config(self.state.config, self._config_path)
 
-        if "copy_to_clipboard" in updates:
-            self._text_injector.update_config(updates["copy_to_clipboard"])
+        # Side effects are driven by what actually CHANGED, not by the keys the
+        # caller named. A value merged in from the file reaches the config and
+        # the disk; without this it would never reach the running component,
+        # leaving the engine disagreeing with its own persisted settings.
+        if "copy_to_clipboard" in changed:
+            self._text_injector.update_config(self.state.config["copy_to_clipboard"])
 
         # Trigger-mode change: refresh the cached value so the next press follows
         # the new mode. Unlike a trigger change this needs no listener restart --
         # the mode is read by the trigger worker, not by the hardware listener.
-        if "trigger_mode" in updates:
+        if "trigger_mode" in changed:
             self._trigger_mode = str(self.state.config.get("trigger_mode", "hold"))
 
         # Trigger change: restart the listener so the new key is live now, not
@@ -1189,7 +1290,7 @@ class Engine:
         # it picks up the value just saved above. Guard on an active listener —
         # a config update before the engine starts is a no-op (the listener will
         # read the right trigger when it starts normally).
-        if "trigger" in updates and self.state.fn_listener_active:
+        if "trigger" in changed and self.state.fn_listener_active:
             self.stop_fn_listener()
             self.start_fn_listener()
 
@@ -1201,10 +1302,11 @@ class Engine:
             "min_speech_s",
             "min_chunk_s",
             "max_chunk_s",
+            "soft_gap_ms",
             "vad_aggressiveness",
             "type_while_speaking",
         }
-        if streaming_keys & updates.keys():
+        if streaming_keys & changed:
             self._apply_streaming_config()
             if self._transcription_running:  # engine has been started
                 if self._streaming:

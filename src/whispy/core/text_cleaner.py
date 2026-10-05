@@ -14,6 +14,8 @@ import difflib
 import re
 import unicodedata
 
+from .segmentation import CONTINUATION
+
 # --- Matching thresholds ----------------------------------------------------
 #
 # A token is corrected toward a vocabulary term when EITHER its spelling is a
@@ -170,3 +172,73 @@ def clean_text(text: str | None, vocabulary: list[str] | None = None) -> str | N
 
     cleaned = re.sub(r"\s+", " ", text).strip()
     return apply_vocabulary(cleaned, vocabulary)
+
+
+def _leading_token_is_protected(text: str, vocabulary: list[str] | None) -> bool:
+    """True when the first token must keep the capital the model gave it.
+
+    An all-caps token is an acronym, not a sentence capital, and a configured
+    vocabulary term is a name the user told us about. Both reuse data the system
+    already has; a proper noun that is neither is lowered, which is the
+    documented ceiling of this rule.
+    """
+    first = text.split(" ", 1)[0]
+    core = _TOKEN_RE.match(first).group(2)
+    if not core:
+        return True
+    if core.isupper():
+        return True
+    return bool(vocabulary) and any(core.lower() == term.strip().lower() for term in vocabulary if term)
+
+
+def withhold_period(text: str) -> tuple[str, bool]:
+    """Drop a trailing sentence period; return ``(text, whether one was dropped)``.
+
+    Only a lone ``.`` — never ``?``, ``!`` or an ellipsis. A wrongly kept question
+    mark is repairable by eye; a wrongly dropped one is not.
+    """
+    if text.endswith(".") and not text.endswith(".."):
+        return text[:-1], True
+    return text, False
+
+
+def join_chunk(
+    text: str,
+    reason: str,
+    *,
+    previous_reason: str | None,
+    previous_withheld: bool,
+    vocabulary: list[str] | None = None,
+) -> tuple[str, bool]:
+    """Prepare one chunk's text for delivery. Returns ``(delivered, withheld_period)``.
+
+    Each chunk is an independent model call that punctuates and capitalizes its
+    output as a standalone sentence, so joining chunks with a bare space turns a
+    sentence the length ceiling cut in half into two: ``...des tickets.`` ``Des
+    tickets qui se baladent...`` was one spoken sentence.
+
+    Typing is append-only, so nothing already delivered can be revised. Both
+    decisions are therefore taken before delivery, from the segmenter's boundary
+    reasons: ``reason`` (why *this* chunk was closed) decides whether its
+    trailing period is withheld, and ``previous_reason`` decides the separator
+    this chunk carries. The same call serves the live-typing path and the
+    stop-time assembly, so the two cannot drift apart.
+    """
+    if previous_reason is None:
+        prefix = ""
+    elif previous_reason == CONTINUATION and previous_withheld:
+        # The previous chunk was cut mid-sentence and gave up its period: rejoin
+        # the two halves rather than let a chunk boundary read as a full stop.
+        prefix = ", "
+        if not _leading_token_is_protected(text, vocabulary):
+            text = text[:1].lower() + text[1:]
+    else:
+        # A sentence-length pause, or a continuation that ended on ? or ! and so
+        # kept its mark: both leave the punctuation alone and take a plain space.
+        prefix = " "
+
+    if reason == CONTINUATION:
+        text, withheld = withhold_period(text)
+    else:
+        withheld = False
+    return prefix + text, withheld
