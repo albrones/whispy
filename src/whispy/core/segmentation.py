@@ -16,9 +16,18 @@ mid-word: measured on a live dictation, the half-words on either side came back
 as the same word twice ("mais" / "Mais") or as nothing at all. Audio is never
 dropped by the segmenter — it only decides *where* to cut; the per-chunk VAD
 filter inside ``transcribe`` trims any leading/trailing silence.
+
+Every boundary is reported with the *reason* it occurred — ``SENTENCE`` for a
+silence long enough that the speaker plausibly finished a thought, ``CONTINUATION``
+for a cut the segmenter forced (the length ceiling, the hard cap, or a pause below
+the sentence-break threshold). The reason is the only signal available for joining
+chunk texts correctly: each chunk is an independent model call that punctuates and
+capitalizes its output as a standalone sentence, and nothing in the text itself
+distinguishes a chunk that ended a sentence from one the ceiling cut in half.
 """
 
 import logging
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +45,16 @@ FRAME_BYTES = FRAME_SAMPLES * 2  # int16 -> 960 bytes
 # Energy-fallback speech gate (normalized RMS * 10, matching the capture level).
 _FALLBACK_SPEECH_LEVEL = 0.04
 # Once a chunk has reached max_chunk_s, cut at the first gap this long instead
-# of at the very next frame: ~200 ms is a between-word-groups breath, which
-# continuous speech offers every few seconds, and short enough that a
-# between-word gap does not qualify.
-SOFT_FLUSH_GAP_S = 0.2
-# ponytail: unconditional ceiling as a multiple of max_chunk_s (18 s at the
-# default 12 s) rather than a second config key. Only reached by speech with no
-# 200 ms gap for six seconds straight.
+# of at the very next frame. Default for the ``soft_gap_ms`` parameter; the
+# engine passes the configured value. 200 ms was the original figure and proved
+# too short -- it occurs *inside* speech, and with the ceiling at 8 s the cut
+# fires on every long sentence: measured live at aggressiveness 3, it split the
+# word "Régie" and lost the final syllable. 350 ms is a between-word-groups
+# breath, which continuous speech still offers every few seconds.
+SOFT_FLUSH_GAP_S = 0.35
+# ponytail: unconditional ceiling as a multiple of max_chunk_s (12 s at the
+# default 8 s) rather than a second config key. Only reached by speech with no
+# 200 ms gap for four seconds straight.
 HARD_MAX_FACTOR = 1.5
 # A chunk below min_speech_s is normally held so a short word rides along with
 # the next utterance instead of reaching the model alone. But when nothing
@@ -50,6 +62,13 @@ HARD_MAX_FACTOR = 1.5
 # lost). Past this much silence the speaker has stopped: emit the word alone
 # and accept the wrong-language risk on it — the user asked for the word.
 LONE_WORD_PAUSE_S = 2.0
+
+# Why a chunk was closed. SENTENCE means the silence reached the sentence-break
+# threshold (or the recording stopped); CONTINUATION means the segmenter cut
+# speech that was still running. Callers join chunk texts on this.
+SENTENCE = "sentence"
+CONTINUATION = "continuation"
+BoundaryReason = Literal["sentence", "continuation"]
 
 
 def speech_span_s(
@@ -116,10 +135,12 @@ class SpeechSegmenter:
 
     Usage from the capture callback / replay::
 
-        if seg.feed(raw_block):   # True when a chunk boundary occurred
-            flush_buffer_as_chunk()
+        reason = seg.feed(raw_block)   # SENTENCE / CONTINUATION, or None
+        if reason:
+            flush_buffer_as_chunk(reason)
 
-    On stop, call ``flush_tail()``; if True, flush the remaining buffer.
+    On stop, call ``flush_tail()``; a truthy result is the reason to flush the
+    remaining buffer with (always ``SENTENCE`` — the speaker has stopped).
 
     A pause closes a chunk only once the chunk holds ``min_speech_s`` of
     **voiced** audio. The quantity matters: each chunk is one independent model
@@ -147,13 +168,28 @@ class SpeechSegmenter:
         self,
         pause_ms: float = 600,
         min_speech_s: float = 0.7,
-        max_chunk_s: float = 12.0,
+        max_chunk_s: float = 8.0,
         aggressiveness: int = 2,
+        sentence_break_ms: float | None = None,
+        soft_gap_ms: float = SOFT_FLUSH_GAP_S * 1000,
     ) -> None:
         self._pause_s = pause_ms / 1000.0
         self._min_speech_s = min_speech_s
         self._max_chunk_s = max_chunk_s
         self._frame_s = FRAME_MS / 1000.0
+        # Past max_chunk_s, the cut waits for a gap at least this long rather
+        # than falling at the next frame. It is the only thing between the
+        # ceiling and a cut placed mid-word.
+        self._soft_gap_s = soft_gap_ms / 1000.0
+        # Silence at or above this closes a chunk as a SENTENCE; a shorter pause
+        # that still clears ``pause_ms`` closes it as a CONTINUATION. A knob of
+        # its own rather than a multiple of ``pause_ms`` so that raising
+        # ``pause_ms`` later cannot silently reclassify boundaries. Defaulting it
+        # to ``pause_ms`` makes today's behaviour the starting point: every pause
+        # boundary is a sentence break, every forced cut is a continuation.
+        self._sentence_break_s = (
+            self._pause_s if sentence_break_ms is None else max(self._pause_s, sentence_break_ms / 1000.0)
+        )
 
         self._vad = None
         if webrtcvad is not None:
@@ -195,14 +231,19 @@ class SpeechSegmenter:
         rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2))) / 32768.0
         return rms * 10.0 > _FALLBACK_SPEECH_LEVEL
 
-    def feed(self, raw: bytes) -> bool:
-        """Consume a raw PCM block; return True if a chunk boundary occurred.
+    def feed(self, raw: bytes) -> BoundaryReason | None:
+        """Consume a raw PCM block; return why a chunk boundary occurred, if one did.
+
+        ``SENTENCE`` when the silence that closed the chunk reached the
+        sentence-break threshold, ``CONTINUATION`` when the segmenter cut speech
+        that was still running, ``None`` when no boundary occurred. The value is
+        truthy exactly when the previous ``bool`` return was True.
 
         Audio is always retained by the caller — this only decides cut points.
         Misclassifying the onset merely delays the first cut; it never drops audio.
         """
         self._pending.extend(raw)
-        emit = False
+        reason: BoundaryReason | None = None
         while len(self._pending) >= FRAME_BYTES:
             frame = bytes(self._pending[:FRAME_BYTES])
             del self._pending[:FRAME_BYTES]
@@ -215,21 +256,35 @@ class SpeechSegmenter:
             else:
                 self._silence_s += self._frame_s
 
-            if self._have_speech and (
-                (
-                    self._silence_s >= self._pause_s
-                    and (self._speech_s >= self._min_speech_s or self._silence_s >= LONE_WORD_PAUSE_S)
-                )
-                or (self._buffered_s >= self._max_chunk_s and self._silence_s >= SOFT_FLUSH_GAP_S)
-                or self._buffered_s >= self._max_chunk_s * HARD_MAX_FACTOR
-            ):
-                emit = True
-                self.reset_chunk()
-        return emit
+            if not self._have_speech:
+                continue
 
-    def flush_tail(self) -> bool:
-        """Return True if there is a pending speech chunk to flush on stop."""
-        return self._have_speech
+            # A pause closes the chunk once it clears ``pause_ms`` and the chunk
+            # holds enough voiced audio — or once the speaker has clearly stopped
+            # (LONE_WORD_PAUSE_S), which is well past the sentence-break
+            # threshold and so always reads as the end of a sentence.
+            pause_closes = self._silence_s >= self._pause_s and (
+                self._speech_s >= self._min_speech_s or self._silence_s >= LONE_WORD_PAUSE_S
+            )
+            if pause_closes:
+                reason = SENTENCE if self._silence_s >= self._sentence_break_s else CONTINUATION
+            elif (self._buffered_s >= self._max_chunk_s and self._silence_s >= self._soft_gap_s) or (
+                self._buffered_s >= self._max_chunk_s * HARD_MAX_FACTOR
+            ):
+                # The ceiling and the hard cap both cut speech mid-thought.
+                reason = CONTINUATION
+            else:
+                continue
+            self.reset_chunk()
+        return reason
+
+    def flush_tail(self) -> BoundaryReason | None:
+        """Return the reason to flush a pending speech chunk on stop, else None.
+
+        Always ``SENTENCE``: the recording ended, so the last chunk keeps its own
+        final punctuation and the next recording starts a new sentence anyway.
+        """
+        return SENTENCE if self._have_speech else None
 
 
 def split_pcm(pcm: bytes, max_piece_s: float, block_bytes: int = FRAME_BYTES * 10) -> list[bytes]:

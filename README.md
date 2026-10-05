@@ -300,7 +300,7 @@ You can edit `~/.config/whispy/config.json` to change any of the following keys
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `copy_to_clipboard` | `false` | Paste via the clipboard instead of synthesizing keystrokes |
+| `copy_to_clipboard` | `true` | Deliver the transcript by pasting it from the clipboard. This hands the text over as data, so it arrives byte-exact whatever your keyboard layout. Set to `false` to synthesize keystrokes instead — that path resolves every character against the active layout and is only correct on a **US layout**: measured on French AZERTY, every `,` arrived as `.` and `â` as `q` |
 | `start_at_login` | `false` | Register the app as a login item. macOS `.app` bundle only (via `SMAppService`); ignored on the loose-script path |
 | `min_recording_duration` | `0.3` | Recordings shorter than this (seconds) are discarded rather than transcribed. Separately (and not configurable), near-silent audio is discarded on energy before it reaches the model — the model otherwise invents short fillers like "Okay." on a quiet room |
 | `custom_vocabulary` | `[]` | User-curated terms (names, brands, jargon). Applied **after** transcription: an output word is corrected when its spelling *or* its pronunciation matches one of your terms (`wispy` → `Whispy`, `parakite` → `Parakeet`). Weaker than biasing the decoder — a word rendered far from the target on both counts is left alone — but it cannot leak your terms into text you did not say. Add proper nouns and anglicisms here; it is the intended fix for them |
@@ -311,7 +311,8 @@ You can edit `~/.config/whispy/config.json` to change any of the following keys
 | `pause_ms` | `600` | Minimum trailing silence (milliseconds) that closes a streaming chunk |
 | `min_speech_s` | `0.7` | Minimum *voiced* seconds a streaming chunk must hold before an ordinary pause may close it. Below this the chunk keeps buffering, so a short word is carried into the next one instead of reaching the model alone (where it can come back in the wrong language). A word that nothing follows is still emitted on its own once the silence reaches ~2 s |
 | `min_chunk_s` | `0.4` | A streaming chunk shorter than this (seconds) is discarded rather than transcribed |
-| `max_chunk_s` | `12.0` | Length (seconds) past which a streaming chunk is cut at the next short gap in speech (~200 ms), so run-on speech still makes progress without cutting mid-word; speech with no gap at all is cut unconditionally at 1.5× this value |
+| `max_chunk_s` | `8.0` | Length (seconds) past which a streaming chunk is cut at the next gap in speech of at least `soft_gap_ms`, so run-on speech still makes progress without cutting mid-word; speech with no qualifying gap at all is cut unconditionally at 1.5× this value (12 s). The backend resolves language once per chunk, so this also bounds how much audio a single wrong language decision can carry away — over a 610-chunk French dictation the chunks that came back in English had a median duration of 12.03 s against 7.0 s overall |
+| `soft_gap_ms` | `350` | Minimum silence (milliseconds) that releases the `max_chunk_s` length cut. The gap is the only thing standing between the ceiling and a cut placed mid-word; 200 ms was short enough to occur inside ordinary speech — measured on a live French dictation, it cut the word *Régie* in half. Raising this routes more run-on speech to the unconditional hard cap at 1.5× `max_chunk_s`, which cuts at an arbitrary frame instead |
 | `vad_aggressiveness` | `2` | WebRTC VAD aggressiveness (0-3); higher classifies more audio as non-speech when finding chunk boundaries |
 
 On macOS you can also pick the trigger from the menu bar (**Settings → Trigger**:
@@ -383,11 +384,12 @@ installed by `install.sh` starts it at login.
 A: The install script creates its own virtual environment in `.venv` and uses it automatically.
 
 **Q: How do I update Whispy?**
-A: Pull the latest code (`git pull`), then on **macOS** rebuild and reinstall
-the bundle: `./install.sh && make app && cp -R dist/Whispy.app /Applications/`,
-then relaunch it. On **Linux**, rerun `./install.sh` (it reinstalls the venv and
-reloads the systemd unit). Running `/Applications/Whispy.app` from an old build
-is the usual reason a code or settings fix "doesn't take" — rebuild the bundle.
+A: Pull the latest code (`git pull`), then on **macOS** run `make reinstall` —
+it rebuilds and signs the bundle, replaces `/Applications/Whispy.app`,
+relaunches it, and waits until the daemon answers. On **Linux**, rerun
+`./install.sh` (it reinstalls the venv and reloads the systemd unit). Running
+`/Applications/Whispy.app` from an old build is the usual reason a code or
+settings fix "doesn't take" — rebuild the bundle.
 
 **Q: Can I use a different model?**
 A: No. Whispy ships one model (see "The Transcription Model" above), so there is

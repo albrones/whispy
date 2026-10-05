@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import uuid
 import wave
 from collections.abc import Callable
@@ -184,6 +185,14 @@ class AudioEngine:
         # delete the in-use file. Defaults to the shared path until first start.
         self._recording_path = RECORDING_PATH
         self._frames_written = 0
+        # Per-recording capture-health counters, reported once by stop().
+        # Incremented from the PortAudio callback, which is why they are plain
+        # ints and not log calls: measuring must not add work to the thread
+        # whose overruns are being measured.
+        self._xruns = 0
+        self._xruns_after_emit = 0
+        self._max_emit_ms = 0.0
+        self._emitted_last_block = False
         self._ready = threading.Event()
         # Error message when the last start() could not open a capture stream
         # (after the refresh-and-retry sequence); None when capture is healthy.
@@ -201,7 +210,7 @@ class AudioEngine:
         # to transcribe + inject while recording continues. Off by default: the
         # legacy single-file path is used verbatim.
         self._streaming = False
-        self._on_chunk: Callable[[str], None] | None = None
+        self._on_chunk: Callable[[str, str], None] | None = None
         self._seg_kwargs: dict[str, float] = {}
         self._segmenter: SpeechSegmenter | None = None
         self._chunk_buf = bytearray()
@@ -209,18 +218,21 @@ class AudioEngine:
     def configure_streaming(
         self,
         enabled: bool,
-        on_chunk: Callable[[str], None] | None = None,
+        on_chunk: Callable[[str, str], None] | None = None,
         *,
         pause_ms: float = 600,
         min_speech_s: float = 0.7,
-        max_chunk_s: float = 12.0,
+        max_chunk_s: float = 8.0,
+        soft_gap_ms: float = 350,
         aggressiveness: int = 2,
     ) -> None:
         """Enable/disable live segmentation and register the chunk sink.
 
         ``on_chunk`` is called (from the capture callback thread, and from
         ``stop()`` for the tail) with the path of a self-contained WAV to
-        transcribe. The engine wires it to its chunk queue.
+        transcribe and the boundary reason that closed it (``SENTENCE`` or
+        ``CONTINUATION``). The engine wires it to its chunk queue; the reason is
+        what lets the engine join chunk texts without inventing a sentence break.
         """
         self._streaming = bool(enabled)
         self._on_chunk = on_chunk
@@ -228,26 +240,36 @@ class AudioEngine:
             "pause_ms": pause_ms,
             "min_speech_s": min_speech_s,
             "max_chunk_s": max_chunk_s,
+            "soft_gap_ms": soft_gap_ms,
             "aggressiveness": aggressiveness,
         }
 
-    def _emit_chunk(self) -> None:
+    def _emit_chunk(self, reason: str) -> None:
         """Write the buffered chunk to a unique WAV and hand it to the sink.
 
         Called from the capture callback (on a boundary) and from ``stop()`` (the
-        tail). No-op when the buffer is empty. Errors are contained by the caller.
+        tail). ``reason`` is the segmenter's boundary reason and travels with the
+        chunk. No-op when the buffer is empty. Errors are contained by the caller.
         """
         if not self._chunk_buf:
             return
         path = self._new_recording_path()
+        # Timed because this write runs on the capture callback thread: if it
+        # overruns the block deadline the driver drops the next frames, which
+        # is audio lost exactly at a chunk boundary. Counters only, no I/O.
+        started = time.perf_counter()
         with _open_recording_wav(path) as wf:
             wf.setnchannels(CHANNELS)
             wf.setsampwidth(SAMPLE_WIDTH)
             wf.setframerate(SAMPLE_RATE)
             wf.writeframes(bytes(self._chunk_buf))
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        if elapsed_ms > self._max_emit_ms:
+            self._max_emit_ms = elapsed_ms
+        self._emitted_last_block = True
         self._chunk_buf = bytearray()
         if self._on_chunk is not None:
-            self._on_chunk(path)
+            self._on_chunk(path, reason)
 
     def _feed_segmenter(self, raw: bytes) -> None:
         """Drive the VAD segmenter with one captured block.
@@ -258,8 +280,9 @@ class AudioEngine:
         if self._segmenter is None:
             return
         self._chunk_buf.extend(raw)
-        if self._segmenter.feed(raw):
-            self._emit_chunk()
+        reason = self._segmenter.feed(raw)
+        if reason:
+            self._emit_chunk(reason)
 
     def segment_pcm(
         self,
@@ -267,7 +290,8 @@ class AudioEngine:
         *,
         pause_ms: float = 600,
         min_speech_s: float = 0.7,
-        max_chunk_s: float = 12.0,
+        max_chunk_s: float = 8.0,
+        soft_gap_ms: float = 350,
         aggressiveness: int = 2,
         block_frames: int = 1600,
     ) -> list[str]:
@@ -281,11 +305,12 @@ class AudioEngine:
         """
         paths: list[str] = []
         prev_sink, prev_seg, prev_buf = (self._on_chunk, self._segmenter, self._chunk_buf)
-        self._on_chunk = paths.append
+        self._on_chunk = lambda path, _reason: paths.append(path)
         self._segmenter = SpeechSegmenter(
             pause_ms=pause_ms,
             min_speech_s=min_speech_s,
             max_chunk_s=max_chunk_s,
+            soft_gap_ms=soft_gap_ms,
             aggressiveness=aggressiveness,
         )
         self._chunk_buf = bytearray()
@@ -296,8 +321,9 @@ class AudioEngine:
                 if not raw:
                     continue
                 self._feed_segmenter(raw)
-            if self._segmenter.flush_tail():
-                self._emit_chunk()
+            tail_reason = self._segmenter.flush_tail()
+            if tail_reason:
+                self._emit_chunk(tail_reason)
         finally:
             self._on_chunk, self._segmenter, self._chunk_buf = (prev_sink, prev_seg, prev_buf)
         return paths
@@ -314,6 +340,10 @@ class AudioEngine:
             return False
 
         self._frames_written = 0
+        self._xruns = 0
+        self._xruns_after_emit = 0
+        self._max_emit_ms = 0.0
+        self._emitted_last_block = False
         self._ready = threading.Event()
         self._capture_failed = None
         with self._wave_lock:
@@ -340,7 +370,14 @@ class AudioEngine:
             # contain it (a dropped frame), never raise into the backend.
             try:
                 if status:
-                    logger.debug("[audio] stream status: %s", status)
+                    # Counted, never logged: this runs inside the PortAudio
+                    # callback, and a logging call here does file I/O on the
+                    # very thread whose overruns we are trying to measure.
+                    # The totals are reported once, by stop().
+                    self._xruns += 1
+                    if self._emitted_last_block:
+                        self._xruns_after_emit += 1
+                self._emitted_last_block = False
                 raw = bytes(indata)
                 # Update the live level for the waveform: normalized RMS of the
                 # int16 block (gain 10, matching the old AudioLevelMonitor). Done
@@ -500,12 +537,27 @@ class AudioEngine:
                 else " -- at the noise floor, check the input device"
             )
             logger.info("[audio] capture closed: %.1fs, peak level %.3f%s", seconds, self._peak_level, hint)
+            # Capture health for this recording. A dropped block is audio the
+            # model never sees, so it is a loss, not a statistic -- and
+            # `after a chunk write` is the number that says whether writing the
+            # chunk WAV on the callback thread is what caused it.
+            if self._xruns:
+                logger.warning(
+                    "[audio] capture xruns: %d dropped block(s), %d right after a chunk write; "
+                    "slowest chunk write %.1f ms",
+                    self._xruns,
+                    self._xruns_after_emit,
+                    self._max_emit_ms,
+                )
+            elif self._max_emit_ms:
+                logger.info("[audio] capture clean; slowest chunk write %.1f ms", self._max_emit_ms)
 
         # Streaming tail: the stream is stopped, so the callback can no longer
         # touch the buffer; flush any pending speech as the final chunk.
-        if self._streaming and self._segmenter is not None and self._segmenter.flush_tail():
+        tail_reason = self._segmenter.flush_tail() if (self._streaming and self._segmenter is not None) else None
+        if tail_reason:
             try:
-                self._emit_chunk()
+                self._emit_chunk(tail_reason)
             except Exception:
                 logger.exception("[audio] tail chunk flush failed")
             self._segmenter.reset_chunk()
@@ -592,20 +644,41 @@ class AudioEngine:
         # TRIM_MARGIN_S). Cut to the voiced span; the trimmed file is the
         # model's input only, the caller still owns and deletes `audio_path`.
         model_path = self._trim_to_speech(audio_path, span, duration)
+        trimmed = model_path != audio_path
         try:
             text = (model.recognize(model_path) or "").strip()
+            if not text and trimmed:
+                # Every gate passed, so the clip did carry voice. Trimming is the
+                # only transformation applied between the gates and the model
+                # call, which makes it the first suspect -- so try once more on
+                # the original. One retry, not a loop: the cost stays bounded and
+                # a second empty answer is information, not a reason to keep
+                # trying. A clip the model already saw untrimmed is not retried.
+                logger.info(
+                    "[audio] Empty result on the trimmed clip — retrying on the untrimmed %.2fs original.",
+                    duration or 0.0,
+                )
+                text = (model.recognize(audio_path) or "").strip()
         except Exception:
             # Logged, not printed: the bundled app has no stderr sink, so a
             # print here is invisible in a live drive.
             logger.exception("[audio] Transcription error")
             return None
         finally:
-            if model_path != audio_path:
+            if trimmed:
                 self.cleanup_audio_file(model_path)
         if not text:
-            # Both gates passed, so the clip did carry voice. Without this line
-            # a lost utterance is indistinguishable in the log from a discard.
-            logger.info("[audio] Model returned no text for a %.2fs clip — discarding.", duration or 0.0)
+            # Speech that vanished, not a routine non-speech discard: the gates
+            # above log theirs at INFO, this one is a loss and carries the three
+            # measurements that would explain it, so the next investigation
+            # starts with numbers instead of a re-drive.
+            logger.warning(
+                "[audio] Lost speech: the model returned no text for a %.2fs clip that cleared every gate "
+                "(peak RMS %s, voiced %s).",
+                duration or 0.0,
+                "unknown" if rms is None else f"{rms:.6f}",
+                "unknown" if span is None else f"{span[2]:.2f}s",
+            )
             return None
         return text
 

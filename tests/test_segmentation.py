@@ -14,10 +14,12 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 from whispy.core.segmentation import (
+    CONTINUATION,
     FRAME_BYTES,
     HARD_MAX_FACTOR,
     LONE_WORD_PAUSE_S,
     SAMPLE_RATE,
+    SENTENCE,
     SOFT_FLUSH_GAP_S,
     SpeechSegmenter,
     speech_duration_s,
@@ -74,16 +76,21 @@ class TestMaxLengthFlush:
         seg = SpeechSegmenter(pause_ms=600, max_chunk_s=1.0)
         # Continuous speech with no gap at all: nothing to cut on until the
         # unconditional ceiling (1.0s * HARD_MAX_FACTOR = 1.5s = 50 frames).
-        assert seg.feed(_voiced_block(40)) is False  # past max_chunk_s, still speaking
-        assert seg.feed(_voiced_block(15)) is True  # past the hard cap
+        assert seg.feed(_voiced_block(40)) is None  # past max_chunk_s, still speaking
+        assert seg.feed(_voiced_block(15)) == CONTINUATION  # past the hard cap
 
     @requires_vad
     def test_past_max_chunk_the_cut_waits_for_a_short_gap(self):
         # Measured on a live dictation: a cut at an arbitrary frame lands
         # mid-word and the two halves come back as "mais" / "Mais". Past
         # max_chunk_s the segmenter therefore cuts on the first short gap.
-        seg = SpeechSegmenter(pause_ms=600, max_chunk_s=1.0)
-        assert seg.feed(_voiced_block(40)) is False  # 1.2s: past max_chunk_s, no gap yet
+        # max_chunk_s is 3 s here, not 1 s, so the hard cap (4.5 s) stays far
+        # out of reach: at 1 s the cap landed 10 frames into the silence and it
+        # was the CAP, not the gap, that closed every chunk this test measured.
+        # pause_ms is likewise pushed out of the way, so the only rule that can
+        # fire in the window below is the soft gap.
+        seg = SpeechSegmenter(pause_ms=2000, max_chunk_s=3.0)
+        assert seg.feed(_voiced_block(101)) is None  # 3.03s: past max_chunk_s, no gap yet
         gap_frames = int(round(SOFT_FLUSH_GAP_S / 0.03))
         # WebRTC VAD has a few frames of hangover after speech, so the gap is
         # counted from when the VAD flips, not from the first zero frame.
@@ -91,6 +98,18 @@ class TestMaxLengthFlush:
         cut_at = next((i for i in range(1, gap_frames + hangover_allowance + 1) if seg.feed(_silence_block(1))), None)
         assert cut_at is not None  # a short gap is enough once past max_chunk_s
         assert cut_at >= gap_frames  # ...but not before the gap is real
+
+    @requires_vad
+    def test_a_gap_below_the_soft_threshold_does_not_release_the_cut(self):
+        # The gap is the only thing between the ceiling and a cut placed
+        # mid-word. Measured live at vad_aggressiveness 3, a 200 ms gap occurred
+        # inside ordinary speech and split the word "Régie", losing the final
+        # syllable -- which is why the threshold is configurable and higher.
+        seg = SpeechSegmenter(pause_ms=2000, max_chunk_s=3.0, soft_gap_ms=1000)
+        assert seg.feed(_voiced_block(101)) is None  # past max_chunk_s
+        # 300 ms of silence: a real gap, but below the configured soft gap (and
+        # below pause_ms, so the pause rule cannot close the chunk either).
+        assert all(seg.feed(_silence_block(1)) is None for _ in range(10))
 
     @requires_vad
     def test_gap_before_max_chunk_does_not_cut(self):
@@ -126,12 +145,12 @@ class TestTailFlush:
     def test_tail_pending_after_speech(self):
         seg = SpeechSegmenter()
         seg.feed(_speech_block(5))
-        assert seg.flush_tail() is True
+        assert seg.flush_tail() == SENTENCE
 
     def test_no_tail_after_pure_silence(self):
         seg = SpeechSegmenter()
         seg.feed(_silence_block(10))
-        assert seg.flush_tail() is False
+        assert seg.flush_tail() is None
 
 
 class TestFrameAlignment:
@@ -281,7 +300,66 @@ class TestVoicedSpeechGate:
         seg = SpeechSegmenter(pause_ms=600, min_speech_s=0.7, max_chunk_s=30.0)
         seg.feed(_voiced_block(5))  # 0.15s voiced
         assert self._pause(seg) is False
-        assert seg.flush_tail() is True
+        assert seg.flush_tail() == SENTENCE
+
+
+class TestBoundaryReasons:
+    """Every chunk boundary reports why it occurred (SENTENCE vs CONTINUATION).
+
+    See the module docstring: SENTENCE means the closing silence reached the
+    sentence-break threshold (or the recording stopped); CONTINUATION means the
+    segmenter cut speech that was still running (a ceiling cut, the hard cap,
+    or a pause that cleared ``pause_ms`` but not ``sentence_break_ms``).
+    """
+
+    def test_long_pause_is_a_sentence_boundary(self):
+        seg = SpeechSegmenter(pause_ms=300, min_speech_s=0.05, max_chunk_s=30.0)
+        seg.feed(_speech_block(17))  # ~0.5s of speech
+        reason = next((r for r in (seg.feed(_silence_block(1)) for _ in range(20)) if r), None)
+        assert reason == SENTENCE
+
+    @requires_vad
+    def test_short_qualifying_pause_is_a_continuation(self):
+        # sentence_break_ms above pause_ms: a pause that clears pause_ms but
+        # not sentence_break_ms still closes the chunk, but as a CONTINUATION.
+        seg = SpeechSegmenter(pause_ms=300, min_speech_s=0.05, max_chunk_s=30.0, sentence_break_ms=1000)
+        seg.feed(_voiced_block(20))  # 0.6s voiced
+        reason = next((r for r in (seg.feed(_silence_block(1)) for _ in range(20)) if r), None)
+        assert reason == CONTINUATION
+
+    @requires_vad
+    def test_max_chunk_soft_gap_cut_is_a_continuation(self):
+        seg = SpeechSegmenter(pause_ms=600, max_chunk_s=1.0)
+        seg.feed(_voiced_block(40))  # 1.2s: past max_chunk_s, no gap yet
+        gap_frames = int(round(SOFT_FLUSH_GAP_S / 0.03))
+        hangover_allowance = 8
+        reason = next(
+            (r for r in (seg.feed(_silence_block(1)) for _ in range(gap_frames + hangover_allowance)) if r), None
+        )
+        assert reason == CONTINUATION
+
+    @requires_vad
+    def test_hard_cap_cut_is_a_continuation(self):
+        seg = SpeechSegmenter(pause_ms=600, max_chunk_s=1.0)
+        seg.feed(_voiced_block(40))  # past max_chunk_s, still speaking, no gap
+        reason = seg.feed(_voiced_block(15))  # past the hard cap
+        assert reason == CONTINUATION
+
+    @requires_vad
+    def test_lone_word_emission_is_a_sentence(self):
+        # LONE_WORD_PAUSE_S (2s) is well past any sentence-break threshold, so
+        # the lone-word emission always reads as the end of a sentence.
+        seg = SpeechSegmenter(pause_ms=600, min_speech_s=0.7, max_chunk_s=30.0)
+        seg.feed(_voiced_block(13))  # 0.39s voiced, below min_speech_s
+        frames_to_lone = int(round(LONE_WORD_PAUSE_S / 0.03))
+        assert not any(seg.feed(_silence_block(1)) for _ in range(frames_to_lone - 2))  # still held
+        reason = next((r for r in (seg.feed(_silence_block(1)) for _ in range(12)) if r), None)
+        assert reason == SENTENCE
+
+    def test_flush_tail_is_a_sentence(self):
+        seg = SpeechSegmenter()
+        seg.feed(_speech_block(5))
+        assert seg.flush_tail() == SENTENCE
 
 
 class TestSpeechSpan:

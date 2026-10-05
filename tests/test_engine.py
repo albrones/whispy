@@ -1,7 +1,9 @@
 """Tests for Engine, DictationState, config loading/saving, and status reporting."""
 
 import json
+import logging
 import threading
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -11,6 +13,7 @@ from whispy.core.engine import (
     load_config,
     save_config,
 )
+from whispy.core.segmentation import CONTINUATION, SENTENCE
 
 # ---------------------------------------------------------------------------
 # Config loading
@@ -82,11 +85,23 @@ class TestLoadConfig:
         assert "language" not in loaded
         assert loaded["copy_to_clipboard"] is True
 
-    def test_default_copy_to_clipboard_is_false(self, tmp_dir):
+    def test_default_copy_to_clipboard_is_true(self, tmp_dir):
         config_file = tmp_dir / "nonexistent" / "config.json"
         loaded = load_config(config_file)
+        assert loaded["copy_to_clipboard"] is True
+        assert DEFAULT_CONFIG["copy_to_clipboard"] is True
+
+    def test_explicit_copy_to_clipboard_opt_out_is_respected(self, tmp_dir):
+        # A config already at the current version is not touched by the v1->v2
+        # migration (which forces copy_to_clipboard to True unconditionally), so
+        # a deliberate False here must survive a load.
+        config_dir = tmp_dir / ".config" / "whispy"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_file = config_dir / "config.json"
+        config_file.write_text(json.dumps({"copy_to_clipboard": False, "_version": 2}))
+
+        loaded = load_config(config_file)
         assert loaded["copy_to_clipboard"] is False
-        assert DEFAULT_CONFIG["copy_to_clipboard"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +280,14 @@ class TestEngineConfigUpdate:
         assert spy.call_count == 1
         assert spy.call_args.kwargs["min_speech_s"] == 1.5
 
+    def test_soft_gap_ms_rewires_streaming_without_restart(self, engine, mocker):
+        """Changing soft_gap_ms re-configures the live audio engine the same
+        way min_speech_s does above, without a manual Restart."""
+        spy = mocker.spy(engine._audio_engine, "configure_streaming")
+        engine.update_config({"soft_gap_ms": 500})
+        assert spy.call_count == 1
+        assert spy.call_args.kwargs["soft_gap_ms"] == 500
+
     def test_settings_survive_restart(self, engine, config_path):
         """Selecting settings then reloading from disk (a restart) keeps them.
 
@@ -436,7 +459,6 @@ class TestClipboardDefault:
 # Helpers
 # ---------------------------------------------------------------------------
 
-from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
 # Stray trigger release does not start transcription (fix-capture-thread-races)
@@ -761,10 +783,12 @@ class TestStreamingChunkPipeline:
         inject = mocker.patch.object(eng._text_injector, "inject")
 
         for n in ("a.wav", "b.wav"):
-            eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, n))
+            eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, n), SENTENCE)
 
         inject.assert_not_called()
-        assert eng._chunk_texts == ["alpha", "beta"]
+        # Each chunk's text carries its own leading separator now; the second
+        # chunk was preceded by a sentence-length pause, so it gets " ".
+        assert eng._chunk_texts == ["alpha", " beta"]
 
     def test_chunks_transcribed_independently(self, config_path, mocker, tmp_path):
         # No conditioning argument is passed to achieve independence: the
@@ -775,8 +799,8 @@ class TestStreamingChunkPipeline:
         transcribe = mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["one", "two"])
         mocker.patch.object(eng._text_injector, "inject")
 
-        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
-        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"))
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"), SENTENCE)
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"), SENTENCE)
 
         assert len(transcribe.call_args_list) == 2
         for call in transcribe.call_args_list:
@@ -790,7 +814,7 @@ class TestStreamingChunkPipeline:
         eng = _make_streaming_engine(config_path, mocker)
         mocker.patch.object(eng._audio_engine, "transcribe", return_value=None)
         inject = mocker.patch.object(eng._text_injector, "inject")
-        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"), SENTENCE)
         inject.assert_not_called()
 
     def test_worker_survives_chunk_error_and_drains(self, config_path, mocker, tmp_path):
@@ -799,7 +823,7 @@ class TestStreamingChunkPipeline:
         mocker.patch.object(eng._text_injector, "inject")
         eng.start_chunk_worker()
         try:
-            eng._enqueue_chunk(_chunk_file(tmp_path, "a.wav"))
+            eng._enqueue_chunk(_chunk_file(tmp_path, "a.wav"), SENTENCE)
             eng._chunk_queue.join()  # would hang if the worker died on the error
         finally:
             eng.stop_chunk_worker()
@@ -809,7 +833,7 @@ class TestStreamingChunkPipeline:
         mocker.patch.object(eng._audio_engine, "transcribe", return_value="hi")
         mocker.patch.object(eng._text_injector, "inject")
         eng._state_machine.start_recording()  # RECORDING
-        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"), SENTENCE)
         assert eng.state.is_transcribing is False
         assert eng._state_machine.is_recording is True
 
@@ -826,9 +850,9 @@ class TestStreamingChunkPipeline:
         try:
             eng._on_fsm_recording(None)  # reset per-recording accumulators
             eng._state_machine.start_recording()
-            eng._enqueue_chunk(_chunk_file(tmp_path, "c1.wav"))
+            eng._enqueue_chunk(_chunk_file(tmp_path, "c1.wav"), SENTENCE)
             eng._state_machine.stop_recording()  # -> TRANSCRIBING
-            eng._enqueue_chunk(_chunk_file(tmp_path, "tail.wav"))  # tail chunk
+            eng._enqueue_chunk(_chunk_file(tmp_path, "tail.wav"), SENTENCE)  # tail chunk (always SENTENCE)
             eng.state.stop_event.set()
             deadline = time.time() + 5.0
             while eng._state_machine.current_state.name != "IDLE" and time.time() < deadline:
@@ -850,7 +874,7 @@ class TestChunkStateLocking:
         engine.state.model = mocker.MagicMock()
         mocker.patch.object(engine._audio_engine, "transcribe", return_value="hello")
 
-        engine._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+        engine._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"), SENTENCE)
 
         lock.__enter__.assert_called()
         lock.__exit__.assert_called()
@@ -894,7 +918,7 @@ class TestChunkStateLocking:
         eng.start_transcription_worker()
         try:
             eng._state_machine.start_recording()
-            eng._enqueue_chunk(_chunk_file(tmp_path, "a.wav"))
+            eng._enqueue_chunk(_chunk_file(tmp_path, "a.wav"), SENTENCE)
             eng._chunk_queue.join()
             eng._state_machine.stop_recording()  # -> TRANSCRIBING
             eng.state.stop_event.set()
@@ -925,7 +949,7 @@ class TestChunkStateLocking:
             try:
                 for i in range(n):
                     path = _chunk_file(tmp_path, f"c{i}.wav")
-                    engine._transcribe_and_inject_chunk(path)
+                    engine._transcribe_and_inject_chunk(path, SENTENCE)
             except Exception as exc:  # pragma: no cover - failure path
                 errors.append(exc)
 
@@ -962,9 +986,9 @@ class TestStopAndWaitForTranscription:
         try:
             eng._on_fsm_recording(None)
             eng._state_machine.start_recording()
-            eng._enqueue_chunk(_chunk_file(tmp_path, "c1.wav"))
+            eng._enqueue_chunk(_chunk_file(tmp_path, "c1.wav"), SENTENCE)
             eng._chunk_queue.join()
-            eng._enqueue_chunk(_chunk_file(tmp_path, "c2.wav"))
+            eng._enqueue_chunk(_chunk_file(tmp_path, "c2.wav"), SENTENCE)
             eng._chunk_queue.join()
 
             text = eng.stop_and_wait_for_transcription(timeout=5.0)
@@ -1270,9 +1294,9 @@ class TestNoDoubleInjectionOnRapidRepress:
             # in the same buffer before the worker consumes it.
             eng._on_fsm_recording(None)
             eng._state_machine.start_recording()
-            eng._enqueue_chunk(_chunk_file(tmp_path, "c1.wav"))
+            eng._enqueue_chunk(_chunk_file(tmp_path, "c1.wav"), SENTENCE)
             eng._chunk_queue.join()
-            eng._enqueue_chunk(_chunk_file(tmp_path, "c2.wav"))
+            eng._enqueue_chunk(_chunk_file(tmp_path, "c2.wav"), SENTENCE)
             eng._chunk_queue.join()
 
             # Stop n: worker consumes and injects the assembled buffer.
@@ -1481,7 +1505,9 @@ class TestTypeWhileSpeakingSnapshot:
         eng = _make_toggle_streaming_engine(config_path, mocker)
         eng._on_fsm_recording(None)
         assert eng._live_typing is True
-        assert eng._live_typed_any is False
+        # Nothing delivered yet this recording, so the next chunk carries no prefix.
+        assert eng._prev_boundary is None
+        assert eng._pending_period is False
 
     def test_hold_mode_is_never_live(self, config_path, mocker):
         eng = _make_streaming_engine(config_path, mocker)
@@ -1497,10 +1523,12 @@ class TestTypeWhileSpeakingSnapshot:
     def test_force_recover_clears_live_flags(self, config_path, mocker):
         eng = _make_toggle_streaming_engine(config_path, mocker)
         eng._on_fsm_recording(None)
-        eng._live_typed_any = True
+        eng._prev_boundary = CONTINUATION
+        eng._pending_period = True
         eng._force_recover()
         assert eng._live_typing is False
-        assert eng._live_typed_any is False
+        assert eng._prev_boundary is None
+        assert eng._pending_period is False
 
 
 class TestTypeWhileSpeakingChunks:
@@ -1511,13 +1539,15 @@ class TestTypeWhileSpeakingChunks:
         wait = mocker.patch.object(eng, "_wait_trigger_released")
         eng._on_fsm_recording(None)
 
-        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
-        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"))
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"), SENTENCE)
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"), SENTENCE)
 
         assert [c.args[0] for c in inject.call_args_list] == ["alpha", " beta"]
         assert wait.call_count == 2  # release gate before every live inject
-        # Accumulation is kept so last_transcription / the limit copy see everything.
-        assert eng._chunk_texts == ["alpha", "beta"]
+        # Accumulation is kept so last_transcription / the limit copy see
+        # everything -- each entry already carries the separator its own
+        # boundary called for, matching exactly what was typed live.
+        assert eng._chunk_texts == ["alpha", " beta"]
 
     def test_empty_chunk_types_nothing_and_does_not_add_a_space(self, config_path, mocker, tmp_path):
         eng = _make_toggle_streaming_engine(config_path, mocker)
@@ -1525,9 +1555,11 @@ class TestTypeWhileSpeakingChunks:
         inject = mocker.patch.object(eng._text_injector, "inject")
         eng._on_fsm_recording(None)
 
-        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
-        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"))
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"), SENTENCE)
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"), SENTENCE)
 
+        # The empty first chunk left nothing delivered, so "beta" is still the
+        # first chunk to produce text and carries no prefix.
         inject.assert_called_once_with("beta")
 
     def test_hold_mode_still_accumulates_only(self, config_path, mocker, tmp_path):
@@ -1537,21 +1569,22 @@ class TestTypeWhileSpeakingChunks:
         inject = mocker.patch.object(eng._text_injector, "inject")
         eng._on_fsm_recording(None)
 
-        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"), SENTENCE)
 
         inject.assert_not_called()
         assert eng._chunk_texts == ["alpha"]
 
 
 class TestTypeWhileSpeakingStop:
-    def _run_live_cycle(self, eng, tmp_path, texts):
+    def _run_live_cycle(self, eng, tmp_path, texts, reasons=None):
+        reasons = reasons or [SENTENCE] * len(texts)
         eng.start_chunk_worker()
         eng.start_transcription_worker()
         try:
             eng._on_fsm_recording(None)
             eng._state_machine.start_recording()
-            for i, _ in enumerate(texts):
-                eng._enqueue_chunk(_chunk_file(tmp_path, f"c{i}.wav"))
+            for i, reason in enumerate(reasons):
+                eng._enqueue_chunk(_chunk_file(tmp_path, f"c{i}.wav"), reason)
                 eng._chunk_queue.join()
             return eng.stop_and_wait_for_transcription(timeout=5.0)
         finally:
@@ -1604,14 +1637,14 @@ class TestTypeWhileSpeakingRuntimeConfig:
         inject = mocker.patch.object(eng._text_injector, "inject")
         eng._on_fsm_recording(None)
 
-        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"))
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"), SENTENCE)
         eng.update_config({"type_while_speaking": False})
-        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"))
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"), SENTENCE)
         # Snapshot holds for the recording in progress.
         assert [c.args[0] for c in inject.call_args_list] == ["alpha", " beta"]
 
         eng._on_fsm_recording(None)  # next recording
-        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "c.wav"))
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "c.wav"), SENTENCE)
         assert inject.call_count == 2  # gamma accumulated, not typed
         assert eng._chunk_texts == ["gamma"]
 
@@ -1629,3 +1662,295 @@ class TestTypeWhileSpeakingRuntimeConfig:
         stop.assert_not_called()
         start.assert_called_once()  # idempotent no-op when already running
         assert eng.state.config["type_while_speaking"] is False
+
+
+# ---------------------------------------------------------------------------
+# Continuation-aware join delivery (fix-dictation-text-fidelity, tasks 4.2-4.5)
+# ---------------------------------------------------------------------------
+
+
+class TestContinuationJoinDelivery:
+    """Withheld periods, live-typed separators across a continuation boundary,
+    and parity between the live and stop-time assembly paths."""
+
+    def _run_cycle(self, eng, tmp_path, chunks):
+        """Run one full recording through the real chunk-worker /
+        transcription-worker pipeline. ``chunks`` is an ordered list of
+        (text, reason) pairs the mocked model will yield, one per enqueued
+        chunk. Returns the assembled text from stop_and_wait_for_transcription.
+        """
+        eng.start_chunk_worker()
+        eng.start_transcription_worker()
+        try:
+            eng._on_fsm_recording(None)
+            eng._state_machine.start_recording()
+            for i, (_text, reason) in enumerate(chunks):
+                eng._enqueue_chunk(_chunk_file(tmp_path, f"c{i}.wav"), reason)
+                eng._chunk_queue.join()
+            return eng.stop_and_wait_for_transcription(timeout=5.0)
+        finally:
+            eng.stop_transcription_worker()
+            eng.stop_chunk_worker()
+
+    def test_three_chunk_recording_restores_the_final_withheld_period(self, config_path, mocker, tmp_path):
+        # 4.2: the last chunk's own trailing period is withheld at delivery
+        # (its own boundary reason is a continuation cut) and restored once
+        # the recording stops, since no further boundary follows it.
+        eng = _make_toggle_streaming_engine(config_path, mocker)
+        chunks = [("one", SENTENCE), ("two", CONTINUATION), ("three.", CONTINUATION)]
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=[t for t, _ in chunks])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        mocker.patch.object(eng._notifier, "transcription_succeeded")
+
+        text = self._run_cycle(eng, tmp_path, chunks)
+
+        # Typed live, in emission order, with the final period withheld until
+        # the tail (a separate injection, since typing is append-only).
+        assert [c.args[0] for c in inject.call_args_list] == ["one", " two", " three", "."]
+        assert text == "one two three."
+
+    def test_continuation_boundary_drops_the_period_and_lowers_the_next_capital(self, config_path, mocker, tmp_path):
+        # 4.3: the live-typing path across a continuation boundary.
+        eng = _make_toggle_streaming_engine(config_path, mocker)
+        chunks = [("Des tickets.", CONTINUATION), ("Qui se baladent.", SENTENCE)]
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=[t for t, _ in chunks])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        mocker.patch.object(eng._notifier, "transcription_succeeded")
+
+        text = self._run_cycle(eng, tmp_path, chunks)
+
+        assert [c.args[0] for c in inject.call_args_list] == [
+            "Des tickets",  # typed without its trailing period
+            ", qui se baladent.",  # leading ", " and a lowered first letter
+        ]
+        assert text == "Des tickets, qui se baladent."
+
+    def test_stop_time_assembly_matches_the_live_typed_concatenation(self, config_path, mocker, tmp_path):
+        # 4.4: the same chunk sequence with type_while_speaking off must
+        # assemble to exactly what the live path would have typed, so the two
+        # paths cannot diverge.
+        chunks = [("Des tickets.", CONTINUATION), ("Qui se baladent.", SENTENCE)]
+
+        live_eng = _make_toggle_streaming_engine(config_path, mocker)
+        mocker.patch.object(live_eng._audio_engine, "transcribe", side_effect=[t for t, _ in chunks])
+        live_inject = mocker.patch.object(live_eng._text_injector, "inject")
+        mocker.patch.object(live_eng._notifier, "transcription_succeeded")
+        live_text = self._run_cycle(live_eng, tmp_path, chunks)
+        live_typed_concat = "".join(c.args[0] for c in live_inject.call_args_list)
+
+        off_eng = _make_toggle_streaming_engine(config_path, mocker, type_while_speaking=False)
+        mocker.patch.object(off_eng._audio_engine, "transcribe", side_effect=[t for t, _ in chunks])
+        inject = mocker.patch.object(off_eng._text_injector, "inject")
+        mocker.patch.object(off_eng._notifier, "transcription_succeeded")
+        off_text = self._run_cycle(off_eng, tmp_path, chunks)
+
+        assert off_text == live_text == live_typed_concat == "Des tickets, qui se baladent."
+        inject.assert_called_once_with("Des tickets, qui se baladent.")
+
+    def test_empty_chunk_does_not_shift_the_pending_separator(self, config_path, mocker, tmp_path):
+        # 4.5: a chunk yielding no text must not consume or shift the pending
+        # separator -- the next chunk's prefix is decided by the last boundary
+        # that actually produced typed text, not by the chunk in between.
+        eng = _make_toggle_streaming_engine(config_path, mocker)
+        mocker.patch.object(eng._audio_engine, "transcribe", side_effect=["Alpha.", None, "Beta"])
+        inject = mocker.patch.object(eng._text_injector, "inject")
+        eng._on_fsm_recording(None)
+
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "a.wav"), CONTINUATION)
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "b.wav"), SENTENCE)  # yields no text
+        eng._transcribe_and_inject_chunk(_chunk_file(tmp_path, "c.wav"), SENTENCE)
+
+        # The empty middle chunk injected nothing and left `_prev_boundary` /
+        # `_pending_period` exactly as chunk "a" set them, so "Beta" is still
+        # joined as a continuation of "Alpha." rather than as a fresh sentence.
+        assert [c.args[0] for c in inject.call_args_list] == ["Alpha", ", beta"]
+        assert eng._chunk_texts == ["Alpha", ", beta"]
+
+
+# ---------------------------------------------------------------------------
+# Tap re-arm reporting (fix-toggle-trigger-strand)
+# ---------------------------------------------------------------------------
+
+
+class TestTapRearmReporting:
+    """A tap outage during a toggle-mode recording is reported, never guessed at."""
+
+    def test_rearm_during_toggle_recording_is_reported(self, engine, caplog):
+        engine._trigger_mode = "toggle"
+        engine._state_machine.start_recording()
+
+        with caplog.at_level(logging.WARNING, logger="whispy.core.engine"):
+            engine._handle_tap_rearm()
+
+        assert "stop-press may have been lost" in caplog.text
+        # Reported, not resolved: synthesizing a press here would end a
+        # dictation the user may still be speaking into.
+        assert engine._state_machine.is_recording is True
+
+    def test_rearm_while_idle_is_not_reported_as_a_lost_press(self, engine, caplog):
+        engine._trigger_mode = "toggle"
+        assert engine._state_machine.is_idle
+
+        with caplog.at_level(logging.WARNING, logger="whispy.core.engine"):
+            engine._handle_tap_rearm()
+
+        assert "stop-press may have been lost" not in caplog.text
+
+    def test_rearm_in_hold_mode_is_not_reported(self, engine, caplog):
+        """Hold mode recovers a missed release from live flags — nothing to report."""
+        engine._trigger_mode = "hold"
+        engine._state_machine.start_recording()
+
+        with caplog.at_level(logging.WARNING, logger="whispy.core.engine"):
+            engine._handle_tap_rearm()
+
+        assert "stop-press may have been lost" not in caplog.text
+
+    def test_listener_rearm_reaches_the_engine(self, engine, caplog):
+        """The hook is wired to the listener path that fires on a recovery."""
+        from whispy.hardware import event_tap as et
+
+        listener = et.EventTapListener(trigger_keycode=61)
+        listener._tap = MagicMock()
+        listener.on_rearm = engine._handle_tap_rearm
+        engine._trigger_mode = "toggle"
+        engine._state_machine.start_recording()
+
+        with (
+            caplog.at_level(logging.WARNING, logger="whispy.core.engine"),
+            patch.object(et, "CGEventTapIsEnabled", return_value=False),
+            patch.object(et, "CGEventTapEnable"),
+            patch.object(listener, "_resync_after_rearm"),
+        ):
+            listener.check_tap_liveness()
+
+        assert "stop-press may have been lost" in caplog.text
+
+    def test_a_raising_rearm_hook_does_not_kill_the_listener(self):
+        from whispy.hardware import event_tap as et
+
+        listener = et.EventTapListener(trigger_keycode=61)
+        listener._tap = MagicMock()
+        listener.on_rearm = MagicMock(side_effect=RuntimeError("boom"))
+
+        with (
+            patch.object(et, "CGEventTapIsEnabled", return_value=False),
+            patch.object(et, "CGEventTapEnable"),
+            patch.object(listener, "_resync_after_rearm"),
+        ):
+            assert listener.check_tap_liveness() is True
+
+
+# ---------------------------------------------------------------------------
+# Config merge on save (fix-config-merge-on-save)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigMergeOnSave:
+    """An update merges onto the current on-disk config, never overwrites it.
+
+    The file is read once at startup, so persisting the in-memory copy replays a
+    boot-time snapshot over every later edit. Most keys have no UI, so editing
+    the file is the only way to set them -- and that is exactly what a snapshot
+    rewrite destroyed.
+    """
+
+    @staticmethod
+    def _hand_edit(config_path, **keys):
+        """Simulate the user editing config.json while the app is running."""
+        on_disk = json.loads(config_path.read_text()) if config_path.exists() else {}
+        on_disk.update(keys)
+        config_path.write_text(json.dumps(on_disk))
+
+    def test_a_key_edited_on_disk_survives_an_unrelated_update(self, engine, config_path):
+        engine.update_config({"pause_ms": 800})  # establish a file
+        assert engine.state.config["max_chunk_s"] != 20.0
+
+        self._hand_edit(config_path, max_chunk_s=20.0)
+        engine.update_config({"type_while_speaking": False})
+
+        on_disk = json.loads(config_path.read_text())
+        assert on_disk["max_chunk_s"] == 20.0, "the hand-edit must survive"
+        assert on_disk["type_while_speaking"] is False
+        assert engine.state.config["max_chunk_s"] == 20.0
+
+    def test_the_update_wins_over_the_file_for_keys_it_names(self, engine, config_path):
+        engine.update_config({"pause_ms": 800})
+        self._hand_edit(config_path, pause_ms=500)
+
+        engine.update_config({"pause_ms": 900})
+
+        assert json.loads(config_path.read_text())["pause_ms"] == 900
+        assert engine.state.config["pause_ms"] == 900
+
+    def test_a_malformed_on_disk_value_is_not_merged_in_unchecked(self, engine, config_path):
+        from whispy.core.config import DEFAULT_CONFIG
+
+        engine.update_config({"pause_ms": 800})
+        self._hand_edit(config_path, vad_aggressiveness="loud")
+
+        engine.update_config({"type_while_speaking": False})  # must not raise
+
+        on_disk = json.loads(config_path.read_text())
+        assert on_disk["vad_aggressiveness"] == DEFAULT_CONFIG["vad_aggressiveness"]
+
+    def test_the_shared_config_object_is_mutated_not_replaced(self, engine):
+        # AudioEngine and the menu bar hold this dict by reference; rebinding it
+        # would leave them reading a detached copy.
+        before = engine.state.config
+        engine.update_config({"pause_ms": 850})
+        assert engine.state.config is before
+        assert engine.state.config["pause_ms"] == 850
+
+    def test_a_merged_in_streaming_value_reaches_the_audio_engine(self, engine, config_path, mocker):
+        engine.update_config({"pause_ms": 800})
+        apply_streaming = mocker.patch.object(engine, "_apply_streaming_config")
+
+        # max_chunk_s is a streaming key; copy_to_clipboard is not.
+        self._hand_edit(config_path, max_chunk_s=20.0)
+        engine.update_config({"copy_to_clipboard": True})
+
+        apply_streaming.assert_called_once()
+        assert engine.state.config["max_chunk_s"] == 20.0
+
+    def test_an_update_that_changes_nothing_performs_no_side_effects(self, engine, mocker):
+        engine.update_config({"trigger_mode": "toggle", "pause_ms": 800})
+        apply_streaming = mocker.patch.object(engine, "_apply_streaming_config")
+        stop_listener = mocker.patch.object(engine, "stop_fn_listener")
+        engine.state.fn_listener_active = True
+        current_trigger = engine.state.config["trigger"]
+
+        # Every value already matches: nothing changed, so nothing re-wires.
+        engine.update_config({"trigger_mode": "toggle", "trigger": current_trigger})
+
+        apply_streaming.assert_not_called()
+        stop_listener.assert_not_called()
+
+    def test_a_corrupt_file_at_update_time_does_not_raise(self, engine, config_path):
+        from whispy.core.config import DEFAULT_CONFIG
+
+        engine.update_config({"pause_ms": 800})
+        assert DEFAULT_CONFIG["pause_ms"] != 800
+        config_path.write_text("{ not json")
+
+        engine.update_config({"type_while_speaking": False})  # must not raise
+
+        on_disk = json.loads(config_path.read_text())
+        assert on_disk["type_while_speaking"] is False
+
+    def test_a_corrupt_file_does_not_reset_the_settings_the_engine_is_running(self, engine, config_path):
+        # An unparseable file read as DEFAULT_CONFIG would have the next
+        # unrelated toggle persist those defaults over everything the user set.
+        # The running config is the fallback, so the toggle costs nothing else.
+        from whispy.core.config import DEFAULT_CONFIG
+
+        engine.update_config({"pause_ms": 800, "max_chunk_s": 20.0})
+        config_path.write_text("{ not json")
+
+        engine.update_config({"type_while_speaking": False})
+
+        on_disk = json.loads(config_path.read_text())
+        assert on_disk["pause_ms"] == 800
+        assert on_disk["max_chunk_s"] == 20.0
+        assert on_disk["pause_ms"] != DEFAULT_CONFIG["pause_ms"]
+        assert engine.state.config["pause_ms"] == 800

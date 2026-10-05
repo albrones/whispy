@@ -36,10 +36,9 @@ The main thread orchestrates and reviews; subagents execute and report.
 
 ## 🚀 Operational Commands
 - **Install/Setup:** `./install.sh` provisions the venv/dependencies; `make app` builds & signs `dist/Whispy.app`. Autostart is the in-app "Start at login" toggle (SMAppService) on macOS, a `systemd --user` service on Linux — **no LaunchAgent is created**.
-- **Manual Restart (macOS):**
+- **After a code change (macOS):** `make reinstall` — rebuilds and signs the bundle, replaces `/Applications/Whispy.app`, relaunches it, and waits until the daemon answers on `:9090`. Use this, not a bare relaunch: `open /Applications/Whispy.app` restarts the **installed** build, so a source change you have not rebuilt will appear to have no effect.
   ```bash
-  # Quit from the menu bar, then relaunch the app bundle
-  open /Applications/Whispy.app
+  make reinstall
   ```
 - **Live Logs:** `tail -f ~/.whispy.log ~/.whispy-error.log`
 - **API Interaction:** every request requires the per-install bearer token stored at `~/.config/whispy/config.token`.
@@ -86,7 +85,7 @@ All documentation, code comments, and user-facing messages in the codebase must 
 - **State Management:** A global `state` object (`DictationState`) manages recording, transcription, and model status across threads.
 
 ### 🚀 Operational Commands
-- **Manual Restart:** Quit from the menu bar and relaunch (`open /Applications/Whispy.app`) after code changes or permission updates.
+- **After code changes:** `make reinstall` (rebuild + replace `/Applications/Whispy.app` + relaunch + wait for the API). A plain relaunch reruns the old build. For permission updates only, quitting and relaunching from the menu bar is enough.
 - **Model Swapping:** Changing `model_size` in config triggers an asynchronous model reload.
 - **Logging:** Always check `~/.whispy.log` and `~/.whispy-error.log` for debugging.
 

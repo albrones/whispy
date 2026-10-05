@@ -113,7 +113,8 @@ class TestFullWorkflow:
         """Test the full workflow: engine init -> start recording -> stop -> transcribe -> inject."""
         # 1. Engine is created and initialized
         assert engine.state is state
-        assert engine.state.config["copy_to_clipboard"] is False
+        # copy_to_clipboard defaults to True (config.DEFAULT_CONFIG).
+        assert engine.state.config["copy_to_clipboard"] is True
         assert engine.state.config["streaming_enabled"] is True
 
         status = engine.get_status()
@@ -198,12 +199,16 @@ class TestConfigPersistence:
         }
         save_config(config, config_path)
 
+        # load_config migrates a file with no _version (or _version < 2): the
+        # v1->v2 migration unconditionally forces copy_to_clipboard to True,
+        # since an on-disk `false` is indistinguishable from the pre-migration
+        # default (see config._migrate_config).
         loaded = load_config(config_path)
         assert loaded["pause_ms"] == 800
         assert loaded["min_chunk_s"] == 0.6
         assert loaded["max_chunk_s"] == 10.0
         assert loaded["vad_aggressiveness"] == 3
-        assert loaded["copy_to_clipboard"] is False
+        assert loaded["copy_to_clipboard"] is True
         assert loaded["custom_vocabulary"] == ["Whispy"]
 
     def test_load_missing_config_falls_back_to_defaults(self, tmp_path):
@@ -324,7 +329,8 @@ class TestHTTPAPIWithEngine:
         _, port, engine = test_server
         status, body = _http_get(port, "/config")
         assert status == 200
-        assert body["copy_to_clipboard"] is False
+        # copy_to_clipboard defaults to True (config.DEFAULT_CONFIG).
+        assert body["copy_to_clipboard"] is True
         assert body["streaming_enabled"] is True
 
     def test_post_config_updates_and_persists(self, test_server, tmp_path):
@@ -440,7 +446,8 @@ class TestEngineLifecycle:
     def test_engine_text_injector_config_sync(self, state):
         """Test that TextInjector config stays in sync with engine config."""
         engine = Engine(state)
-        assert engine._text_injector._copy_to_clipboard is False
+        # copy_to_clipboard defaults to True (config.DEFAULT_CONFIG).
+        assert engine._text_injector._copy_to_clipboard is True
 
         engine.update_config({"copy_to_clipboard": False})
         assert engine._text_injector._copy_to_clipboard is False

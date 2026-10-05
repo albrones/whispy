@@ -1,5 +1,6 @@
 """Integration tests for multi-module interactions."""
 
+import re
 import sys
 import threading
 from pathlib import Path
@@ -103,8 +104,10 @@ class TestEngineInjectorIntegration:
     """Test Engine + TextInjector integration."""
 
     def test_injector_initialized_with_config(self, state):
+        # copy_to_clipboard defaults to True (config.DEFAULT_CONFIG); clipboard
+        # paste is the layout-safe delivery path.
         engine = Engine(state)
-        assert engine._text_injector._copy_to_clipboard is False
+        assert engine._text_injector._copy_to_clipboard is True
 
     def test_injector_updated_on_config_change(self, state):
         engine = Engine(state)
@@ -295,9 +298,13 @@ class TestStreamingEndToEnd:
 
         # Callback -> segmenter -> queue -> worker wiring produced ordered chunks,
         # buffered (not typed mid-recording). The release path types them once.
+        # _chunk_texts holds join_chunk's *delivered* strings, each carrying its
+        # own separator prefix ("", " " or ", ") rather than the bare mock output,
+        # so the ordering check pulls out the trailing digit instead of assuming
+        # a fixed-width prefix.
         inject.assert_not_called()
         assert len(engine._chunk_texts) >= 2
-        assert engine._chunk_texts == sorted(engine._chunk_texts, key=lambda s: int(s[1:]))
+        assert engine._chunk_texts == sorted(engine._chunk_texts, key=lambda s: int(re.sub(r"\D", "", s)))
 
     def test_streaming_disabled_uses_whole_file_path(self, config_path, mocker):
         # streaming off -> no chunk wiring; the legacy run_transcription path runs.

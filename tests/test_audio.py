@@ -19,6 +19,7 @@ if str(_src) not in sys.path:
 
 import whispy.core.audio as audio_module
 from whispy.core.audio import SILENCE_RMS_THRESHOLD, AudioEngine
+from whispy.core.segmentation import CONTINUATION, SENTENCE
 
 
 class _SpyStream:
@@ -326,16 +327,16 @@ class TestRecordingFilePermissions:
 
     def test_chunk_wav_is_owner_only(self, sm):
         audio = AudioEngine(sm)
-        chunks: list[str] = []
-        audio._on_chunk = chunks.append
+        chunks: list[tuple[str, str]] = []
+        audio._on_chunk = lambda path, reason: chunks.append((path, reason))
         audio._chunk_buf = bytearray(b"\x00" * 3200)
         old_umask = os.umask(0o022)
         try:
-            audio._emit_chunk()
+            audio._emit_chunk(SENTENCE)
         finally:
             os.umask(old_umask)
         assert len(chunks) == 1
-        mode = os.stat(chunks[0]).st_mode & 0o777
+        mode = os.stat(chunks[0][0]).st_mode & 0o777
         assert mode == 0o600
 
 
@@ -500,6 +501,129 @@ class TestTranscribe:
 
         assert audio.transcribe(audio_path, mock_asr_model) == "bonjour"
 
+    # -----------------------------------------------------------------------
+    # Empty-result retry on the untrimmed original (fix-dictation-text-fidelity)
+    # -----------------------------------------------------------------------
+
+    def test_empty_trimmed_result_retries_on_the_untrimmed_original(self, sm, mock_asr_model, tmp_path):
+        """A trimmed clip that comes back empty gets one retry on the original.
+
+        Trimming is the only transformation between the gates and the model
+        call, so it is the first suspect for a lost result; the untrimmed
+        original is tried once more before giving up.
+        """
+        audio = AudioEngine(sm)
+        audio_path = self._clip(tmp_path)
+        trimmed_path = audio_path + ".trim.wav"
+        audio._get_audio_duration = MagicMock(return_value=2.0)
+        audio._get_peak_rms = MagicMock(return_value=0.15)
+        audio._speech_span = MagicMock(return_value=(0.1, 1.5, 1.0))
+        audio._trim_to_speech = MagicMock(return_value=trimmed_path)
+        mock_asr_model.recognize.side_effect = ["", "hello world"]
+
+        result = audio.transcribe(audio_path, mock_asr_model)
+
+        assert result == "hello world"
+        assert mock_asr_model.recognize.call_count == 2
+        calls = [c.args[0] for c in mock_asr_model.recognize.call_args_list]
+        assert calls == [trimmed_path, audio_path]
+
+    def test_untrimmed_clip_is_never_retried_when_empty(self, sm, mock_asr_model, tmp_path):
+        """A clip that was sent untrimmed (trimming was a no-op) gets no retry."""
+        audio = AudioEngine(sm)
+        audio_path = self._clip(tmp_path)
+        audio._get_audio_duration = MagicMock(return_value=2.0)
+        audio._get_peak_rms = MagicMock(return_value=0.15)
+        audio._speech_span = MagicMock(return_value=(0.1, 1.5, 1.0))
+        audio._trim_to_speech = MagicMock(return_value=audio_path)  # no-op trim
+        mock_asr_model.recognize.return_value = ""
+
+        result = audio.transcribe(audio_path, mock_asr_model)
+
+        assert result is None
+        mock_asr_model.recognize.assert_called_once_with(audio_path)
+
+    def test_both_calls_empty_logs_a_warning_with_the_measurements(self, sm, mock_asr_model, tmp_path, caplog):
+        audio = AudioEngine(sm)
+        audio_path = self._clip(tmp_path)
+        trimmed_path = audio_path + ".trim.wav"
+        audio._get_audio_duration = MagicMock(return_value=2.0)
+        audio._get_peak_rms = MagicMock(return_value=0.15)
+        audio._speech_span = MagicMock(return_value=(0.1, 1.5, 1.0))
+        audio._trim_to_speech = MagicMock(return_value=trimmed_path)
+        mock_asr_model.recognize.return_value = ""
+
+        with caplog.at_level(logging.WARNING, logger="whispy.core.audio"):
+            result = audio.transcribe(audio_path, mock_asr_model)
+
+        assert result is None
+        assert mock_asr_model.recognize.call_count == 2
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "2.00" in warnings[0].getMessage()
+        assert "0.150000" in warnings[0].getMessage()
+        assert "1.00" in warnings[0].getMessage()
+
+
+class TestGateRejectionLogging:
+    """A clip stopped by a gate keeps that gate's own (non-loss) log level.
+
+    The empty-result WARNING added for the trimming retry names a loss: the
+    clip cleared every gate and the model still returned nothing. A clip
+    stopped BY a gate is a routine, expected discard and must keep logging at
+    its existing level, never emit that loss warning, and never reach the
+    model.
+    """
+
+    @staticmethod
+    def _clip(tmp_path):
+        audio_path = str(tmp_path / "test.wav")
+        with open(audio_path, "wb") as f:
+            f.write(b"\x00" * 100)
+        return audio_path
+
+    def test_duration_guard_rejection_is_not_a_loss_warning(self, sm, mock_asr_model, tmp_path, caplog):
+        audio = AudioEngine(sm)
+        audio_path = self._clip(tmp_path)
+        audio._get_audio_duration = MagicMock(return_value=0.1)
+
+        with caplog.at_level(logging.INFO, logger="whispy.core.audio"):
+            result = audio.transcribe(audio_path, mock_asr_model, min_recording_duration=0.3)
+
+        assert result is None
+        mock_asr_model.recognize.assert_not_called()
+        assert not any(r.levelno == logging.WARNING for r in caplog.records)
+        assert any(r.levelno == logging.INFO for r in caplog.records)
+
+    def test_rms_gate_rejection_is_not_a_loss_warning(self, sm, mock_asr_model, tmp_path, caplog):
+        audio = AudioEngine(sm)
+        audio_path = self._clip(tmp_path)
+        audio._get_audio_duration = MagicMock(return_value=2.0)
+        audio._get_peak_rms = MagicMock(return_value=0.0006)
+
+        with caplog.at_level(logging.INFO, logger="whispy.core.audio"):
+            result = audio.transcribe(audio_path, mock_asr_model)
+
+        assert result is None
+        mock_asr_model.recognize.assert_not_called()
+        assert not any(r.levelno == logging.WARNING for r in caplog.records)
+        assert any(r.levelno == logging.INFO for r in caplog.records)
+
+    def test_voiced_duration_gate_rejection_is_not_a_loss_warning(self, sm, mock_asr_model, tmp_path, caplog):
+        audio = AudioEngine(sm)
+        audio_path = self._clip(tmp_path)
+        audio._get_audio_duration = MagicMock(return_value=2.0)
+        audio._get_peak_rms = MagicMock(return_value=0.15)
+        audio._speech_span = MagicMock(return_value=(0.0, 0.1, 0.05))  # below MIN_SPEECH_DURATION_S
+
+        with caplog.at_level(logging.INFO, logger="whispy.core.audio"):
+            result = audio.transcribe(audio_path, mock_asr_model)
+
+        assert result is None
+        mock_asr_model.recognize.assert_not_called()
+        assert not any(r.levelno == logging.WARNING for r in caplog.records)
+        assert any(r.levelno == logging.INFO for r in caplog.records)
+
 
 # ---------------------------------------------------------------------------
 # Streaming segmentation (configure_streaming + capture-side chunk emission)
@@ -528,8 +652,15 @@ class TestStreamingCapture:
         return audio, spy.instances[-1]._callback
 
     def test_emits_chunk_on_silence_boundary(self, sm, mocker):
-        chunks: list[str] = []
-        audio, cb = self._start_streaming(sm, mocker, chunks.append, pause_ms=200, min_speech_s=0.05, max_chunk_s=10.0)
+        chunks: list[tuple[str, str]] = []
+        audio, cb = self._start_streaming(
+            sm,
+            mocker,
+            lambda path, reason: chunks.append((path, reason)),
+            pause_ms=200,
+            min_speech_s=0.05,
+            max_chunk_s=10.0,
+        )
         speech = self._block(8000)  # loud -> level ~1.0
         silence = self._block(0)
         for _ in range(5):  # 0.5s speech
@@ -537,7 +668,32 @@ class TestStreamingCapture:
         for _ in range(4):  # silence accumulates past pause_ms (0.2s)
             cb(silence, 1600, None, None)
         assert len(chunks) >= 1
-        assert os.path.exists(chunks[0])
+        path, reason = chunks[0]
+        assert os.path.exists(path)
+        # pause_ms == sentence_break_ms here (default), so a qualifying pause
+        # closes the chunk as a sentence boundary.
+        assert reason == SENTENCE
+
+    def test_forced_cut_reports_continuation(self, sm, mocker):
+        # Continuous speech with no closing gap: only the unconditional
+        # ceiling (max_chunk_s * HARD_MAX_FACTOR) can close this chunk, and
+        # that cut is always a CONTINUATION, never a SENTENCE.
+        chunks: list[tuple[str, str]] = []
+        audio, cb = self._start_streaming(
+            sm,
+            mocker,
+            lambda path, reason: chunks.append((path, reason)),
+            pause_ms=600,
+            min_speech_s=0.05,
+            max_chunk_s=0.2,
+        )
+        speech = self._block(8000)
+        for _ in range(10):  # 1.0s of continuous speech, no gap
+            cb(speech, 1600, None, None)
+        assert len(chunks) >= 1
+        path, reason = chunks[0]
+        assert os.path.exists(path)
+        assert reason == CONTINUATION
 
     def test_no_whole_file_written_in_streaming(self, sm, mocker):
         chunks: list[str] = []
@@ -548,15 +704,25 @@ class TestStreamingCapture:
         assert audio._wave is None
 
     def test_tail_flushed_on_stop(self, sm, mocker):
-        chunks: list[str] = []
-        audio, cb = self._start_streaming(sm, mocker, chunks.append, pause_ms=5000, min_speech_s=0.05, max_chunk_s=60.0)
+        chunks: list[tuple[str, str]] = []
+        audio, cb = self._start_streaming(
+            sm,
+            mocker,
+            lambda path, reason: chunks.append((path, reason)),
+            pause_ms=5000,
+            min_speech_s=0.05,
+            max_chunk_s=60.0,
+        )
         # Speech with no closing pause -> nothing emitted until stop flushes tail.
         for _ in range(5):
             cb(self._block(8000), 1600, None, None)
         assert chunks == []
         audio.stop()
         assert len(chunks) == 1
-        assert os.path.exists(chunks[0])
+        path, reason = chunks[0]
+        assert os.path.exists(path)
+        # The tail always flushes as a sentence: the recording ended.
+        assert reason == SENTENCE
 
     def test_pure_silence_emits_nothing(self, sm, mocker):
         chunks: list[str] = []
@@ -582,6 +748,62 @@ class TestStreamingCapture:
         path = audio.recording_path
         assert os.path.exists(path)
         audio.stop()
+
+    def _feed_until_ceiling_then_gap(self, sm, mocker, soft_gap_ms, max_gap_frames=20):
+        """Drive the live segmenter past max_chunk_s, then feed silence frames
+        one at a time (via the real capture callback) until a boundary fires.
+
+        Returns (chunks, gap_frames_needed). WebRTC VAD carries roughly two
+        frames of hangover after loud speech before it will call a frame
+        silent, so the released boundary needs a handful of gap frames, not
+        exactly one -- this drives real frames rather than asserting on the
+        segmenter's raw silence-seconds counter.
+        """
+        speech = self._block(8000, n=480)  # one 30ms VAD frame, reliably "speech"
+        silence = self._block(0, n=480)  # one 30ms VAD frame of digital silence
+        chunks: list[tuple[str, str]] = []
+        audio, cb = self._start_streaming(
+            sm,
+            mocker,
+            lambda path, reason: chunks.append((path, reason)),
+            pause_ms=100_000,  # never closes on its own
+            min_speech_s=0.01,
+            max_chunk_s=1.0,  # ~34 frames
+            soft_gap_ms=soft_gap_ms,
+        )
+        # start() fires the spy stream's callback once with ~1s of silence
+        # before we drive it ourselves; clear that out of the fresh segmenter
+        # so the frame math below starts from a clean chunk.
+        audio._segmenter.reset_chunk()
+        audio._segmenter._pending = bytearray()
+        audio._chunk_buf = bytearray()
+        for _ in range(34):  # past the 1.0s ceiling, still speaking
+            cb(speech, 480, None, None)
+        assert chunks == []
+        for i in range(max_gap_frames):
+            cb(silence, 480, None, None)
+            if chunks:
+                audio.stop()
+                return chunks, i + 1
+        audio.stop()
+        return chunks, None
+
+    def test_configure_streaming_threads_soft_gap_ms_release(self, sm, mocker):
+        # A soft_gap_ms just past WebRTC VAD's ~2-frame hangover releases the
+        # ceiling cut at the first qualifying silence, well before the
+        # unconditional hard cap (1.5x max_chunk_s) could explain it.
+        chunks, gap_frames = self._feed_until_ceiling_then_gap(sm, mocker, soft_gap_ms=120)
+        assert gap_frames is not None and gap_frames <= 8
+        assert chunks[0][1] == CONTINUATION
+
+    def test_configure_streaming_threads_soft_gap_ms_hold(self, sm, mocker):
+        # A soft_gap_ms far longer than any gap fed here is NOT released by
+        # it; proves configure_streaming actually threads the value to the
+        # live segmenter rather than a constructor default it ignores --
+        # otherwise this would cut at the same point as the low value above.
+        chunks, gap_frames = self._feed_until_ceiling_then_gap(sm, mocker, soft_gap_ms=5000)
+        assert gap_frames is not None and gap_frames > 8
+        assert chunks[0][1] == CONTINUATION
 
 
 class TestSegmentPcm:
@@ -617,6 +839,40 @@ class TestSegmentPcm:
         audio.segment_pcm(bytes(1600 * 2) * 5)
         assert audio._on_chunk is None
         assert audio._segmenter is None
+
+    def test_segment_pcm_honours_soft_gap_ms(self, sm):
+        # 34 frames of speech (past the 1.0s ceiling) followed by 20 frames of
+        # silence -- more gap than either case needs. A low soft_gap_ms (120ms,
+        # just past WebRTC VAD's ~2-frame hangover) releases the cut at the
+        # first qualifying gap, well short of the 1.5s hard cap; a high one
+        # (5000ms) is never satisfied by this gap, so the cut only lands at
+        # the unconditional hard cap instead. Both replays emit exactly one
+        # chunk (the remaining silence never contains speech, so nothing
+        # follows) -- the WAV duration is what tells them apart.
+        import numpy as np
+
+        speech_frame = np.random.RandomState(0).randint(-8000, 8000, 480).astype(np.int16).tobytes()
+        silence_frame = bytes(480 * 2)
+        pcm = speech_frame * 34 + silence_frame * 20
+
+        audio = AudioEngine(sm)
+        released = audio.segment_pcm(
+            pcm, pause_ms=100_000, min_speech_s=0.01, max_chunk_s=1.0, soft_gap_ms=120, block_frames=480
+        )
+        held = audio.segment_pcm(
+            pcm, pause_ms=100_000, min_speech_s=0.01, max_chunk_s=1.0, soft_gap_ms=5000, block_frames=480
+        )
+        try:
+            assert len(released) == 1
+            assert len(held) == 1
+            released_duration = wave.open(released[0]).getnframes() / 16000
+            held_duration = wave.open(held[0]).getnframes() / 16000
+            assert released_duration < 1.4  # released well before the 1.5s hard cap
+            assert held_duration >= 1.45  # held through the gap, cut only at the hard cap
+        finally:
+            for p in (*released, *held):
+                if os.path.exists(p):
+                    os.remove(p)
 
 
 # ---------------------------------------------------------------------------

@@ -7,11 +7,14 @@ established, it degrades with an actionable stderr hint rather than crashing the
 daemon.
 """
 
+import logging
 import sys
 from collections.abc import Callable
 
 from ...hardware.event_decode import canonical_modifier, decode_key_match
 from .session import is_wayland_session, warn_if_wayland
+
+logger = logging.getLogger(__name__)
 
 _LISTEN_FAILURE_HINT = (
     "[whispy] Could not start the global key listener (pynput).\n"
@@ -172,7 +175,7 @@ class PynputHotkeyListener:
             return
 
         self.active = True
-        print(f"[hotkey] Trigger key listener active (key: {self._trigger_key})")
+        logger.info("[hotkey] Trigger key listener active (key: %s)", self._trigger_key)
 
     def stop(self) -> None:
         """Stop the pynput listener."""

@@ -1,7 +1,9 @@
 """Tests for config validation in save_config and restart path resolution."""
 
 import json
+import logging
 import os
+import shutil
 import stat
 import sys
 from pathlib import Path
@@ -14,7 +16,7 @@ if _project_root in sys.path:
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
-from whispy.core.config import TRIGGER_PRESETS, _validate_config
+from whispy.core.config import CONFIG_VERSION, TRIGGER_PRESETS, _validate_config
 from whispy.core.engine import (
     DEFAULT_CONFIG,
     load_config,
@@ -301,7 +303,7 @@ class TestStreamingConfig:
         assert DEFAULT_CONFIG["pause_ms"] == 600
         assert DEFAULT_CONFIG["min_speech_s"] == 0.7
         assert DEFAULT_CONFIG["min_chunk_s"] == 0.4
-        assert DEFAULT_CONFIG["max_chunk_s"] == 12.0
+        assert DEFAULT_CONFIG["max_chunk_s"] == 8.0
         assert DEFAULT_CONFIG["vad_aggressiveness"] == 2
 
     def test_valid_values_preserved(self):
@@ -345,7 +347,7 @@ class TestStreamingConfig:
 
     def test_max_chunk_s_must_exceed_min_chunk_s(self):
         # max <= min is invalid -> reset to default
-        assert _validate_config({"min_chunk_s": 5.0, "max_chunk_s": 3.0})["max_chunk_s"] == 12.0
+        assert _validate_config({"min_chunk_s": 5.0, "max_chunk_s": 3.0})["max_chunk_s"] == 8.0
 
     def test_vad_aggressiveness_out_of_range_resets(self):
         assert _validate_config({"vad_aggressiveness": 9})["vad_aggressiveness"] == 2
@@ -372,6 +374,44 @@ class TestStreamingConfig:
         # And the defaults were persisted back.
         on_disk = json.loads(config_file.read_text())
         assert "streaming_enabled" in on_disk
+
+
+# ---------------------------------------------------------------------------
+# soft_gap_ms config: the gap that releases the length-ceiling cut instead of
+# falling at the very next frame (fix-dictation-text-fidelity, task 8.1)
+# ---------------------------------------------------------------------------
+
+
+class TestSoftGapMsConfig:
+    """Validation of the soft_gap_ms config key."""
+
+    def test_default_present(self):
+        assert DEFAULT_CONFIG["soft_gap_ms"] == 350
+
+    def test_default_on_no_file_load(self, tmp_path):
+        # Scenario: The default soft gap is 350 milliseconds.
+        loaded = load_config(tmp_path / "does-not-exist.json")
+        assert loaded["soft_gap_ms"] == 350
+
+    def test_missing_key_defaults(self):
+        assert _validate_config({})["soft_gap_ms"] == 350
+
+    def test_valid_value_preserved(self):
+        assert _validate_config({"soft_gap_ms": 500})["soft_gap_ms"] == 500
+
+    def test_zero_resets_to_default(self):
+        assert _validate_config({"soft_gap_ms": 0})["soft_gap_ms"] == 350
+
+    def test_negative_resets_to_default(self):
+        assert _validate_config({"soft_gap_ms": -50})["soft_gap_ms"] == 350
+
+    def test_string_resets_to_default(self):
+        assert _validate_config({"soft_gap_ms": "350"})["soft_gap_ms"] == 350
+
+    def test_bool_resets_to_default(self):
+        # bool is an int subclass in Python; must be explicitly rejected.
+        assert _validate_config({"soft_gap_ms": True})["soft_gap_ms"] == 350
+        assert _validate_config({"soft_gap_ms": False})["soft_gap_ms"] == 350
 
 
 # ---------------------------------------------------------------------------
@@ -402,3 +442,280 @@ class TestTypeWhileSpeakingConfig:
 
     def test_explicit_false_preserved(self):
         assert _validate_config({"type_while_speaking": False})["type_while_speaking"] is False
+
+
+# ---------------------------------------------------------------------------
+# Text fidelity: clipboard-default + chunk ceiling, and the v1 -> v2 migration
+# (fix-dictation-text-fidelity)
+# ---------------------------------------------------------------------------
+
+
+class TestTextFidelityDefaultsAndMigration:
+    """copy_to_clipboard=True and max_chunk_s=8.0 are the new defaults; a v1
+    config on disk is migrated to them once, and a deliberate value survives.
+    """
+
+    def test_new_defaults_on_no_file_load(self, tmp_path):
+        # Scenario: Copy to clipboard is enabled by default.
+        loaded = load_config(tmp_path / "does-not-exist.json")
+        assert loaded["copy_to_clipboard"] is True
+        assert loaded["max_chunk_s"] == 8.0
+
+    def test_default_copy_to_clipboard_is_disabled_opt_out_survives_migration(self):
+        # Kept under its original name from when False was the default; now
+        # covers the explicit opt-out surviving migration (core-engine spec
+        # scenario "Default copy to clipboard is disabled").
+        config_file_payload = {"copy_to_clipboard": False, "_version": CONFIG_VERSION}
+        validated = _validate_config(config_file_payload)
+        assert validated["copy_to_clipboard"] is False
+
+    def test_v1_config_is_migrated_to_clipboard_and_new_ceiling(self, tmp_path):
+        # Scenario: An existing install is migrated to clipboard delivery.
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"copy_to_clipboard": False, "max_chunk_s": 12.0, "_version": 1}))
+
+        loaded = load_config(config_file)
+        assert loaded["copy_to_clipboard"] is True
+        assert loaded["max_chunk_s"] == 8.0
+        assert loaded["_version"] == 2
+
+        on_disk = json.loads(config_file.read_text())
+        assert on_disk["copy_to_clipboard"] is True
+        assert on_disk["max_chunk_s"] == 8.0
+        assert on_disk["_version"] == 2
+
+    def test_migration_does_not_reapply_at_v2(self, tmp_path):
+        # Scenario: Migration does not re-apply.
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"copy_to_clipboard": False, "_version": 2}))
+
+        loaded = load_config(config_file)
+        assert loaded["copy_to_clipboard"] is False
+
+    def test_v1_tuned_max_chunk_s_survives_migration(self, tmp_path):
+        # Scenario: A deliberately tuned chunk ceiling survives migration.
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"max_chunk_s": 20.0, "_version": 1}))
+
+        loaded = load_config(config_file)
+        assert loaded["max_chunk_s"] == 20.0
+        # copy_to_clipboard migration is unconditional regardless of max_chunk_s.
+        assert loaded["copy_to_clipboard"] is True
+        assert loaded["_version"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Migration backs up the file it replaces (fix-dictation-text-fidelity,
+# tasks 8.4 / 8.5)
+# ---------------------------------------------------------------------------
+
+
+class TestMigrationBackup:
+    """A migration copies the pre-migration file to a version-named ``.bak``
+    beside it and logs which keys changed, before persisting the migrated
+    result. A failed backup is logged but never blocks the migration.
+    """
+
+    def _full_v1_payload(self):
+        # A "full" pre-migration config (every known key already present, as a
+        # real saved file would be) so the only keys the migration itself
+        # changes are copy_to_clipboard and max_chunk_s -- not every key that
+        # merely happens to be missing from a sparse test fixture.
+        payload = dict(DEFAULT_CONFIG)
+        payload["copy_to_clipboard"] = False
+        payload["max_chunk_s"] = 12.0
+        payload["_version"] = 1
+        return payload
+
+    def test_backup_is_byte_identical_to_pre_migration_file(self, tmp_path):
+        # Scenario: A migration backs up the file it replaces.
+        config_file = tmp_path / "config.json"
+        original_bytes = json.dumps(self._full_v1_payload()).encode()
+        config_file.write_bytes(original_bytes)
+
+        load_config(config_file)
+
+        backup_file = tmp_path / "config.json.v1.bak"
+        assert backup_file.exists()
+        assert backup_file.read_bytes() == original_bytes
+
+    def test_backup_named_v0_when_version_key_absent(self, tmp_path):
+        # Scenario: A migration backs up the file it replaces (no _version key).
+        config_file = tmp_path / "config.json"
+        payload = dict(DEFAULT_CONFIG)
+        payload["copy_to_clipboard"] = False
+        payload.pop("_version", None)  # DEFAULT_CONFIG carries no _version key
+        original_bytes = json.dumps(payload).encode()
+        config_file.write_bytes(original_bytes)
+
+        load_config(config_file)
+
+        backup_file = tmp_path / "config.json.v0.bak"
+        assert backup_file.exists()
+        assert backup_file.read_bytes() == original_bytes
+
+    def test_migration_logs_the_keys_it_changed(self, tmp_path, caplog):
+        # Scenario: A migration backs up the file it replaces (keys logged).
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps(self._full_v1_payload()))
+
+        with caplog.at_level(logging.INFO, logger="whispy.core.config"):
+            load_config(config_file)
+
+        info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+        assert any("copy_to_clipboard" in r.getMessage() and "max_chunk_s" in r.getMessage() for r in info_records)
+
+    def test_backup_failure_is_logged_but_migration_still_persists(self, tmp_path, caplog, monkeypatch):
+        # Scenario: A failed backup does not block the migration.
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps(self._full_v1_payload()))
+
+        def _raising_copy2(*args, **kwargs):
+            raise OSError("simulated disk-full backup failure")
+
+        monkeypatch.setattr(shutil, "copy2", _raising_copy2)
+
+        with caplog.at_level(logging.WARNING, logger="whispy.core.config"):
+            loaded = load_config(config_file)
+
+        # The migration still ran and persisted despite the backup failure.
+        assert loaded["copy_to_clipboard"] is True
+        assert loaded["max_chunk_s"] == 8.0
+        assert loaded["_version"] == 2
+        on_disk = json.loads(config_file.read_text())
+        assert on_disk["copy_to_clipboard"] is True
+        assert on_disk["_version"] == 2
+
+        # No backup was written, and the failure was logged at WARNING.
+        assert not (tmp_path / "config.json.v1.bak").exists()
+        assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+    def test_an_already_migrated_config_is_not_rewritten_or_re_backed_up(self, tmp_path):
+        """The backup must survive the launches that follow the migration.
+
+        Migrating on every load would copy the already-migrated file over
+        ``config.json.v1.bak`` on the next start, replacing the only snapshot of
+        what the user had before the upgrade with a copy of what they have now.
+        """
+        from whispy.core.config import load_config
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"copy_to_clipboard": False, "max_chunk_s": 12.0, "_version": 1}))
+
+        load_config(config_file)  # the real v1 -> v2 migration
+
+        backup = tmp_path / "config.json.v1.bak"
+        assert json.loads(backup.read_text())["copy_to_clipboard"] is False
+        backup_mtime = backup.stat().st_mtime_ns
+        config_mtime = config_file.stat().st_mtime_ns
+
+        load_config(config_file)  # every later launch
+
+        assert backup.stat().st_mtime_ns == backup_mtime, "the backup must not be rewritten"
+        assert config_file.stat().st_mtime_ns == config_mtime, "a no-op migration must not write"
+        assert json.loads(backup.read_text())["copy_to_clipboard"] is False
+        assert not (tmp_path / "config.json.v2.bak").exists()
+
+
+# ---------------------------------------------------------------------------
+# read_config: the non-migrating read path (fix-config-merge-on-save)
+# ---------------------------------------------------------------------------
+
+
+class TestReadConfig:
+    """read_config returns the validated on-disk config without ever writing.
+
+    load_config migrates, and _migrate_config persists. Config updates re-read
+    the file to merge onto it, so they need a read that does not turn every
+    update into an extra write of a file the user may be hand-editing.
+    """
+
+    def _config_file(self, tmp_path, payload):
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps(payload))
+        return config_file
+
+    def test_read_does_not_write_a_file_that_load_would_migrate(self, tmp_path):
+        from whispy.core.config import read_config
+
+        # No _version key, so load_config would migrate and persist.
+        config_file = self._config_file(tmp_path, {"pause_ms": 900})
+        before = config_file.stat().st_mtime_ns
+        original = config_file.read_text()
+
+        assert read_config(config_file)["pause_ms"] == 900
+
+        assert config_file.stat().st_mtime_ns == before, "read_config must not write"
+        assert config_file.read_text() == original
+
+    def test_load_config_still_migrates(self, tmp_path):
+        # Guards the split: boot behaviour must be unchanged.
+        config_file = self._config_file(tmp_path, {"pause_ms": 900})
+        loaded = load_config(config_file)
+        assert loaded["pause_ms"] == 900
+        on_disk = json.loads(config_file.read_text())
+        assert "_version" in on_disk, "load_config must still migrate and persist"
+
+    def test_read_fills_missing_keys_with_defaults(self, tmp_path):
+        from whispy.core.config import DEFAULT_CONFIG, read_config
+
+        config_file = self._config_file(tmp_path, {"pause_ms": 900})
+        loaded = read_config(config_file)
+        assert set(loaded) >= set(DEFAULT_CONFIG)
+        assert loaded["max_chunk_s"] == DEFAULT_CONFIG["max_chunk_s"]
+
+    def test_read_degrades_a_malformed_value_to_its_default(self, tmp_path):
+        # This is what keeps a hand-edit from merging in unchecked.
+        from whispy.core.config import DEFAULT_CONFIG, read_config
+
+        config_file = self._config_file(tmp_path, {"vad_aggressiveness": "loud", "pause_ms": 900})
+        loaded = read_config(config_file)
+        assert loaded["vad_aggressiveness"] == DEFAULT_CONFIG["vad_aggressiveness"]
+        # A valid sibling key in the same file is unaffected.
+        assert loaded["pause_ms"] == 900
+
+    def test_read_of_a_corrupt_file_returns_defaults_without_raising(self, tmp_path):
+        from whispy.core.config import DEFAULT_CONFIG, read_config
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text("{ not json")
+        loaded = read_config(config_file)
+        assert loaded["max_chunk_s"] == DEFAULT_CONFIG["max_chunk_s"]
+
+    def test_read_of_a_missing_file_returns_defaults(self, tmp_path):
+        from whispy.core.config import DEFAULT_CONFIG, read_config
+
+        loaded = read_config(tmp_path / "does-not-exist.json")
+        assert loaded == dict(DEFAULT_CONFIG) or set(loaded) >= set(DEFAULT_CONFIG)
+
+    def test_an_unreadable_file_falls_back_to_the_caller_s_config(self, tmp_path):
+        from whispy.core.config import DEFAULT_CONFIG, read_config
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text("{ not json")
+        running = dict(DEFAULT_CONFIG, pause_ms=950)
+
+        loaded = read_config(config_file, fallback=running)
+
+        assert loaded["pause_ms"] == 950
+
+    def test_the_fallback_is_validated_like_any_other_source(self, tmp_path):
+        from whispy.core.config import DEFAULT_CONFIG, read_config
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text("{ not json")
+        running = dict(DEFAULT_CONFIG, vad_aggressiveness="loud")
+
+        loaded = read_config(config_file, fallback=running)
+
+        assert loaded["vad_aggressiveness"] == DEFAULT_CONFIG["vad_aggressiveness"]
+
+    def test_a_readable_file_ignores_the_fallback(self, tmp_path):
+        from whispy.core.config import DEFAULT_CONFIG, read_config
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"pause_ms": 700}))
+
+        loaded = read_config(config_file, fallback=dict(DEFAULT_CONFIG, pause_ms=950))
+
+        assert loaded["pause_ms"] == 700

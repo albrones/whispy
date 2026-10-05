@@ -23,6 +23,21 @@ Audio capture uses `sounddevice`/PortAudio, installed automatically as a Python
 dependency — no `sox` or other system audio package is required on macOS. On Linux,
 install `xdotool`/`xclip` for text injection (see the README).
 
+## Trying a change in the real app
+
+```bash
+make run          # run the daemon from source, in the foreground — no bundle needed
+make reinstall    # macOS: rebuild + sign, replace /Applications/Whispy.app, relaunch
+```
+
+`make run` is the fast loop and covers most work. Reach for `make reinstall` when
+the change only manifests in the signed bundle — the event tap, text injection,
+or anything depending on macOS permission grants, which attach to the
+`Whispy.app` identity rather than to a bare interpreter.
+
+Relaunching `/Applications/Whispy.app` by hand after editing source does *not*
+pick the edit up: it restarts the previously built bundle.
+
 ## Running the tests
 
 ```bash

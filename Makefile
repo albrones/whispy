@@ -1,4 +1,4 @@
-.PHONY: help install update test lint format check run app uninstall clean validate validate-unattended
+.PHONY: help install update reinstall test lint format check run app uninstall clean validate validate-unattended
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -51,6 +51,9 @@ update: ## Pull latest, rebuild the app, and relaunch
 	$(MAKE) app
 	open dist/Whispy.app
 	@echo "✓ Whispy updated and relaunched"
+
+reinstall: ## Rebuild, replace /Applications/Whispy.app, relaunch, and wait for the API (dev loop)
+	./packaging/macos/reinstall.sh
 
 app: ## Build & sign the native macOS bundle (self-signed "Whispy Local Signing" cert, ad-hoc fallback) (dist/Whispy.app)
 	./packaging/macos/build_app.sh

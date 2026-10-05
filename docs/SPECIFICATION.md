@@ -64,10 +64,13 @@ whispy_daemon.py                ← Entry point (main / --headless / --doctor)
   → on a silence boundary (or max chunk length), AudioEngine emits a chunk WAV
   → Engine chunk worker transcribes each chunk in order (clean_text), accumulating text
   → in toggle mode with `type_while_speaking` true, the chunk worker also injects
-    each chunk's text immediately, in order (space-prefixed after the first typed
-    chunk of the recording; the FIFO injector serializes it against any other
-    pending injection); the full text keeps accumulating regardless, for the
-    stop path and the recording-limit clipboard copy
+    each chunk's text immediately, in order (every chunk after the first carries
+    the separator its boundary reason calls for — a single space after a
+    sentence-length pause, `, ` after a continuation cut, with the continuation's
+    withheld period restored at the end of the recording; the FIFO injector
+    serializes it against any other pending injection); the full text keeps
+    accumulating regardless, for the stop path and the recording-limit clipboard
+    copy
 
 [Trigger released]
   → Engine._handle_trigger_release() → AudioEngine.stop()  (flushes the tail chunk)
@@ -112,7 +115,7 @@ Owns loading, validation, and migration of the config file (previously inline in
 ```python
 {
 
-    "copy_to_clipboard": False,
+    "copy_to_clipboard": True,
     "start_at_login": False,          # macOS .app bundle only
     "min_recording_duration": 0.3,
     "custom_vocabulary": [],          # terms to bias the decoder toward
@@ -123,7 +126,8 @@ Owns loading, validation, and migration of the config file (previously inline in
     "pause_ms": 600,                  # trailing silence that closes a chunk
     "min_speech_s": 0.7,              # voiced seconds a chunk needs before a pause closes it
     "min_chunk_s": 0.4,               # chunk shorter than this is discarded
-    "max_chunk_s": 12.0,              # past this, cut at the next ~200 ms gap (hard cap at 1.5x)
+    "max_chunk_s": 8.0,               # past this, cut at the next qualifying gap (hard cap at 1.5x, i.e. 12 s)
+    "soft_gap_ms": 350,               # silence (ms) that releases the max_chunk_s cut; was a 200 ms constant
     "vad_aggressiveness": 2,          # WebRTC VAD 0-3
 }
 ```
@@ -133,7 +137,8 @@ There is **no** `compute_key` — the model always loads with `device="cpu", com
 - **`VALID_MODEL_SIZES`** = `["tiny", "base", "small", "medium", "large-v3"]`
 - **`SUPPORTED_LANGUAGES`** = `{"fr": "French", "en": "English"}` (no `"auto"`)
 - **`TRIGGER_PRESETS`** — ordered `[(label, value)]`: `("Fn", None)`, `("Right Command", 54)`, `("Right Option", 61)`, `("F13", 105)` (macOS keycodes; `None` = platform default; a hand-edited `ctrl+alt+cmd+<key>` combination string is still accepted by the listener but has no preset)
-- **`CONFIG_VERSION`** = `1`
+- **`CONFIG_VERSION`** = `2` — the v1→v2 step sets `copy_to_clipboard` to `True` unconditionally and, only when `max_chunk_s` still equals the old default `12.0`, lowers it to `8.0`; a config already tuned away from `12.0` is left alone. Rollback leaves `_version: 2` and `copy_to_clipboard: true` on disk — harmless (the old build reads and honours both keys) but it does not revert itself.
+- **Pre-migration backup:** before persisting a migrated config, `_migrate_config` copies the pre-migration file to `config.json.v<previous_version>.bak` beside it (e.g. `config.json.v1.bak`) and logs at INFO which keys the migration changed — a migration is the one write the user did not ask for, and without a prior copy there is nothing on disk to compare against. The backup is named for the version it came from, so it stays bounded (one per version crossed) and self-describing. If the backup cannot be written, that failure is logged at WARNING and does **not** block the migration — refusing to migrate over a failed backup would be worse than the loss it guards against.
 
 **Functions:**
 
@@ -142,7 +147,7 @@ There is **no** `compute_key` — the model always loads with `device="cpu", com
 | `load_config(path)` | Load JSON → validate → migrate (only if the file loaded). Falls back to defaults on missing/corrupt file. |
 | `save_config(config, path)` | Atomic write (temp + `os.replace`), filtered to known keys + `_version`. |
 | `_validate_config(config)` | Returns a cleaned copy: starts from defaults, merges known keys, range/type-checks every field, drops unknown keys, normalizes `custom_vocabulary`/`trigger`. Invalid values fall back to the default with a stderr warning. |
-| `_migrate_config(config, path)` | Adds any missing default keys, stamps `_version = CONFIG_VERSION`, persists. |
+| `_migrate_config(config, path)` | Adds any missing default keys, stamps `_version = CONFIG_VERSION`, backs up the pre-migration file to `config.json.v<previous_version>.bak` (failure logged, non-blocking), logs the changed keys, persists. |
 | `get_default_config_path()` | `~/.config/whispy/config.json`. |
 
 ---
@@ -221,7 +226,9 @@ Valid transitions: `IDLE → RECORDING → TRANSCRIBING → IDLE`. `start_record
 
 Deliberately a duration rather than a voiced/silent ratio: one word inside a 10 s key-hold is ~6% voiced frames, the same as steady room noise, while its voiced duration (0.66 s) is unmistakable. Measured separation across 125 noise realizations above the RMS gate: worst 0.12 s voiced against 0.33 s for the shortest real one-word dictation. Known ceiling — past roughly 0.04 normalized RMS `webrtcvad` labels steady noise fully voiced and the gate stops discriminating; that band is left to the model, which returned an empty string for every such clip measured.
 
-`SpeechSegmenter` decides chunk boundaries frame-by-frame for streaming. It uses `webrtcvad` when available (gain-independent), falling back to a normalized-RMS energy gate. Capture is 16 kHz mono int16; frames are 30 ms (480 samples / 960 bytes). A boundary is emitted when buffered speech carrying ≥ `min_speech_s` of **voiced** audio is followed by ≥ `pause_ms` of silence, or, once the buffer has reached `max_chunk_s`, at the first ~200 ms gap in speech (`SOFT_FLUSH_GAP_S`) — a cut placed at an arbitrary frame lands mid-word and the two halves come back duplicated or empty — with an unconditional cut at `max_chunk_s * HARD_MAX_FACTOR` (18 s by default) for speech with no gap at all. The minimum-size guard measures voiced seconds, not elapsed buffered seconds: each chunk is one independent model call, and measured through the production gates an isolated "oui" chunk of 1.11 s total but 0.39 s voiced came back as English 5/5, while the same word with 0.72 s voiced was correct 5/5 — elapsed duration does not separate the two, voiced duration does. Below the threshold the segmenter keeps buffering, so the short word is carried into the next chunk; nothing is discarded. When nothing follows for `LONE_WORD_PAUSE_S` (2 s) the held word is emitted alone, so a one-word dictation is typed within seconds rather than at the next long cut. The `max_chunk_s` branch and `flush_tail()` are deliberately independent of the threshold, so audio can neither be held indefinitely nor lost when a dictation is one short word. `feed(raw) → bool` (boundary occurred), `flush_tail() → bool` (pending chunk on stop), `reset_chunk()`, `has_pending`. The segmenter never drops audio — it only decides cut points.
+`SpeechSegmenter` decides chunk boundaries frame-by-frame for streaming. It uses `webrtcvad` when available (gain-independent), falling back to a normalized-RMS energy gate. Capture is 16 kHz mono int16; frames are 30 ms (480 samples / 960 bytes). A boundary is emitted when buffered speech carrying ≥ `min_speech_s` of **voiced** audio is followed by ≥ `pause_ms` of silence, or, once the buffer has reached `max_chunk_s` (default `8.0`), at the first gap in speech of at least `soft_gap_ms` (default `350`, constructor parameter backed by the module constant `SOFT_FLUSH_GAP_S`) — a cut placed at an arbitrary frame lands mid-word and the two halves come back duplicated or empty — with an unconditional cut at `max_chunk_s * HARD_MAX_FACTOR` (12 s at the default) for speech with no qualifying gap at all. `soft_gap_ms` was lowered from an unconfigurable 200 ms constant: 200 ms is short enough to occur inside ordinary speech, and on a live French dictation at `vad_aggressiveness: 3` it fired mid-word, cutting *Régie* in half (`...je suis dans Rég.` / `la version app`, the final syllable lost). Raising it to 350 ms trades a rarer failure back in — more run-on speech reaches the unconditional hard cap, which still cuts at an arbitrary frame — since the hard cap fires only on speech with no qualifying gap for half again the ceiling, against a soft gap that was firing on every long sentence. `soft_gap_ms` is threaded through `AudioEngine.configure_streaming`/`segment_pcm` and is in the engine's runtime re-wire set, so it can be retuned without a restart, like the other streaming parameters. The minimum-size guard measures voiced seconds, not elapsed buffered seconds: each chunk is one independent model call, and measured through the production gates an isolated "oui" chunk of 1.11 s total but 0.39 s voiced came back as English 5/5, while the same word with 0.72 s voiced was correct 5/5 — elapsed duration does not separate the two, voiced duration does. Below the threshold the segmenter keeps buffering, so the short word is carried into the next chunk; nothing is discarded. When nothing follows for `LONE_WORD_PAUSE_S` (2 s) the held word is emitted alone, so a one-word dictation is typed within seconds rather than at the next long cut. The `max_chunk_s` branch and `flush_tail()` are deliberately independent of the threshold, so audio can neither be held indefinitely nor lost when a dictation is one short word.
+
+`feed(raw)` returns the *reason* a boundary occurred, not a bool: `"sentence"`, `"continuation"`, or `None`. A dedicated sentence-break threshold (constructor default: the same `pause_ms`) decides the split — a pause at or above it, and the tail flush from `flush_tail()` on stop, are `"sentence"`; the `max_chunk_s` soft gap, the hard cap, the `LONE_WORD_PAUSE_S` lone-word emission, and any qualifying pause below the sentence-break threshold are `"continuation"`. Defaulting the threshold to `pause_ms` keeps today's boundaries as the starting point (every pause is a sentence break, every forced cut is a continuation); it is a separate knob so that retuning `pause_ms` alone cannot silently reclassify boundaries. The reason travels with the chunk — `AudioEngine`'s chunk sink and the engine's chunk worker carry it through to a continuation-aware join, which is what lets a length-ceiling cut read as a continuation instead of a false sentence break. `reset_chunk()`, `has_pending` are unchanged. The segmenter never drops audio — it only decides cut points.
 
 ---
 
@@ -353,7 +360,7 @@ Run via `python whispy_daemon.py --doctor` (or `make doctor`). Each check return
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
-| `copy_to_clipboard` | bool | `False` | clipboard-paste vs. direct keystroke |
+| `copy_to_clipboard` | bool | `True` | clipboard-paste vs. direct keystroke; pasting hands the text over as data and never resolves it against a keyboard layout, so accents and punctuation always arrive intact. Disabling it types the transcript key by key via `osascript keystroke`, which resolves characters against the *active* keyboard layout — correct only on a US layout (measured on French AZERTY: every `,` arrived as `.`, every `â` as `q`) |
 | `start_at_login` | bool | `False` | macOS `.app` bundle only |
 | `min_recording_duration` | float | `0.3` | ≥ 0 |
 | `custom_vocabulary` | list[str] | `[]` | terms biasing the decoder (`initial_prompt`) |
@@ -364,10 +371,11 @@ Run via `python whispy_daemon.py --doctor` (or `make doctor`). Each check return
 | `pause_ms` | number | `600` | > 0 |
 | `min_speech_s` | number | `0.7` | ≥ 0 |
 | `min_chunk_s` | number | `0.4` | ≥ 0 |
-| `max_chunk_s` | number | `12.0` | > `min_chunk_s` |
+| `max_chunk_s` | number | `8.0` | > `min_chunk_s`; the hard cap (`max_chunk_s * 1.5`) follows it, so 12 s |
+| `soft_gap_ms` | number | `350` | > 0; silence that releases the `max_chunk_s` length cut |
 | `vad_aggressiveness` | int | `2` | 0–3 |
 
-A hidden `_version` key tracks migrations (`CONFIG_VERSION = 1`). There is **no** `compute_key`. Config is validated on load (invalid values fall back to defaults; unknown keys dropped) and migrated to add missing keys.
+A hidden `_version` key tracks migrations (`CONFIG_VERSION = 2`). There is **no** `compute_key`. Config is validated on load (invalid values fall back to defaults; unknown keys dropped) and migrated to add missing keys. The v1→v2 migration also rewrites `copy_to_clipboard` to `True` unconditionally and `max_chunk_s` to `8.0` when it was still at the old `12.0` default — see §3.2. Before persisting a migrated config, the pre-migration file is backed up to `config.json.v<previous_version>.bak` beside it; a failed backup is logged and does not block the migration — see §3.2.
 
 ---
 
