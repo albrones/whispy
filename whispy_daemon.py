@@ -8,8 +8,6 @@ Menu bar UI via rumps for status, animation, and settings.
 This is the main entry point. All logic is in src/whispy/.
 """
 
-import logging
-import logging.handlers
 import os
 import signal
 import sys
@@ -36,21 +34,21 @@ try:
 except (AttributeError, ValueError):  # pragma: no cover - non-standard streams
     pass
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(levelname)s] %(message)s",
-    handlers=[
-        logging.handlers.RotatingFileHandler(
-            Path.home() / ".whispy.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8"
-        ),
-        logging.StreamHandler(),
-    ],
-)
-
 # Ensure src/ is on the path
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR / "src") not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR / "src"))
+
+# Configure logging and capture stderr to ~/.whispy-error.log. Both the handler
+# set and the ordering constraint live in configure_logging (see its docstring);
+# this import must follow the sys.path setup above, and must stay a top-level
+# whispy module so logging is configured before the engine/audio stack loads.
+from whispy.logging_setup import configure_logging  # noqa: E402
+
+LOG_PATH = Path.home() / ".whispy.log"
+ERROR_LOG_PATH = Path.home() / ".whispy-error.log"
+
+configure_logging(LOG_PATH, ERROR_LOG_PATH)
 
 # ---------------------------------------------------------------------------
 # Config path
