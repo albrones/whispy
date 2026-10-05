@@ -22,6 +22,7 @@ from whispy.core.segmentation import (
     SpeechSegmenter,
     speech_duration_s,
     speech_span_s,
+    split_pcm,
     webrtcvad,
 )
 
@@ -309,3 +310,23 @@ class TestSpeechSpan:
 
         monkeypatch.setattr(seg_mod, "webrtcvad", None)
         assert speech_span_s(_voiced_block(17)) is None
+
+
+class TestSplitPcm:
+    """split_pcm bounds every piece and never drops or reorders audio."""
+
+    MAX_S = 30.0
+
+    def _assert_bounded_and_lossless(self, pcm):
+        pieces = split_pcm(pcm, self.MAX_S)
+        assert b"".join(pieces) == pcm
+        assert all(len(p) <= self.MAX_S * SAMPLE_RATE * 2 for p in pieces)
+        return pieces
+
+    def test_run_on_speech_is_cut_at_the_segmenter_ceiling(self):
+        pieces = self._assert_bounded_and_lossless(_speech_block(int(90 / 0.03)))
+        assert len(pieces) > 3  # the segmenter's own ceiling, not the 30 s slice
+
+    def test_long_leading_silence_is_sliced(self):
+        # The segmenter never cuts before the first speech frame.
+        self._assert_bounded_and_lossless(_silence_block(int(75 / 0.03)) + _speech_block(100))

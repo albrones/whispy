@@ -1080,3 +1080,48 @@ class TestCaptureDiagnosticsLog:
             audio.stop()
         assert "peak level 0.500" in caplog.text
         assert "noise floor" not in caplog.text
+
+
+@requires_vad
+class TestModelInputCeiling:
+    """No single model call receives more than MODEL_INPUT_MAX_S of audio.
+
+    A 180 s clip in one call peaked at 3.5 GB on CPU and 25 GB under CoreML --
+    the latter panicked the machine (2026-09-29).
+    """
+
+    FIXTURE = Path(__file__).parent / "fixtures" / "audio" / "fr_speech.wav"
+
+    def test_long_recording_reaches_the_model_in_bounded_pieces(self, tmp_path):
+        import numpy as np
+
+        from whispy.core.audio import MODEL_INPUT_MAX_S
+
+        with wave.open(str(self.FIXTURE)) as w:
+            speech = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+        pause = np.zeros(16000, dtype=np.int16)
+        parts = []
+        while sum(len(p) for p in parts) < 100 * 16000:
+            parts += [speech, pause]
+        path = tmp_path / "long.wav"
+        with wave.open(str(path), "wb") as out:
+            out.setnchannels(1)
+            out.setsampwidth(2)
+            out.setframerate(16000)
+            out.writeframes(np.concatenate(parts).tobytes())
+
+        seen = []
+
+        def recognize(model_path):
+            with wave.open(model_path) as w:
+                seen.append(w.getnframes() / w.getframerate())
+            return "bonjour"
+
+        model = MagicMock()
+        model.recognize.side_effect = recognize
+
+        text = AudioEngine(MagicMock()).transcribe(str(path), model)
+
+        assert len(seen) > 1
+        assert max(seen) <= MODEL_INPUT_MAX_S
+        assert text == " ".join(["bonjour"] * len(seen))
