@@ -114,6 +114,16 @@ class PystrayApp:
         if self._icon is not None:
             self._icon.stop()
 
+    def quit(self) -> None:
+        """Stop the tray loop so the daemon can exit.
+
+        The SIGTERM handler calls this, and on Linux SIGTERM is the documented
+        update path (`systemctl --user restart whispy`). Without it the handler
+        raised AttributeError and the process died on a traceback.
+        """
+        if self._icon is not None:
+            self._icon.stop()
+
     # -- Lifecycle ---------------------------------------------------------
 
     def run(self) -> None:

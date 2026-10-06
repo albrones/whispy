@@ -105,7 +105,13 @@ fi
 # declared in pyproject.toml. Pillow is only needed at build time (make app)
 # and is installed there. Skip full resolution when pyproject.toml is unchanged.
 DEPS_HASH_FILE="$VENV_DIR/.deps-hash"
-CURRENT_HASH=$(shasum -a 256 "$SCRIPT_DIR/pyproject.toml" | cut -d' ' -f1)
+# sha256sum on Linux, shasum on macOS -- neither is on both. Under `set -e`
+# a missing binary aborts the install before any dependency is installed.
+if command -v sha256sum &>/dev/null; then
+    CURRENT_HASH=$(sha256sum "$SCRIPT_DIR/pyproject.toml" | cut -d' ' -f1)
+else
+    CURRENT_HASH=$(shasum -a 256 "$SCRIPT_DIR/pyproject.toml" | cut -d' ' -f1)
+fi
 if [ -f "$DEPS_HASH_FILE" ] && [ "$(cat "$DEPS_HASH_FILE")" = "$CURRENT_HASH" ]; then
     echo -e "${YELLOW}Dependencies unchanged, refreshing editable link...${NC}"
     "$VENV_DIR/bin/pip" install --no-deps -e "$SCRIPT_DIR" -q
@@ -120,6 +126,51 @@ echo -e "${GREEN}[OK] Dependencies installed${NC}"
 
 PYTHON_BIN="$VENV_DIR/bin/python3"
 DAEMON_PATH="$SCRIPT_DIR/whispy_daemon.py"
+
+if [ "$OS" = "Linux" ]; then
+    echo ""
+    echo -e "${YELLOW}=== Linux environment check ===${NC}"
+
+    # Wayland first: nothing below matters if the session cannot deliver a
+    # global hotkey. Checked here rather than only at daemon start, where the
+    # message lands in a log file the user has not been told about yet.
+    if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        echo -e "${RED}[!] Wayland session detected.${NC}"
+        echo "    Whispy needs X11: the global hotkey and text injection do not work"
+        echo "    under Wayland. Whispy will install and run, but pressing the trigger"
+        echo "    key will do nothing."
+        echo "    Log out and pick an 'Xorg' / 'X11' session at your display manager."
+        echo "    Some distributions no longer ship one; there is no workaround yet."
+        echo ""
+    elif [ -z "${DISPLAY:-}" ]; then
+        echo -e "${YELLOW}[!] No DISPLAY set — this looks like a text-only session.${NC}"
+        echo "    Whispy needs a running X11 desktop to capture the trigger key."
+        echo ""
+    fi
+
+    # Report what is missing by name. The daemon degrades silently without
+    # these: xdotool missing means dictation transcribes and types nothing.
+    MISSING=""
+    command -v xdotool &>/dev/null || MISSING="$MISSING xdotool"
+    { command -v xclip &>/dev/null || command -v xsel &>/dev/null; } || MISSING="$MISSING xclip"
+    "$PYTHON_BIN" -c "import sounddevice" &>/dev/null || MISSING="$MISSING libportaudio2"
+
+    if [ -n "$MISSING" ]; then
+        echo -e "${RED}[!] Missing system packages:${NC}$MISSING"
+        echo "    xdotool      types the transcript into the focused window (required)"
+        echo "    xclip/xsel   needed by the default clipboard delivery mode (required)"
+        echo "    libportaudio2  audio capture (required)"
+        echo ""
+        echo "    Debian/Ubuntu: sudo apt install xdotool xclip libportaudio2"
+        echo "    Fedora:        sudo dnf install xdotool xclip portaudio"
+        echo "    Arch:          sudo pacman -S xdotool xclip portaudio"
+        echo ""
+        echo -e "${YELLOW}    Install these, then rerun this script.${NC}"
+    else
+        echo -e "${GREEN}[OK] xdotool, clipboard tool and PortAudio present${NC}"
+    fi
+    echo ""
+fi
 
 # -------------------------------------------------------------------------
 # Linux (X11): install a systemd --user service. macOS: no LaunchAgent below
@@ -139,6 +190,12 @@ if [ "$OS" = "Linux" ]; then
     cat > "$UNIT_PATH" << UNITEOF
 [Unit]
 Description=Whispy voice dictation daemon
+# NOTE: After= does not pull in graphical-session.target, so on some setups this
+# can still start before DISPLAY reaches the systemd user environment, leaving
+# pynput and xdotool with no X server and a hotkey that never fires.
+# WantedBy=graphical-session.target would order it correctly, but never starts at
+# all on a session that does not activate that target. Left on default.target
+# until someone can verify the alternative on a real desktop.
 After=graphical-session.target
 
 [Service]
@@ -146,17 +203,28 @@ Type=simple
 ExecStart=$PYTHON_BIN $DAEMON_PATH
 WorkingDirectory=$SCRIPT_DIR
 Restart=on-failure
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Inherit the session's DISPLAY/XAUTHORITY rather than guessing them.
+PassEnvironment=DISPLAY XAUTHORITY
+# Keep the user's own bin directories: xdotool and xclip are not always in /usr/bin.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=default.target
 UNITEOF
     echo -e "${GREEN}[OK] systemd user unit installed at $UNIT_PATH${NC}"
-    systemctl --user daemon-reload
-    systemctl --user enable --now whispy.service || {
-        echo -e "${YELLOW}Could not enable the service automatically. Start it with:${NC}"
+    # Unguarded, these abort the script under `set -e` on any machine with no
+    # systemd user bus (SSH without lingering, containers, WSL) -- skipping the
+    # package and X11 notes below, which are the part the user actually needs.
+    if systemctl --user daemon-reload 2>/dev/null; then
+        systemctl --user enable --now whispy.service || {
+            echo -e "${YELLOW}Could not enable the service automatically. Start it with:${NC}"
+            echo "  systemctl --user enable --now whispy.service"
+        }
+    else
+        echo -e "${YELLOW}No systemd user session here. Enable it from a graphical login with:${NC}"
         echo "  systemctl --user enable --now whispy.service"
-    }
+        echo "Or run it in the foreground: $PYTHON_BIN $DAEMON_PATH"
+    fi
     echo ""
     echo -e "${YELLOW}=== Linux notes ===${NC}"
     echo "Whispy v1 requires an X11 session (global hotkeys/text injection do not"

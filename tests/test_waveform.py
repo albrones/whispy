@@ -115,6 +115,9 @@ class TestMenuBarWaveformWiring:
         assert "show()" in body
 
     def test_quit_cleans_up(self):
-        body = _method_body("_on_quit")
+        # The cleanup lives in `quit()`, which the daemon's SIGTERM handler
+        # calls as well -- `_on_quit` is only the menu item delegating to it.
+        assert "self.quit()" in _method_body("_on_quit")
+        body = _method_body("quit")
         assert "destroy" in body
         assert "stop" in body

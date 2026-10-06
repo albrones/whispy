@@ -106,6 +106,36 @@ def test_install_branches_per_os(install: str):
     assert "whispy.service" in install
 
 
+# --- Linux first run -------------------------------------------------------
+# A clean Linux box has none of these by default, and the daemon degrades
+# silently without them: no xdotool means dictation transcribes and types
+# nothing, with the only clue in a log file nobody has been told to open.
+
+
+def test_install_checks_the_linux_runtime_dependencies(install: str):
+    for binary in ("xdotool", "xclip", "xsel"):
+        assert binary in install, f"install.sh must check for {binary}"
+    assert "import sounddevice" in install, "install.sh must verify PortAudio is usable"
+
+
+def test_install_warns_about_wayland_before_finishing(install: str):
+    assert "WAYLAND_DISPLAY" in install and "XDG_SESSION_TYPE" in install
+    # The check has to precede the systemd branch, which exits 0 early when
+    # systemctl is absent -- otherwise the warning never prints on that path.
+    assert install.index("WAYLAND_DISPLAY") < install.index("if ! command -v systemctl")
+
+
+def test_install_hashing_works_without_shasum(install: str):
+    # shasum is a macOS-ism; under `set -e` its absence aborted the install
+    # before a single dependency was installed.
+    assert "sha256sum" in install
+
+
+def test_a_missing_systemd_user_bus_does_not_abort_the_install(install: str):
+    # SSH without lingering, containers and WSL have systemctl but no user bus.
+    assert "systemctl --user daemon-reload 2>/dev/null" in install
+
+
 def test_install_uninstall_offers_user_data_removal(install: str):
     # The venv/LaunchAgent/systemd-unit removal leaves behind the config
     # (has the API token), the logs, and the downloaded model cache (639 MB)

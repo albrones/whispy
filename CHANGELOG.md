@@ -1,6 +1,88 @@
 # Changelog V1 — Whispy
 
-## [2.0.0]
+## [Unreleased]
+
+_Nothing yet._
+
+## [2.0.0] — 2026-10-06
+
+### Added
+- **Linux install checks what the daemon actually needs.** `install.sh` now
+  reports a Wayland session, a missing `DISPLAY`, and any of `xdotool`,
+  `xclip`/`xsel` and PortAudio that is absent, naming the package to install —
+  before the systemd branch, so the notes print on every Linux path. Without
+  them the install reported success and dictation typed nothing, with the only
+  clue in a log file nobody had been told to open.
+
+- **Toggle trigger mode.** A new `trigger_mode` config key — `"hold"` (default,
+  push-to-talk, unchanged) or `"toggle"` — lets a trigger press start
+  dictation and the next press stop it, so recording can outlive the key
+  press. Exposed as a **Toggle mode** checkbox in the menu bar / tray
+  Settings, and composable with any trigger.
+- **Modifier-combination triggers** (`ctrl+alt+cmd+<key>`) are decoded on both
+  platforms when written by hand into `config.json`. They are deliberately not
+  offered as menu presets: the macOS event tap is listen-only and cannot consume
+  the event, so a combination the focused app also binds would fire that app's
+  own shortcut too. The Trigger submenu stays Fn / Right Command / Right Option /
+  F13.
+- **Silence gate.** Near-silent audio is now discarded before it reaches the
+  model. Parakeet is far better behaved than Whisper on non-speech — no corpus
+  artifacts, no repetition loops — but it does invent short fillers (`Yeah.`,
+  `Okay.`, `Mm-hmm.`, `No.`, `Thank you.`) on silence and on a realistic
+  quiet-room noise floor, which would otherwise be typed into the active field.
+  The gate measures energy, not text, because `Okay.` and `No.` are legitimate
+  one-word dictations. Every observed false positive measured ≤0.00065
+  normalized RMS against ≥0.147 for real speech, so the 0.005 threshold has a
+  220× margin, and it fails open — an unmeasurable clip is still transcribed.
+- **Speech gate.** Non-speech that is merely *loud* clears the silence gate — a
+  noisy room, a fan, mains hum all measure 0.010–0.035 normalized RMS against the
+  0.005 threshold — and reached the model, which answered roughly 3% of
+  realizations with a filler (3 of 100 measured). A clip now also needs 0.20 s of
+  WebRTC-VAD voiced frames, which took that to 0 of 100 with no effect on real
+  speech. Reuses the `webrtcvad` dependency the streaming segmenter already
+  pulls, and fails open like the silence gate. Deliberately an absolute duration
+  and not a voiced/silent ratio: one word inside a 10 s key-hold is 6% voiced,
+  the same ratio as steady noise, while its voiced duration (0.66 s) is
+  unmistakable. Known ceiling — past ~0.04 RMS the VAD labels steady noise
+  voiced, so louder rooms are still the model's problem.
+
+  Platform-neutral: `webrtcvad-wheels` carries no platform marker and publishes
+  manylinux x86_64/aarch64 wheels, the gate sits in the shared core, and the
+  capture format is the same 16 kHz mono int16 on both. Wayland is unaffected —
+  the gate runs upstream of text injection, which is where Wayland's existing
+  limitation lives.
+
+- **Type while speaking.** New config key `type_while_speaking` (bool, default
+  `true`), also shown as a **Settings → Type while speaking** menu row right
+  after **Toggle mode**. In toggle mode, each streaming chunk's text is now
+  typed as soon as it is transcribed — text appears about a second after each
+  pause in speech — instead of all at once when dictation stops; hold mode is
+  unaffected, text still types once on release. Set the key to `false` (or
+  flip the menu row) to restore type-once-at-stop in toggle mode. Trade-off:
+  text goes to whatever field is focused at that moment, so switching windows
+  mid-dictation scatters text across them.
+- **Each recording logs its input device and peak level.** `capture open:
+  input 'Micro MacBook Pro' (native 44100 Hz), stream 16000 Hz` at start and
+  `capture closed: 12.3s, peak level 0.412` at stop, with a "noise floor"
+  hint when the whole recording stayed under the silence gate — so a
+  microphone that did not hear the user (lid closed, stale input after
+  sleep, wrong device) is readable in `~/.whispy.log` instead of looking like
+  a dictation of nothing.
+- **Serialized text injection.** Text injections now run through a single
+  FIFO worker inside the injector, in call order, so streaming chunks typed
+  live can never interleave with one another or with the stop-time injection.
+- **New config key `soft_gap_ms` (default `350`), replacing the hardcoded
+  ~200 ms soft-flush gap.** Past `max_chunk_s`, the segmenter now waits for at
+  least `soft_gap_ms` of silence before cutting, instead of the previous fixed
+  200 ms — short enough to occur *inside* ordinary speech. Measured on a live
+  French dictation at `vad_aggressiveness: 3`, the old threshold cut the word
+  *Régie* in half — the chunk ended `...je suis dans Rég.` and the next began
+  `la version app`, with the final syllable lost outright. Lowering
+  `max_chunk_s` from 12 s to 8 s made the cut fire roughly half again as often,
+  which turned a rare defect into a visible one. Retunable at runtime, like the
+  other streaming parameters. Trade-off: a higher gap threshold routes more
+  run-on speech to the unconditional hard cap (`max_chunk_s * 1.5`), which
+  still cuts at an arbitrary frame — a rarer failure, not no failure.
 
 ### Changed
 
@@ -33,7 +115,52 @@
   the intended fix for them.
 - `POST /config` no longer triggers a model reload; no setting selects a model.
 
+- **BREAKING — `copy_to_clipboard` now defaults to `true`.** Clipboard-paste
+  hands the transcript over as data and never resolves it against a keyboard
+  layout; keystroke mode (`osascript keystroke`) does, and is only correct on
+  a US layout — measured on a French AZERTY layout over a 178-second
+  dictation, every `,` arrived as `.` and every `â` as `q`. Keystroke mode
+  stays available as an explicit opt-out, documented as US-layout-only. A
+  one-time `_version` 1→2 config migration sets `copy_to_clipboard` to `true`
+  unconditionally on first launch after the upgrade, so existing installs
+  pick up the fix without user action. Rollback leaves `_version: 2` and
+  `copy_to_clipboard: true` on disk — harmless, since the old build reads and
+  honours both keys — but the setting does not revert itself.
+- **`max_chunk_s` default lowered from 12 s to 8 s**, pulling the hard cap
+  (`max_chunk_s * 1.5`) from 18 s to 12 s with it. The backend resolves
+  language once per model call, so a long chunk bets a lot of audio on a
+  single guess: over one daemon log of 610 chunks from a French dictation,
+  the chunks that came back in English had a median duration of 12.03 s
+  against 7.0 s overall. The same migration lowers `max_chunk_s` to `8.0` when
+  it is still at the old `12.0` default; a value already tuned away from
+  `12.0` is left untouched.
+- **macOS install consolidated on `Whispy.app`.** A single command
+  (`curl … | bash`) detects the OS: on macOS it builds and installs the
+  signed `Whispy.app` bundle into `/Applications`; Linux/X11 keeps venv +
+  `systemd --user`. `install.sh` no longer creates a LaunchAgent on macOS
+  (autostart is the in-app "Start at login" toggle). Existing installs have
+  their `com.whispy` LaunchAgent removed automatically (ending the
+  double-daemon-on-`:9090` issue).
+- Extracted `load_config`/`save_config` from `engine.py` into `config.py`.
+- Unified model loading (`_load_model_async` + `_load_model_on_device` →
+  `_load_model_async`).
+- Clarified the active visualization (indicator by default).
+- Improved logging of FSM transitions.
+- Fixed hanging tests (mocked the `afplay` subprocess).
+
 ### Fixed
+- **`systemctl --user restart whispy` killed the daemon on a traceback.** The
+  SIGTERM handler called `app.quit()`, which neither the Linux tray nor the
+  macOS menu bar defined — and the `TrayUI` port only required `run`, so
+  nothing caught it. Both now implement `quit`, and the port requires it.
+- **A machine with no systemd user bus aborted the install.** `systemctl --user
+  daemon-reload` ran unguarded under `set -e` on SSH, container and WSL
+  sessions, skipping the package and X11 notes that follow it.
+- **`install.sh` could abort before installing anything on Linux**, because it
+  hashed `pyproject.toml` with `shasum`, a macOS-only binary. It now prefers
+  `sha256sum`.
+- The systemd unit no longer hides `~/.local/bin` from the daemon, and passes
+  `DISPLAY`/`XAUTHORITY` through from the session.
 
 - **The trigger key was named after the wrong key.** The keycode-to-name table
   was written from memory and was wrong from keycode 9 onward: the right-hand
@@ -101,100 +228,6 @@
   `ValueError`, unreachable only because config validation restricted the value
   to `fr`/`en`.
 
-### Added
-
-- **Toggle trigger mode.** A new `trigger_mode` config key — `"hold"` (default,
-  push-to-talk, unchanged) or `"toggle"` — lets a trigger press start
-  dictation and the next press stop it, so recording can outlive the key
-  press. Exposed as a **Toggle mode** checkbox in the menu bar / tray
-  Settings, and composable with any trigger.
-- **Modifier-combination triggers** (`ctrl+alt+cmd+<key>`) are decoded on both
-  platforms when written by hand into `config.json`. They are deliberately not
-  offered as menu presets: the macOS event tap is listen-only and cannot consume
-  the event, so a combination the focused app also binds would fire that app's
-  own shortcut too. The Trigger submenu stays Fn / Right Command / Right Option /
-  F13.
-- **Silence gate.** Near-silent audio is now discarded before it reaches the
-  model. Parakeet is far better behaved than Whisper on non-speech — no corpus
-  artifacts, no repetition loops — but it does invent short fillers (`Yeah.`,
-  `Okay.`, `Mm-hmm.`, `No.`, `Thank you.`) on silence and on a realistic
-  quiet-room noise floor, which would otherwise be typed into the active field.
-  The gate measures energy, not text, because `Okay.` and `No.` are legitimate
-  one-word dictations. Every observed false positive measured ≤0.00065
-  normalized RMS against ≥0.147 for real speech, so the 0.005 threshold has a
-  220× margin, and it fails open — an unmeasurable clip is still transcribed.
-- **Speech gate.** Non-speech that is merely *loud* clears the silence gate — a
-  noisy room, a fan, mains hum all measure 0.010–0.035 normalized RMS against the
-  0.005 threshold — and reached the model, which answered roughly 3% of
-  realizations with a filler (3 of 100 measured). A clip now also needs 0.20 s of
-  WebRTC-VAD voiced frames, which took that to 0 of 100 with no effect on real
-  speech. Reuses the `webrtcvad` dependency the streaming segmenter already
-  pulls, and fails open like the silence gate. Deliberately an absolute duration
-  and not a voiced/silent ratio: one word inside a 10 s key-hold is 6% voiced,
-  the same ratio as steady noise, while its voiced duration (0.66 s) is
-  unmistakable. Known ceiling — past ~0.04 RMS the VAD labels steady noise
-  voiced, so louder rooms are still the model's problem.
-
-  Platform-neutral: `webrtcvad-wheels` carries no platform marker and publishes
-  manylinux x86_64/aarch64 wheels, the gate sits in the shared core, and the
-  capture format is the same 16 kHz mono int16 on both. Wayland is unaffected —
-  the gate runs upstream of text injection, which is where Wayland's existing
-  limitation lives.
-
-### Removed
-
-- Whisper watermark/credit stripping and the hallucination phrase blocklist in
-  `text_cleaner.py`. Those phrases had a single emitter and it is gone; the
-  replacement failure mode is handled by the silence gate above instead.
-- Dependencies `faster-whisper`, `ctranslate2`, `tokenizers`, and `av`, including
-  from the macOS `.app` bundle. `onnx-asr` replaces them and adds no native
-  dependency the bundle did not already carry.
-
-### Notes for upgraders
-
-- First run after upgrading downloads the new model (639 MB).
-- The old cache at `~/.cache/huggingface/hub/models--Systran--faster-whisper-*`
-  is no longer used. `./install.sh --uninstall` points at it but will not delete
-  another era's data — remove it by hand to reclaim the space.
-- The model is licensed CC-BY-4.0 (© NVIDIA); Whispy stays GPLv3. Weights are
-  fetched at runtime and never redistributed. See `NOTICE`.
-
-## [Unreleased]
-
-### Added
-- **Type while speaking.** New config key `type_while_speaking` (bool, default
-  `true`), also shown as a **Settings → Type while speaking** menu row right
-  after **Toggle mode**. In toggle mode, each streaming chunk's text is now
-  typed as soon as it is transcribed — text appears about a second after each
-  pause in speech — instead of all at once when dictation stops; hold mode is
-  unaffected, text still types once on release. Set the key to `false` (or
-  flip the menu row) to restore type-once-at-stop in toggle mode. Trade-off:
-  text goes to whatever field is focused at that moment, so switching windows
-  mid-dictation scatters text across them.
-- **Each recording logs its input device and peak level.** `capture open:
-  input 'Micro MacBook Pro' (native 44100 Hz), stream 16000 Hz` at start and
-  `capture closed: 12.3s, peak level 0.412` at stop, with a "noise floor"
-  hint when the whole recording stayed under the silence gate — so a
-  microphone that did not hear the user (lid closed, stale input after
-  sleep, wrong device) is readable in `~/.whispy.log` instead of looking like
-  a dictation of nothing.
-- **Serialized text injection.** Text injections now run through a single
-  FIFO worker inside the injector, in call order, so streaming chunks typed
-  live can never interleave with one another or with the stop-time injection.
-- **New config key `soft_gap_ms` (default `350`), replacing the hardcoded
-  ~200 ms soft-flush gap.** Past `max_chunk_s`, the segmenter now waits for at
-  least `soft_gap_ms` of silence before cutting, instead of the previous fixed
-  200 ms — short enough to occur *inside* ordinary speech. Measured on a live
-  French dictation at `vad_aggressiveness: 3`, the old threshold cut the word
-  *Régie* in half — the chunk ended `...je suis dans Rég.` and the next began
-  `la version app`, with the final syllable lost outright. Lowering
-  `max_chunk_s` from 12 s to 8 s made the cut fire roughly half again as often,
-  which turned a rare defect into a visible one. Retunable at runtime, like the
-  other streaming parameters. Trade-off: a higher gap threshold routes more
-  run-on speech to the unconditional hard cap (`max_chunk_s * 1.5`), which
-  still cuts at an arbitrary frame — a rarer failure, not no failure.
-
-### Fixed
 - **Long chunks no longer cut mid-word.** Past `max_chunk_s` the segmenter
   waits for the first ~200 ms gap in speech before cutting (unconditional cut
   at 1.5× `max_chunk_s`). A cut placed at an arbitrary frame split a word in
@@ -232,48 +265,6 @@
 - Automatic config migration (versioning via `_version`).
 - Validation of config values.
 
-### Changed
-- **BREAKING — `copy_to_clipboard` now defaults to `true`.** Clipboard-paste
-  hands the transcript over as data and never resolves it against a keyboard
-  layout; keystroke mode (`osascript keystroke`) does, and is only correct on
-  a US layout — measured on a French AZERTY layout over a 178-second
-  dictation, every `,` arrived as `.` and every `â` as `q`. Keystroke mode
-  stays available as an explicit opt-out, documented as US-layout-only. A
-  one-time `_version` 1→2 config migration sets `copy_to_clipboard` to `true`
-  unconditionally on first launch after the upgrade, so existing installs
-  pick up the fix without user action. Rollback leaves `_version: 2` and
-  `copy_to_clipboard: true` on disk — harmless, since the old build reads and
-  honours both keys — but the setting does not revert itself.
-- **`max_chunk_s` default lowered from 12 s to 8 s**, pulling the hard cap
-  (`max_chunk_s * 1.5`) from 18 s to 12 s with it. The backend resolves
-  language once per model call, so a long chunk bets a lot of audio on a
-  single guess: over one daemon log of 610 chunks from a French dictation,
-  the chunks that came back in English had a median duration of 12.03 s
-  against 7.0 s overall. The same migration lowers `max_chunk_s` to `8.0` when
-  it is still at the old `12.0` default; a value already tuned away from
-  `12.0` is left untouched.
-- **macOS install consolidated on `Whispy.app`.** A single command
-  (`curl … | bash`) detects the OS: on macOS it builds and installs the
-  signed `Whispy.app` bundle into `/Applications`; Linux/X11 keeps venv +
-  `systemd --user`. `install.sh` no longer creates a LaunchAgent on macOS
-  (autostart is the in-app "Start at login" toggle). Existing installs have
-  their `com.whispy` LaunchAgent removed automatically (ending the
-  double-daemon-on-`:9090` issue).
-- Extracted `load_config`/`save_config` from `engine.py` into `config.py`.
-- Unified model loading (`_load_model_async` + `_load_model_on_device` →
-  `_load_model_async`).
-- Clarified the active visualization (indicator by default).
-- Improved logging of FSM transitions.
-- Fixed hanging tests (mocked the `afplay` subprocess).
-
-### Removed
-- **Homebrew formula.** `packaging/homebrew/whispy.rb`, the tap bump in
-  `release.yml`, the `HOMEBREW_TAP_TOKEN` secret, `docs/homebrew.md` and its
-  test. (A *Cask* — the correct tool for a GUI app — remains a future option,
-  blocked on notarization.)
-- `whispy_legacy.py` (redundant with `whispy_daemon.py`).
-
-### Fixed
 - **Ghost checkmark in the menu.** An unchecked row kept its green checkmark
   (AppKit's `attributedTitle` takes priority over `.title`); also affected
   Model/Language and the clipboard toggle.
@@ -292,6 +283,32 @@
   behavior, ferrofluid wiring, API fixture that hung on transcription).
 - Cleaned up duplicate keycodes in `event_tap.py` (`51` mapped both `m` and
   `backspace`, `f13`-`f20` were duplicated).
+
+### Removed
+
+- Whisper watermark/credit stripping and the hallucination phrase blocklist in
+  `text_cleaner.py`. Those phrases had a single emitter and it is gone; the
+  replacement failure mode is handled by the silence gate above instead.
+- Dependencies `faster-whisper`, `ctranslate2`, `tokenizers`, and `av`, including
+  from the macOS `.app` bundle. `onnx-asr` replaces them and adds no native
+  dependency the bundle did not already carry.
+
+- **Homebrew formula.** `packaging/homebrew/whispy.rb`, the tap bump in
+  `release.yml`, the `HOMEBREW_TAP_TOKEN` secret, `docs/homebrew.md` and its
+  test. (A *Cask* — the correct tool for a GUI app — remains a future option,
+  blocked on notarization.)
+- `whispy_legacy.py` (redundant with `whispy_daemon.py`).
+
+### Notes for upgraders
+
+- First run after upgrading downloads the new model (639 MB).
+- The old cache at `~/.cache/huggingface/hub/models--Systran--faster-whisper-*`
+  is no longer used. `./install.sh --uninstall` points at it but will not delete
+  another era's data — remove it by hand to reclaim the space.
+- The model is licensed CC-BY-4.0 (© NVIDIA); Whispy stays GPLv3. Weights are
+  fetched at runtime and never redistributed. See `NOTICE`.
+
+## [1.0.0] — 2026-07-04
 
 ### Tooling & quality
 - Diagnostic command `python whispy_daemon.py --doctor` (`make doctor`):
