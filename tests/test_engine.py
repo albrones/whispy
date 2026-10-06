@@ -1077,6 +1077,47 @@ class TestStreamFileSeam:
         assert eng.stream_file("/nope/missing.wav") is None
 
 
+class TestLiveTypingWithoutStreaming:
+    """`streaming_enabled: false` silently disables live typing -- say so."""
+
+    def test_the_contradiction_is_reported(self, config_path, caplog):
+        from whispy.core.engine import Engine
+
+        ds = DictationState()
+        ds.config["streaming_enabled"] = False
+        ds.config["type_while_speaking"] = True
+
+        with caplog.at_level(logging.WARNING, logger="whispy.core.engine"):
+            Engine(ds, config_path)
+
+        assert "type_while_speaking" in caplog.text
+        assert "streaming_enabled" in caplog.text
+
+    def test_nothing_is_reported_when_the_two_agree(self, config_path, caplog):
+        from whispy.core.engine import Engine
+
+        ds = DictationState()
+        ds.config["streaming_enabled"] = True
+        ds.config["type_while_speaking"] = True
+
+        with caplog.at_level(logging.WARNING, logger="whispy.core.engine"):
+            Engine(ds, config_path)
+
+        assert "type_while_speaking is on but" not in caplog.text
+
+    def test_live_typing_off_with_streaming_off_is_not_a_contradiction(self, config_path, caplog):
+        from whispy.core.engine import Engine
+
+        ds = DictationState()
+        ds.config["streaming_enabled"] = False
+        ds.config["type_while_speaking"] = False
+
+        with caplog.at_level(logging.WARNING, logger="whispy.core.engine"):
+            Engine(ds, config_path)
+
+        assert "type_while_speaking is on but" not in caplog.text
+
+
 class TestStreamingRuntimeToggle:
     """update_config re-wires streaming and the chunk worker at runtime."""
 
