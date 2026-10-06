@@ -260,8 +260,10 @@ tail -f ~/.whispy.log ~/.whispy-error.log  # Live logs
 
 ## Troubleshooting
 
-Run the built-in diagnostic first — it checks the audio backend, `xdotool`
-(Linux), the model, the platform permissions, and whether the daemon is running:
+Run the built-in diagnostic first. It checks the audio backend, the model and
+whether the daemon is running on both platforms, the macOS permissions on
+macOS, and on Linux the X11 session (Wayland is reported as the blocker it is),
+`xdotool`, and `xclip`/`xsel`:
 
 ```bash
 make doctor
