@@ -72,10 +72,17 @@ class TrayUI(Protocol):
     """The status/menu surface (macOS rumps menu bar, Linux pystray tray).
 
     Built with the engine; it registers its own state callbacks and runs the
-    platform UI loop. ``run`` blocks on the main thread for the daemon's life.
+    platform UI loop. ``run`` blocks on the main thread for the daemon's life,
+    and ``quit`` stops it so the daemon can exit.
+
+    ``quit`` is part of the contract because the daemon's SIGTERM handler calls
+    it. It was omitted here once, neither implementation supplied it, and every
+    `systemctl --user restart whispy` died on an AttributeError instead.
     """
 
     def run(self) -> None: ...
+
+    def quit(self) -> None: ...
 
 
 # Factory signatures used by ``platform.detect()``. Kept as type aliases for

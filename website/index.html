@@ -191,7 +191,7 @@
         </article>
         <article class="card">
           <h3>One key, anywhere</h3>
-          <p>Hold your push-to-talk key to record, release to insert text into any focused field — terminal, browser, editor. Text is handed over through the clipboard by default, so accents and punctuation arrive intact whatever your keyboard layout.</p>
+          <p>Hold your push-to-talk key to record, release to insert text into any focused field — terminal, browser, editor. On macOS the text is handed over through the clipboard, so accents and punctuation arrive intact whatever your keyboard layout.</p>
         </article>
         <article class="card">
           <h3>Hold or toggle</h3>
@@ -207,7 +207,7 @@
         </article>
         <article class="card">
           <h3>Lives in the tray</h3>
-          <p>Runs quietly as a background daemon in the menu bar (macOS) or system tray (Linux). No window to manage — flip <em>Start at login</em> and it's there every boot.</p>
+          <p>Runs quietly as a background daemon in the menu bar (macOS) or system tray (Linux). No window to manage — flip <em>Start at login</em> on macOS, and on Linux the installer enables a user service, so it's there every boot either way.</p>
         </article>
         <article class="card">
           <h3>Fast enough to forget</h3>
@@ -313,7 +313,7 @@
       <p class="install-alt">On Linux, install the system deps first (X11 session
         required — Wayland users pick an "Xorg"/"X11" session at login):</p>
       <div class="install-block">
-        <pre class="codeblock" id="install-linux"><code># Debian/Ubuntu — xdotool (text injection), xclip (optional clipboard), PortAudio
+        <pre class="codeblock" id="install-linux"><code># Debian/Ubuntu — xdotool (text injection), xclip (clipboard delivery), PortAudio
 sudo apt install xdotool xclip libportaudio2
 curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash</code></pre>
         <button class="btn btn-copy" type="button" data-copy-target="install-linux" aria-label="Copy Linux install command">Copy</button>

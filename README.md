@@ -82,7 +82,8 @@ Audio capture uses [`sounddevice`](https://python-sounddevice.readthedocs.io)
 **Linux** (X11 session):
 - An **X11 session** (not Wayland — see the note above)
 - `xdotool` — required for text injection
-- `xclip` *or* `xsel` — optional, enables clipboard-paste injection mode
+- `xclip` *or* `xsel` — **required**: `copy_to_clipboard` defaults to `true`, and
+  without one of them injection silently falls back to typing the text key by key
 - PortAudio runtime (e.g. `libportaudio2`), pulled in with most distros
 
 ```bash
@@ -102,8 +103,15 @@ on Linux.
 
 ### 1. Install System Dependencies
 
-On macOS the installer handles everything. On Linux, install `xdotool` (and
-optionally `xclip`/`xsel`) plus the PortAudio runtime as shown above.
+On macOS the installer handles everything. On Linux, install `xdotool`,
+`xclip` (or `xsel`) and the PortAudio runtime as shown above. `install.sh`
+checks for all three and names the ones that are missing.
+
+> **Linux and terminals.** Clipboard delivery pastes with `Ctrl+V`, which most
+> terminal emulators read as "insert the next character literally" rather than
+> as paste — their paste binding is `Ctrl+Shift+V`. If you dictate mainly into a
+> terminal, set `copy_to_clipboard: false`: on Linux the keystroke path goes
+> through `xdotool type`, which handles accented characters correctly.
 
 ### 2. Clone and Run Install Script
 
@@ -178,7 +186,7 @@ If you changed permissions, restart Whispy so the daemon picks up the new settin
 3. **Speak**.
 4. **Release the trigger key** → a sound indicates transcription and automatic typing/insertion of the text.
 
-> With **Toggle mode** enabled (`trigger_mode: "toggle"`), step 2 is a single press to start recording and step 4 is a second press — instead of a release — to stop it. With the default `type_while_speaking` setting, text also appears earlier: each chunk is typed as soon as it is transcribed, about a second after each pause, rather than all at once in step 4 — flip **Type while speaking** off in the menu (or set `type_while_speaking: false`) to go back to typing everything at once when you stop.
+> With **Toggle mode** enabled (`trigger_mode: "toggle"`), step 2 is a single press to start recording and step 4 is a second press — instead of a release — to stop it. With the default `type_while_speaking` setting, text also appears earlier: each chunk is typed as soon as it is transcribed, about a second after each pause, rather than all at once in step 4 — flip **Type while speaking** off in the menu (macOS; on Linux the tray has no such row — set `type_while_speaking: false` in the config and restart the service) to go back to typing everything at once when you stop.
 
 ## The Transcription Model
 
@@ -256,7 +264,7 @@ Run the built-in diagnostic first — it checks the audio backend, `xdotool`
 (Linux), the model, the platform permissions, and whether the daemon is running:
 
 ```bash
-python whispy_daemon.py --doctor   # or: make doctor
+make doctor
 ```
 
 ### Validating the whole app (`make validate`)

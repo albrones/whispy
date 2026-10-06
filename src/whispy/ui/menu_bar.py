@@ -518,6 +518,14 @@ class WhisperMenuBarApp(rumps.App):
         rumps.quit_application()
 
     def _on_quit(self, _sender: Any) -> None:
+        self.quit()
+
+    def quit(self) -> None:
+        """Tear the UI down and stop the rumps loop.
+
+        `rumps.App` has no `quit` of its own, so the SIGTERM handler used to
+        raise AttributeError here just as it did on Linux.
+        """
         self._anim_timer.stop()
         self._visualization.destroy()
         rumps.quit_application()
