@@ -149,6 +149,13 @@ _Nothing yet._
 - Fixed hanging tests (mocked the `afplay` subprocess).
 
 ### Fixed
+- **`make doctor` addressed a Linux user as if they were on macOS.** Input
+  Monitoring, Accessibility and Microphone each failed at their import and fell
+  through to "check System Settings → Privacy & Security", a settings app that
+  machine does not have. They now report "not required on this platform", and
+  the Linux run gains the two checks it was missing: the X11 session (Wayland
+  and a missing `DISPLAY` are reported as failures) and `xclip`/`xsel`. The
+  daemon hint names `systemctl --user start whispy` rather than `./install.sh`.
 - **`systemctl --user restart whispy` killed the daemon on a traceback.** The
   SIGTERM handler called `app.quit()`, which neither the Linux tray nor the
   macOS menu bar defined — and the `TrayUI` port only required `run`, so

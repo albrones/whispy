@@ -11,6 +11,7 @@ logic can be unit-tested with injected checks.
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 import urllib.error
@@ -59,6 +60,38 @@ def check_xdotool() -> CheckResult:
     return CheckResult("xdotool", FAIL, "not found — install with your package manager (e.g. `apt install xdotool`)")
 
 
+def check_display() -> CheckResult:
+    """On Linux the global hotkey and text injection both need an X11 session."""
+    if sys.platform != "linux":
+        return CheckResult("X11 session", OK, "not required on this platform")
+    if os.environ.get("XDG_SESSION_TYPE") == "wayland" or os.environ.get("WAYLAND_DISPLAY"):
+        return CheckResult(
+            "X11 session",
+            FAIL,
+            "Wayland session — the trigger key and text injection do not work; "
+            "log out and pick an 'Xorg'/'X11' session",
+        )
+    display = os.environ.get("DISPLAY")
+    if not display:
+        return CheckResult("X11 session", FAIL, "DISPLAY is not set — no X server to capture the trigger key")
+    return CheckResult("X11 session", OK, f"DISPLAY={display}")
+
+
+def check_clipboard_tool() -> CheckResult:
+    """``copy_to_clipboard`` defaults to true, and on Linux that needs xclip or xsel."""
+    if sys.platform != "linux":
+        return CheckResult("clipboard tool", OK, "not required on this platform")
+    for binary in ("xclip", "xsel"):
+        path = shutil.which(binary)
+        if path:
+            return CheckResult("clipboard tool", OK, path)
+    return CheckResult(
+        "clipboard tool",
+        FAIL,
+        "neither xclip nor xsel found — clipboard delivery falls back to keystrokes (`apt install xclip`)",
+    )
+
+
 # HuggingFace hub cache directory for the Parakeet ONNX weights. Kept here (and
 # in install.sh's uninstall glob) so both agree on what belongs to Whispy inside
 # a cache directory shared with every other HF-using tool on the machine.
@@ -84,6 +117,8 @@ def check_model(config_path: Path | None = None) -> CheckResult:
 
 def check_input_monitoring() -> CheckResult:
     """Input Monitoring is required for the Fn-key event tap."""
+    if sys.platform != "darwin":
+        return CheckResult("Input Monitoring", OK, "not required on this platform")
     try:
         from Quartz import CGPreflightListenEventAccess
     except Exception:
@@ -99,6 +134,8 @@ def check_input_monitoring() -> CheckResult:
 
 def check_accessibility() -> CheckResult:
     """Accessibility is required for osascript text injection."""
+    if sys.platform != "darwin":
+        return CheckResult("Accessibility", OK, "not required on this platform")
     try:
         from ApplicationServices import AXIsProcessTrusted
     except Exception:
@@ -118,6 +155,8 @@ def check_accessibility() -> CheckResult:
 
 def check_microphone() -> CheckResult:
     """Microphone access is required to record audio."""
+    if sys.platform != "darwin":
+        return CheckResult("Microphone", OK, "not required on this platform")
     try:
         from AVFoundation import AVCaptureDevice, AVMediaTypeAudio
     except Exception:
@@ -151,12 +190,15 @@ def check_daemon(port: int = 9090) -> CheckResult:
             return CheckResult("Daemon", WARN, "running but API token missing/mismatched (re-run install or restart)")
         return CheckResult("Daemon", WARN, f"running but returned HTTP {exc.code}")
     except (urllib.error.URLError, OSError):
-        return CheckResult("Daemon", WARN, "not running (start with ./install.sh)")
+        hint = "systemctl --user start whispy" if sys.platform == "linux" else "./install.sh"
+        return CheckResult("Daemon", WARN, f"not running (start with {hint})")
 
 
 CHECKS = [
     check_audio_backend,
+    check_display,
     check_xdotool,
+    check_clipboard_tool,
     check_model,
     check_input_monitoring,
     check_accessibility,

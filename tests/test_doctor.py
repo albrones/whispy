@@ -136,3 +136,57 @@ class TestPermissionChecks:
             result = fn()
             assert isinstance(result, CheckResult)
             assert result.status in _VALID_STATUSES
+
+
+class TestDoctorOnLinux:
+    """`make doctor` is what a Linux user is told to run when nothing works.
+
+    Every macOS permission check fails at its import on Linux and used to fall
+    through to "check System Settings → Privacy & Security", advice for a
+    settings app that machine does not have.
+    """
+
+    def test_macos_permission_checks_say_nothing_on_linux(self, mocker):
+        mocker.patch("whispy.doctor.sys.platform", "linux")
+        for fn in (doctor.check_input_monitoring, doctor.check_accessibility, doctor.check_microphone):
+            result = fn()
+            assert result.status == OK, fn.__name__
+            assert "System Settings" not in result.detail, fn.__name__
+
+    def test_wayland_is_reported_as_the_blocker_it_is(self, mocker):
+        mocker.patch("whispy.doctor.sys.platform", "linux")
+        mocker.patch.dict(doctor.os.environ, {"XDG_SESSION_TYPE": "wayland"}, clear=True)
+        result = doctor.check_display()
+        assert result.status == FAIL
+        assert "Wayland" in result.detail
+
+    def test_a_missing_display_is_reported(self, mocker):
+        mocker.patch("whispy.doctor.sys.platform", "linux")
+        mocker.patch.dict(doctor.os.environ, {}, clear=True)
+        result = doctor.check_display()
+        assert result.status == FAIL
+        assert "DISPLAY" in result.detail
+
+    def test_an_x11_session_passes(self, mocker):
+        mocker.patch("whispy.doctor.sys.platform", "linux")
+        mocker.patch.dict(doctor.os.environ, {"DISPLAY": ":0", "XDG_SESSION_TYPE": "x11"}, clear=True)
+        assert doctor.check_display().status == OK
+
+    def test_a_missing_clipboard_tool_is_a_failure_not_a_footnote(self, mocker):
+        # copy_to_clipboard defaults to true, so this is required, not optional.
+        mocker.patch("whispy.doctor.sys.platform", "linux")
+        mocker.patch("whispy.doctor.shutil.which", return_value=None)
+        result = doctor.check_clipboard_tool()
+        assert result.status == FAIL
+        assert "xclip" in result.detail
+
+    def test_xsel_satisfies_the_clipboard_check(self, mocker):
+        mocker.patch("whispy.doctor.sys.platform", "linux")
+        mocker.patch("whispy.doctor.shutil.which", side_effect=lambda b: "/usr/bin/xsel" if b == "xsel" else None)
+        assert doctor.check_clipboard_tool().status == OK
+
+    def test_the_daemon_hint_names_the_linux_service(self, mocker):
+        mocker.patch("whispy.doctor.sys.platform", "linux")
+        mocker.patch("whispy.doctor.urllib.request.urlopen", side_effect=OSError("refused"))
+        result = doctor.check_daemon()
+        assert "systemctl --user start whispy" in result.detail
