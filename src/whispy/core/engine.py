@@ -612,6 +612,20 @@ class Engine:
         """
         cfg = self.state.config
         self._streaming = bool(cfg.get("streaming_enabled", False))
+
+        # Live typing is delivered per chunk, and chunks only exist while
+        # streaming is on. `streaming_enabled: false` is a deliberate
+        # diagnostics escape hatch with no UI, so this combination leaves the
+        # menu showing "Type while speaking" checked while nothing is typed
+        # until the recording stops -- with nothing anywhere to explain it.
+        if not self._streaming and bool(cfg.get("type_while_speaking", False)):
+            logger.warning(
+                "[engine] type_while_speaking is on but streaming_enabled is false in "
+                "%s: text will only be typed when the recording stops. Set "
+                "streaming_enabled to true to type while speaking.",
+                self._config_path,
+            )
+
         self._audio_engine.configure_streaming(
             self._streaming,
             self._enqueue_chunk,
