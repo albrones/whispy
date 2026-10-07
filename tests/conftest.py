@@ -51,6 +51,18 @@ def isolated_home(request, tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def lost_clips_dir(tmp_path, monkeypatch):
+    """Keep lost clips in the test's tmp dir, never in the real ~/.whispy/lost.
+
+    ``isolated_home`` does not cover it: LOST_CLIPS_DIR is expanded at import,
+    before HOME is swapped, and the real-seam tiers keep the real HOME anyway.
+    """
+    target = tmp_path / "lost"
+    monkeypatch.setattr("whispy.core.audio.LOST_CLIPS_DIR", str(target))
+    return target
+
+
+@pytest.fixture(autouse=True)
 def fake_audio_capture(request):
     """Replace the sounddevice backend with a fake for the default test tier.
 

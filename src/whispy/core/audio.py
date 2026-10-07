@@ -8,6 +8,7 @@ lifecycle management. The same recorder serves macOS and Linux.
 import glob
 import logging
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -117,6 +118,13 @@ TRIM_MIN_GAIN_S = 0.25
 
 RECORDING_PATH = os.path.join(tempfile.gettempdir(), "whispy.wav")
 
+# A clip lost to the model (see "Lost speech" in ``transcribe``) is kept here so
+# it can be replayed (scripts/replay_lost.py) instead of guessed at. Only losses
+# are kept -- never a clip that was transcribed -- and only the newest
+# LOST_CLIPS_KEPT, so the folder holds a few minutes of voice at most.
+LOST_CLIPS_DIR = os.path.expanduser("~/.whispy/lost")
+LOST_CLIPS_KEPT = 20
+
 
 def _open_recording_wav(path: str) -> wave.Wave_write:
     """Create (or truncate) a recording WAV with 0o600 permissions.
@@ -133,6 +141,28 @@ def _open_recording_wav(path: str) -> wave.Wave_write:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     os.close(fd)
     return wave.open(path, "wb")
+
+
+def _keep_lost_clip(audio_path: str) -> str:
+    """Copy a lost clip into LOST_CLIPS_DIR, drop the oldest beyond LOST_CLIPS_KEPT, return the copy's name.
+
+    Returns "nothing" when the copy fails: keeping the clip is a diagnostic aid,
+    so its failure is logged and never stops the transcription path.
+    """
+    # Nanoseconds in the name: chunks of one recording can be lost within the
+    # same second, and pruning relies on names sorting in loss order.
+    now_ns = time.time_ns()
+    name = f"lost-{time.strftime('%Y%m%d-%H%M%S', time.localtime(now_ns // 1_000_000_000))}-{now_ns % 1_000_000_000:09d}.wav"
+    try:
+        os.makedirs(LOST_CLIPS_DIR, mode=0o700, exist_ok=True)
+        shutil.copyfile(audio_path, os.path.join(LOST_CLIPS_DIR, name))
+        kept = sorted(glob.glob(os.path.join(LOST_CLIPS_DIR, "lost-*.wav")))
+        for oldest in kept[:-LOST_CLIPS_KEPT]:
+            os.remove(oldest)
+    except OSError:
+        logger.exception("[audio] could not keep lost clip %s in %s", audio_path, LOST_CLIPS_DIR)
+        return "nothing"
+    return name
 
 
 def _cleanup_stale_recordings() -> None:
@@ -670,16 +700,20 @@ class AudioEngine:
         if not text:
             # Speech that vanished, not a routine non-speech discard: the gates
             # above log theirs at INFO, this one is a loss and carries the three
-            # measurements that would explain it, so the next investigation
-            # starts with numbers instead of a re-drive.
+            # measurements that would explain it, plus the kept clip, so the
+            # next investigation starts with numbers and audio instead of a re-drive.
             logger.warning(
                 "[audio] Lost speech: the model returned no text for a %.2fs clip that cleared every gate "
-                "(peak RMS %s, voiced %s).",
+                "(peak RMS %s, voiced %s, kept as %s).",
                 duration or 0.0,
                 "unknown" if rms is None else f"{rms:.6f}",
                 "unknown" if span is None else f"{span[2]:.2f}s",
+                _keep_lost_clip(audio_path),
             )
             return None
+        # Successes are counted next to losses in the same log; the text itself
+        # stays out of it.
+        logger.info("[audio] Transcribed a %.2fs clip (%d characters).", duration or 0.0, len(text))
         return text
 
     def _transcribe_in_pieces(self, audio_path: str, model: Any, min_recording_duration: float) -> str | None:

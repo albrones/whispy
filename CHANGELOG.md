@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+- **Lost speech can be replayed.** A clip that clears every gate but comes
+  back empty from the model is now kept in `~/.whispy/lost/` (newest 20,
+  readable only by you) and named in its `Lost speech` warning;
+  `scripts/replay_lost.py` replays those clips untouched, trimmed and
+  gain-normalized. Successful transcriptions are logged too (duration and
+  length, never the text), so the loss rate can be read from `~/.whispy.log`.
+
 ### Fixed
 - **The test suite no longer rewrites your real config.** Tests that build an
   `Engine()` without a config path saved to `~/.config/whispy/config.json`,
