@@ -564,6 +564,57 @@ class TestTranscribe:
         assert "0.150000" in warnings[0].getMessage()
         assert "1.00" in warnings[0].getMessage()
 
+    def _lose(self, sm, mock_asr_model, tmp_path, name="test.wav"):
+        audio = AudioEngine(sm)
+        audio_path = str(tmp_path / name)
+        with open(audio_path, "wb") as f:
+            f.write(name.encode())
+        audio._get_audio_duration = MagicMock(return_value=2.0)
+        audio._get_peak_rms = MagicMock(return_value=0.15)
+        audio._speech_span = MagicMock(return_value=(0.1, 1.5, 1.0))
+        audio._trim_to_speech = MagicMock(return_value=audio_path)
+        mock_asr_model.recognize.return_value = ""
+        return audio.transcribe(audio_path, mock_asr_model)
+
+    def test_lost_clip_is_kept_and_named_in_the_warning(self, sm, mock_asr_model, tmp_path, caplog, lost_clips_dir):
+        with caplog.at_level(logging.WARNING, logger="whispy.core.audio"):
+            assert self._lose(sm, mock_asr_model, tmp_path) is None
+
+        kept = list(lost_clips_dir.glob("lost-*.wav"))
+        assert len(kept) == 1
+        assert kept[0].read_bytes() == b"test.wav"
+        assert kept[0].name in caplog.records[-1].getMessage()
+
+    def test_only_the_newest_lost_clips_are_kept(self, sm, mock_asr_model, tmp_path, lost_clips_dir):
+        from whispy.core import audio as audio_module
+
+        lost_clips_dir.mkdir()
+        oldest = lost_clips_dir / "lost-00000000-000000-000000000.wav"
+        oldest.write_bytes(b"old")
+        for index in range(audio_module.LOST_CLIPS_KEPT - 1):
+            (lost_clips_dir / f"lost-00000001-000000-{index:09d}.wav").write_bytes(b"old")
+
+        self._lose(sm, mock_asr_model, tmp_path)
+
+        assert len(list(lost_clips_dir.glob("lost-*.wav"))) == audio_module.LOST_CLIPS_KEPT
+        assert not oldest.exists()
+
+    def test_transcribed_clip_logs_a_success_without_its_text(self, sm, mock_asr_model, tmp_path, caplog):
+        audio = AudioEngine(sm)
+        audio_path = self._clip(tmp_path)
+        audio._get_audio_duration = MagicMock(return_value=2.0)
+        audio._get_peak_rms = MagicMock(return_value=0.15)
+        audio._speech_span = MagicMock(return_value=(0.1, 1.5, 1.0))
+        audio._trim_to_speech = MagicMock(return_value=audio_path)
+        mock_asr_model.recognize.return_value = "bonjour"
+
+        with caplog.at_level(logging.INFO, logger="whispy.core.audio"):
+            audio.transcribe(audio_path, mock_asr_model)
+
+        message = caplog.records[-1].getMessage()
+        assert "Transcribed a 2.00s clip" in message
+        assert "bonjour" not in message
+
 
 class TestGateRejectionLogging:
     """A clip stopped by a gate keeps that gate's own (non-loss) log level.
