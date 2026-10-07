@@ -754,3 +754,13 @@ class TestReadConfig:
         loaded = read_config(config_file, fallback=dict(DEFAULT_CONFIG, pause_ms=950))
 
         assert loaded["pause_ms"] == 700
+
+
+def test_tests_never_resolve_the_real_config_path():
+    """Guards the isolated_home fixture: Engine() and get_default_config_path() resolve under HOME."""
+    import pwd
+
+    from whispy.core.config import get_default_config_path
+
+    real_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    assert not get_default_config_path().is_relative_to(real_home / ".config")
