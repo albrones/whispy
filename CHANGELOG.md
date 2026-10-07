@@ -2,7 +2,17 @@
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+- **Type while speaking survives an old config.** A `streaming_enabled: false`
+  left by an older build silently turned live typing off. Config migration v3
+  sets it back to true once, for configs that ask for live typing, and keeps the
+  previous file as `config.json.v2.bak`.
+- **`make app` / `make reinstall` refuse a stale build.** The bundle holds the
+  `src/` the venv imports, uncommitted edits included, so a rebuild from a
+  branch behind `origin/main` silently reinstalled code without fixes merged
+  since. The build now stops on a branch behind `origin/main`, on uncommitted
+  `src/` changes, and on a venv wired to another checkout;
+  `WHISPY_ALLOW_STALE_BUILD=1` builds anyway.
 
 ## [2.0.0] — 2026-10-06
 

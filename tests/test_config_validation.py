@@ -477,12 +477,12 @@ class TestTextFidelityDefaultsAndMigration:
         loaded = load_config(config_file)
         assert loaded["copy_to_clipboard"] is True
         assert loaded["max_chunk_s"] == 8.0
-        assert loaded["_version"] == 2
+        assert loaded["_version"] == CONFIG_VERSION
 
         on_disk = json.loads(config_file.read_text())
         assert on_disk["copy_to_clipboard"] is True
         assert on_disk["max_chunk_s"] == 8.0
-        assert on_disk["_version"] == 2
+        assert on_disk["_version"] == CONFIG_VERSION
 
     def test_migration_does_not_reapply_at_v2(self, tmp_path):
         # Scenario: Migration does not re-apply.
@@ -501,7 +501,7 @@ class TestTextFidelityDefaultsAndMigration:
         assert loaded["max_chunk_s"] == 20.0
         # copy_to_clipboard migration is unconditional regardless of max_chunk_s.
         assert loaded["copy_to_clipboard"] is True
-        assert loaded["_version"] == 2
+        assert loaded["_version"] == CONFIG_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -581,10 +581,10 @@ class TestMigrationBackup:
         # The migration still ran and persisted despite the backup failure.
         assert loaded["copy_to_clipboard"] is True
         assert loaded["max_chunk_s"] == 8.0
-        assert loaded["_version"] == 2
+        assert loaded["_version"] == CONFIG_VERSION
         on_disk = json.loads(config_file.read_text())
         assert on_disk["copy_to_clipboard"] is True
-        assert on_disk["_version"] == 2
+        assert on_disk["_version"] == CONFIG_VERSION
 
         # No backup was written, and the failure was logged at WARNING.
         assert not (tmp_path / "config.json.v1.bak").exists()
@@ -615,6 +615,41 @@ class TestMigrationBackup:
         assert config_file.stat().st_mtime_ns == config_mtime, "a no-op migration must not write"
         assert json.loads(backup.read_text())["copy_to_clipboard"] is False
         assert not (tmp_path / "config.json.v2.bak").exists()
+
+
+class TestStaleStreamingDisabledMigration:
+    """v2 -> v3: a leftover ``streaming_enabled: false`` no longer silences live typing."""
+
+    def test_live_typing_config_gets_streaming_back_once_with_a_backup(self, tmp_path):
+        from whispy.core.config import load_config
+
+        config_file = tmp_path / "config.json"
+        stale = {"type_while_speaking": True, "streaming_enabled": False, "_version": 2}
+        config_file.write_text(json.dumps(stale))
+
+        loaded = load_config(config_file)
+
+        assert loaded["streaming_enabled"] is True
+        assert json.loads(config_file.read_text())["streaming_enabled"] is True
+        assert json.loads((tmp_path / "config.json.v2.bak").read_text()) == stale
+
+    def test_streaming_disabled_by_hand_after_the_migration_is_left_alone(self, tmp_path):
+        from whispy.core.config import load_config
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps({"type_while_speaking": True, "streaming_enabled": False, "_version": CONFIG_VERSION})
+        )
+
+        assert load_config(config_file)["streaming_enabled"] is False
+
+    def test_streaming_disabled_without_live_typing_is_left_alone(self, tmp_path):
+        from whispy.core.config import load_config
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"type_while_speaking": False, "streaming_enabled": False, "_version": 2}))
+
+        assert load_config(config_file)["streaming_enabled"] is False
 
 
 # ---------------------------------------------------------------------------

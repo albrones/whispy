@@ -314,3 +314,76 @@ def test_reinstall_never_touches_user_settings(reinstall_code: str):
     # rstrip("'") because one removal lives inside a trap: trap 'rm -rf "$APP_STAGE"' EXIT
     removed = {m.rstrip("'") for m in re.findall(r"rm -rf (\S+)", reinstall_code)}
     assert removed <= {'"$APP_DST"', '"$APP_STAGE"'}, removed
+
+
+# ---------------------------------------------------------------------------
+# packaging/macos/build_app.sh — the stale-build guard
+# ---------------------------------------------------------------------------
+
+BUILD_APP = ROOT / "packaging" / "macos" / "build_app.sh"
+
+
+def _git(cwd: Path, *args: str) -> None:
+    import subprocess
+
+    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+
+
+def _run_build_guard(tmp_path: Path, *, behind_main: bool, extra_env: dict[str, str] | None = None):
+    """Run build_app.sh in a throwaway clone whose branch is (or is not) behind origin/main.
+
+    The fake venv python imports the clone's own src, so only the git checks
+    can trip; past the guard the build fails on the missing py2app, which is
+    fine — the assertions only look at the guard's verdict.
+    """
+    import shutil
+    import subprocess
+    import sys
+
+    origin = tmp_path / "origin"
+    (origin / "src" / "whispy").mkdir(parents=True)
+    (origin / "src" / "whispy" / "__init__.py").write_text("")
+    _git(origin, "init", "-q", "-b", "main")
+    _git(origin, "-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
+    _git(origin, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
+    if behind_main:
+        _git(origin, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "fix")
+
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", str(origin), str(clone))
+    if behind_main:
+        _git(clone, "checkout", "-q", "-b", "feature", "HEAD~1")
+    (clone / "packaging" / "macos").mkdir(parents=True)
+    shutil.copy2(BUILD_APP, clone / "packaging" / "macos" / "build_app.sh")
+    venv_py = clone / ".venv" / "bin" / "python"
+    venv_py.parent.mkdir(parents=True)
+    venv_py.write_text(f'#!/bin/sh\nPYTHONPATH="{clone / "src"}" exec "{sys.executable}" "$@"\n')
+    venv_py.chmod(0o755)
+
+    env = {key: value for key, value in os.environ.items() if key != "WHISPY_ALLOW_STALE_BUILD"}
+    env.update(extra_env or {})
+    return subprocess.run(
+        ["bash", str(clone / "packaging" / "macos" / "build_app.sh")],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+
+
+def test_build_refuses_a_branch_behind_origin_main(tmp_path):
+    result = _run_build_guard(tmp_path, behind_main=True)
+    assert result.returncode != 0
+    assert "does not contain origin/main" in result.stdout
+    assert "WHISPY_ALLOW_STALE_BUILD=1" in result.stdout
+
+
+def test_build_on_an_up_to_date_branch_passes_the_guard(tmp_path):
+    result = _run_build_guard(tmp_path, behind_main=False)
+    assert "[stale build]" not in result.stdout
+
+
+def test_stale_build_can_be_forced_on_purpose(tmp_path):
+    result = _run_build_guard(tmp_path, behind_main=True, extra_env={"WHISPY_ALLOW_STALE_BUILD": "1"})
+    assert "[stale build]" in result.stdout
+    assert "building anyway" in result.stdout

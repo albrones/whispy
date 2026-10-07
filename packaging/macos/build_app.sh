@@ -21,10 +21,49 @@ VENV_PY="$REPO_ROOT/.venv/bin/python"
 
 echo -e "${YELLOW}=== Whispy.app build ===${NC}"
 
+# 0. Refuse to install code that silently undoes merged fixes.
+#    py2app bundles the `whispy` package the venv imports — the working tree as
+#    it is on disk, uncommitted edits included — while step 3c stamps HEAD. A
+#    rebuild from a branch cut before the latest main, or from a venv wired to
+#    another checkout, replaces the installed app with older code and nothing
+#    says so (a merged menu fix vanished exactly this way).
+#    WHISPY_ALLOW_STALE_BUILD=1 builds anyway, for testing a branch on purpose.
+BUNDLED_SRC="$("$VENV_PY" -c 'import os, whispy; print(os.path.dirname(os.path.dirname(os.path.realpath(whispy.__file__))))')"
+if [ "$BUNDLED_SRC" != "$(cd "$REPO_ROOT/src" && pwd -P)" ]; then
+    echo -e "${RED}The venv imports whispy from $BUNDLED_SRC, not $REPO_ROOT/src — the bundle would hold another checkout's code.${NC}"
+    echo "Fix: $REPO_ROOT/.venv/bin/pip install -e \"$REPO_ROOT[dev]\""
+    exit 1
+fi
+STALE_REASONS=()
+if ! git -C "$REPO_ROOT" fetch --quiet origin main 2>/dev/null; then
+    echo -e "${YELLOW}[warn] Could not fetch origin/main — checking against the last fetched copy.${NC}"
+fi
+if git -C "$REPO_ROOT" rev-parse --verify --quiet origin/main >/dev/null \
+    && ! git -C "$REPO_ROOT" merge-base --is-ancestor origin/main HEAD; then
+    STALE_REASONS+=("HEAD ($(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)) does not contain origin/main: fixes merged since are missing.")
+fi
+if [ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no -- src whispy_daemon.py)" ]; then
+    STALE_REASONS+=("src/ has uncommitted changes: the bundle would not match the stamped commit.")
+fi
+if [ ${#STALE_REASONS[@]} -gt 0 ]; then
+    for reason in "${STALE_REASONS[@]}"; do echo -e "${RED}[stale build] $reason${NC}"; done
+    if [ "${WHISPY_ALLOW_STALE_BUILD:-}" != "1" ]; then
+        echo "Rebase on origin/main and commit first, or rerun with WHISPY_ALLOW_STALE_BUILD=1 to build it anyway."
+        exit 1
+    fi
+    echo -e "${YELLOW}[warn] WHISPY_ALLOW_STALE_BUILD=1 — building anyway.${NC}"
+fi
+
 # 1. Ensure build-time deps (py2app + Pillow for icon gen) are available.
 if ! "$VENV_PY" -c "import py2app" 2>/dev/null; then
     echo -e "${YELLOW}Installing py2app...${NC}"
     "$REPO_ROOT/.venv/bin/pip" install -q py2app
+fi
+# ponytail: setuptools 84 passes `verbose=` through to Popen and py2app 0.28.10
+# dies on it; a fresh venv gets 84. Lift the cap once py2app builds on it.
+if ! "$VENV_PY" -c "import setuptools, sys; sys.exit(int(setuptools.__version__.split('.')[0]) >= 84)"; then
+    echo -e "${YELLOW}Pinning setuptools<84 (py2app 0.28 cannot build with 84)...${NC}"
+    "$REPO_ROOT/.venv/bin/pip" install -q "setuptools<84"
 fi
 if ! "$VENV_PY" -c "import PIL" 2>/dev/null; then
     echo -e "${YELLOW}Installing Pillow (icon generation)...${NC}"

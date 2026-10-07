@@ -116,7 +116,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 # Config version for migration tracking
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 
 
 def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -295,6 +295,19 @@ def _migrate_config(config: dict[str, Any], config_path: Path) -> dict[str, Any]
         migrated["copy_to_clipboard"] = True
         if migrated.get("max_chunk_s") == 12.0:
             migrated["max_chunk_s"] = DEFAULT_CONFIG["max_chunk_s"]
+
+    # v2 -> v3: a `streaming_enabled: false` left over from an older build
+    # silently turns `type_while_speaking` off — chunks only exist while
+    # streaming is on, and the flag has no UI to notice it from. Re-enable it
+    # once for configs that ask for live typing; the flag stays a hand-edited
+    # diagnostics escape hatch afterwards (gated on `_version`, so a value set
+    # by hand after this migration is left alone).
+    if (
+        migrated.get("_version", 0) < 3
+        and migrated.get("type_while_speaking")
+        and migrated.get("streaming_enabled") is False
+    ):
+        migrated["streaming_enabled"] = True
 
     # Add any missing default keys
     for key, value in DEFAULT_CONFIG.items():
