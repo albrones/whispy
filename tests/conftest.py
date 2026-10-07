@@ -36,6 +36,21 @@ if str(_src) not in sys.path:
 
 
 @pytest.fixture(autouse=True)
+def isolated_home(request, tmp_path_factory, monkeypatch):
+    """Point HOME at a throwaway directory for the default test tier.
+
+    An ``Engine()`` built without ``config_path`` reads and *saves*
+    ``~/.config/whispy/config.json``. Without this, every test run rewrote the
+    developer's real config — ``streaming_enabled: false`` included, which
+    silently turned Type while speaking off on the installed app. The real-seam
+    tiers keep the real HOME: they need the model cache under it.
+    """
+    if request.node.get_closest_marker("macos") or request.node.get_closest_marker("linux"):
+        return
+    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))
+
+
+@pytest.fixture(autouse=True)
 def fake_audio_capture(request):
     """Replace the sounddevice backend with a fake for the default test tier.
 

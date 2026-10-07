@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Fixed
+- **The test suite no longer rewrites your real config.** Tests that build an
+  `Engine()` without a config path saved to `~/.config/whispy/config.json`,
+  resetting `streaming_enabled` to false on the installed app after every
+  `make test`. The default test tier now runs under a throwaway `HOME`.
 - **Type while speaking survives an old config.** A `streaming_enabled: false`
   left by an older build silently turned live typing off. Config migration v3
   sets it back to true once, for configs that ask for live typing, and keeps the
