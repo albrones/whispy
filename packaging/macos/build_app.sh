@@ -59,6 +59,12 @@ if ! "$VENV_PY" -c "import py2app" 2>/dev/null; then
     echo -e "${YELLOW}Installing py2app...${NC}"
     "$REPO_ROOT/.venv/bin/pip" install -q py2app
 fi
+# ponytail: setuptools 84 passes `verbose=` through to Popen and py2app 0.28.10
+# dies on it; a fresh venv gets 84. Lift the cap once py2app builds on it.
+if ! "$VENV_PY" -c "import setuptools, sys; sys.exit(int(setuptools.__version__.split('.')[0]) >= 84)"; then
+    echo -e "${YELLOW}Pinning setuptools<84 (py2app 0.28 cannot build with 84)...${NC}"
+    "$REPO_ROOT/.venv/bin/pip" install -q "setuptools<84"
+fi
 if ! "$VENV_PY" -c "import PIL" 2>/dev/null; then
     echo -e "${YELLOW}Installing Pillow (icon generation)...${NC}"
     "$REPO_ROOT/.venv/bin/pip" install -q Pillow
