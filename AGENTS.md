@@ -36,7 +36,7 @@ The main thread orchestrates and reviews; subagents execute and report.
 
 ## 🚀 Operational Commands
 - **Install/Setup:** `./install.sh` provisions the venv/dependencies; `make app` builds & signs `dist/Whispy.app`. Autostart is the in-app "Start at login" toggle (SMAppService) on macOS, a `systemd --user` service on Linux — **no LaunchAgent is created**.
-- **After a code change (macOS):** `make reinstall` — rebuilds and signs the bundle, replaces `/Applications/Whispy.app`, relaunches it, and waits until the daemon answers on `:9090`. Use this, not a bare relaunch: `open /Applications/Whispy.app` restarts the **installed** build, so a source change you have not rebuilt will appear to have no effect.
+- **After a code change (macOS):** `make reinstall` — rebuilds and signs the bundle, replaces `/Applications/Whispy.app`, relaunches it, and waits until the daemon answers on `:9090`. Use this, not a bare relaunch: `open /Applications/Whispy.app` restarts the **installed** build, so a source change you have not rebuilt will appear to have no effect. The build refuses a branch behind `origin/main` or uncommitted `src/` changes (the bundle would silently drop merged fixes); commit, rebase, or set `WHISPY_ALLOW_STALE_BUILD=1` to test a branch on purpose. A worktree needs its own `.venv` (`make install`): the build bundles whatever `src/` the venv imports.
   ```bash
   make reinstall
   ```

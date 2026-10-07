@@ -296,6 +296,20 @@ set `streaming_enabled` to true.
 - **WHEN** the user clicks the unchecked "Type while speaking" item
 - **THEN** both `type_while_speaking` and `streaming_enabled` SHALL be set to true
 
+### Requirement: A leftover streaming_enabled=false is repaired once
+Config migration to version 3 SHALL set `streaming_enabled` to true when the
+on-disk config is older than version 3, has `type_while_speaking` true and
+`streaming_enabled` false, keeping the previous file as `config.json.v<n>.bak`.
+A `streaming_enabled: false` written after that migration SHALL be left alone.
+
+#### Scenario: Stale flag from an older build
+- **WHEN** Whispy starts on a version-2 config with `type_while_speaking: true` and `streaming_enabled: false`
+- **THEN** `config.json` SHALL contain `streaming_enabled: true` and `config.json.v2.bak` the previous file
+
+#### Scenario: Diagnostics value set by hand
+- **WHEN** a version-3 config has `streaming_enabled: false`
+- **THEN** the value SHALL be kept
+
 ### Requirement: Streaming config changes apply at runtime
 The engine SHALL apply streaming configuration changes at runtime without a
 restart: when the config changes while the engine is running (e.g. via the
