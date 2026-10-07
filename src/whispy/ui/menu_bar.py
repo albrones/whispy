@@ -49,6 +49,11 @@ _SETTINGS_URLS = {
 }
 
 
+def _type_while_speaking_effective(cfg: dict) -> bool:
+    """Live typing needs streaming chunks, so it is only on when both are."""
+    return bool(cfg.get("type_while_speaking", True) and cfg.get("streaming_enabled", True))
+
+
 class WhisperMenuBarApp(rumps.App):
     """Menu bar application for Whispy control and status display."""
 
@@ -166,7 +171,7 @@ class WhisperMenuBarApp(rumps.App):
         self.type_while_speaking_menu._label = "Type while speaking"
         menu_theme.apply_title(
             self.type_while_speaking_menu,
-            menu_theme.toggle_title("Type while speaking", cfg.get("type_while_speaking", True)),
+            menu_theme.toggle_title("Type while speaking", _type_while_speaking_effective(cfg)),
         )
 
         # Trigger (push-to-talk key) selection — submenu title reflects the
@@ -262,7 +267,7 @@ class WhisperMenuBarApp(rumps.App):
         )
         menu_theme.apply_title(
             self.type_while_speaking_menu,
-            menu_theme.toggle_title(self.type_while_speaking_menu._label, cfg.get("type_while_speaking", True)),
+            menu_theme.toggle_title(self.type_while_speaking_menu._label, _type_while_speaking_effective(cfg)),
         )
         for item in self._trigger_items:
             menu_theme.apply_title(
@@ -459,9 +464,14 @@ class WhisperMenuBarApp(rumps.App):
         self.engine.update_config({"trigger_mode": new_mode})
 
     def _on_toggle_type_while_speaking(self, sender: rumps.MenuItem) -> None:
-        enabled = not self.engine.state.config.get("type_while_speaking", True)
+        enabled = not _type_while_speaking_effective(self.engine.state.config)
         menu_theme.apply_title(sender, menu_theme.toggle_title(sender._label, enabled))
-        self.engine.update_config({"type_while_speaking": enabled})
+        if enabled:
+            # Also repair a stale streaming_enabled=false escape-hatch value,
+            # which would otherwise keep live typing silently off.
+            self.engine.update_config({"type_while_speaking": True, "streaming_enabled": True})
+        else:
+            self.engine.update_config({"type_while_speaking": False})
 
     @staticmethod
     def _reconcile_login_item(want_enabled: bool) -> None:

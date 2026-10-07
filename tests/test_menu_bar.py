@@ -291,8 +291,29 @@ class TestToggleTypeWhileSpeaking:
 
         WhisperMenuBarApp._on_toggle_type_while_speaking(app, sender)
 
-        app.engine.update_config.assert_called_once_with({"type_while_speaking": True})
+        app.engine.update_config.assert_called_once_with({"type_while_speaking": True, "streaming_enabled": True})
         assert sender.title.rstrip().endswith(menu_theme.CHECK)
+
+    def test_streaming_disabled_click_enables_both_keys(self, monkeypatch):
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        app = self._app(current=True)
+        app.engine.state.config["streaming_enabled"] = False
+        sender = self._sender()
+
+        WhisperMenuBarApp._on_toggle_type_while_speaking(app, sender)
+
+        app.engine.update_config.assert_called_once_with({"type_while_speaking": True, "streaming_enabled": True})
+        assert sender.title.rstrip().endswith(menu_theme.CHECK)
+
+    def test_effective_click_disables_only_type_while_speaking(self, monkeypatch):
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        app = self._app(current=True)
+        app.engine.state.config["streaming_enabled"] = True
+        sender = self._sender()
+
+        WhisperMenuBarApp._on_toggle_type_while_speaking(app, sender)
+
+        app.engine.update_config.assert_called_once_with({"type_while_speaking": False})
 
 
 class TestRefreshAccentsTypeWhileSpeaking:
@@ -689,3 +710,26 @@ class TestPillLifecycleBelongsToTheRecording:
 
         WhisperMenuBarApp._on_recording_stop(app)
         app._visualization.hide.assert_called_once_with()
+
+    def test_streaming_disabled_renders_unchecked(self, monkeypatch):
+        monkeypatch.setattr(menu_theme, "_appkit", lambda: None)
+        engine = MagicMock()
+        engine.state.config = {
+            "trigger_mode": "hold",
+            "copy_to_clipboard": False,
+            "type_while_speaking": True,
+            "streaming_enabled": False,
+        }
+        app = SimpleNamespace(
+            engine=engine,
+            _settings_header=SimpleNamespace(_menuitem=None, title=""),
+            copy_menu=SimpleNamespace(_label="Copy to clipboard", _menuitem=None, title=""),
+            toggle_mode_menu=SimpleNamespace(_label="Toggle mode", _menuitem=None, title=""),
+            type_while_speaking_menu=SimpleNamespace(_label="Type while speaking", _menuitem=None, title=""),
+            _trigger_items=[],
+            update_status_display=MagicMock(),
+        )
+
+        WhisperMenuBarApp._refresh_accents(app)
+
+        assert not app.type_while_speaking_menu.title.rstrip().endswith(menu_theme.CHECK)

@@ -282,6 +282,20 @@ item. A `streaming_enabled=false` config value MAY still select the legacy path
 - **WHEN** the menu is shown
 - **THEN** there SHALL be no "Streaming transcription" item
 
+### Requirement: Type-while-speaking check reflects effective state
+The "Type while speaking" menu item SHALL be checked only when live typing is
+effectively active, i.e. `type_while_speaking` AND `streaming_enabled` are both
+true (live typing needs streaming chunks). Enabling it from the menu SHALL also
+set `streaming_enabled` to true.
+
+#### Scenario: Streaming disabled shows the item unchecked
+- **WHEN** `type_while_speaking` is true and `streaming_enabled` is false
+- **THEN** the "Type while speaking" item SHALL be unchecked
+
+#### Scenario: Enabling repairs streaming
+- **WHEN** the user clicks the unchecked "Type while speaking" item
+- **THEN** both `type_while_speaking` and `streaming_enabled` SHALL be set to true
+
 ### Requirement: Streaming config changes apply at runtime
 The engine SHALL apply streaming configuration changes at runtime without a
 restart: when the config changes while the engine is running (e.g. via the
