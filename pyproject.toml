@@ -28,6 +28,10 @@ dependencies = [
     # (AXIsProcessTrusted / AXIsProcessTrustedWithOptions).
     "pyobjc-framework-ApplicationServices; sys_platform=='darwin'",
     "rumps; sys_platform=='darwin'",
+    # macOS bundle: setup_app.py force-includes certifi's CA bundle for HTTPS
+    # model downloads. huggingface_hub no longer pulls it in (httpx2 +
+    # truststore), so a fresh venv could not build the app without it.
+    "certifi; sys_platform=='darwin'",
     # Linux/X11-only: pynput hotkey + pystray tray (Pillow renders the icon).
     # Text injection additionally needs the `xdotool` system binary — see README.
     "pynput; sys_platform=='linux'",
