@@ -18,6 +18,10 @@ _SUCCESS_SOUNDS = [
     "/usr/share/sounds/freedesktop/stereo/complete.oga",
     "/usr/share/sounds/freedesktop/stereo/bell.oga",
 ]
+_FAILURE_SOUNDS = [
+    "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga",
+    "/usr/share/sounds/freedesktop/stereo/dialog-error.oga",
+]
 
 
 def _first_existing(paths: list[str]) -> str | None:
@@ -60,3 +64,6 @@ class LinuxNotifier:
 
     def transcription_succeeded(self) -> None:
         self._play(_SUCCESS_SOUNDS)
+
+    def input_unheard(self) -> None:
+        self._play(_FAILURE_SOUNDS)

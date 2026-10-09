@@ -99,6 +99,7 @@ class WhisperMenuBarApp(rumps.App):
         self.engine.on_permission_missing(self._on_permission_missing)
         self.engine.on_model_load_failed(self._on_model_load_failed)
         self.engine.on_capture_failed(self._on_capture_failed)
+        self.engine.on_input_unheard(self._on_input_unheard)
         self.engine.on_recording_limit_reached(self._on_recording_limit_reached)
 
         # Audio-reactive waveform visualization shown during recording. The
@@ -376,6 +377,11 @@ class WhisperMenuBarApp(rumps.App):
                 None,
             )
         )
+
+    def _on_input_unheard(self, message: str) -> None:
+        """Engine callback (hotkey thread): the recording only caught the noise
+        floor, so no text will come -- say why instead of staying silent."""
+        self._pending_alerts.append(("Microphone heard nothing", message, None))
 
     def _on_recording_limit_reached(self, message: str) -> None:
         """Engine callback (worker thread): the recording hit its max duration

@@ -61,6 +61,17 @@ SILENCE_RMS_THRESHOLD = 0.005
 # the word itself. A near-silent clip has no loud window, so it still fails.
 PEAK_RMS_WINDOW_S = 0.5
 
+# A whole recording whose peak level (the waveform's scale: normalized RMS x10)
+# stays under this means the microphone did not hear the user -- input muted or
+# turned down, stale device after a reinstall or sleep, wrong input selected.
+# Measured on 2026-10-09: eight such recordings in ~/.whispy.log peaked between
+# 0.008 and 0.055 (one 72 s take at 0.055, while the user was talking), and
+# speech reads 0.2 and above. 0.1 sits between both populations.
+NOISE_FLOOR_PEAK_LEVEL = 0.1
+# Recordings shorter than this are accidental taps on the trigger: nobody had
+# the time to speak, so hearing nothing is expected and not worth an alert.
+MIN_UNHEARD_ALERT_S = 0.5
+
 # Minimum seconds of VAD-voiced audio required before a clip reaches the model.
 #
 # The RMS gate above only catches *near-silence*. Non-speech that is merely loud
@@ -228,6 +239,11 @@ class AudioEngine:
         # (after the refresh-and-retry sequence); None when capture is healthy.
         # The engine reads this to notify the user instead of failing silently.
         self._capture_failed: str | None = None
+        # Name of the input device when the last recording only caught the
+        # noise floor; None otherwise. The engine reads this to warn the user,
+        # who would otherwise see no text and assume Whispy crashed.
+        self._unheard_input: str | None = None
+        self._input_name = "the input device"
         # Live input level (0.0-1.0) computed from the capture callback so the
         # waveform UI can visualize it WITHOUT opening a second microphone
         # stream — two concurrent input streams on the same CoreAudio device
@@ -376,6 +392,7 @@ class AudioEngine:
         self._emitted_last_block = False
         self._ready = threading.Event()
         self._capture_failed = None
+        self._unheard_input = None
         with self._wave_lock:
             self._wave = None
         # Fresh unique path for this recording (isolates it from any in-flight
@@ -468,17 +485,18 @@ class AudioEngine:
         # that captures only the room's noise floor is otherwise
         # indistinguishable in the log from one where the user said nothing
         # (live drive, 2026-09-14: 84 s of RMS 0.0036, no device recorded).
-        logger.info("[audio] capture open: input %s, stream %d Hz", self._describe_input_device(), SAMPLE_RATE)
+        self._input_name, description = self._describe_input_device()
+        logger.info("[audio] capture open: input %s, stream %d Hz", description, SAMPLE_RATE)
         self._wait_for_recording_ready()
         return True
 
-    def _describe_input_device(self) -> str:
-        """Human-readable current default input device, for the capture log line."""
+    def _describe_input_device(self) -> tuple[str, str]:
+        """Current default input device: its name, and a description for the capture log line."""
         try:
             info = sd.query_devices(kind="input")
-            return f"{info['name']!r} (native {float(info['default_samplerate']):.0f} Hz)"
+            return info["name"], f"{info['name']!r} (native {float(info['default_samplerate']):.0f} Hz)"
         except Exception as exc:  # no device, backend quirk -- never fail a recording over a log line
-            return f"unknown ({exc})"
+            return "the input device", f"unknown ({exc})"
 
     def _refresh_devices(self) -> None:
         """Force PortAudio to re-scan audio devices (terminate + re-initialize).
@@ -510,6 +528,11 @@ class AudioEngine:
         )
         stream.start()
         return stream
+
+    @property
+    def unheard_input(self) -> str | None:
+        """Input device name when the last recording only caught the noise floor, else None."""
+        return self._unheard_input
 
     @property
     def capture_failed(self) -> str | None:
@@ -556,16 +579,11 @@ class AudioEngine:
             except Exception as exc:
                 logger.debug("[audio] stream close error: %s", exc)
             self._stream = None
-            # Peak level is the waveform's own scale (normalized RMS x10, so the
-            # near-silence gate sits at 0.05). Speech reads 0.2 and above; a
-            # whole recording under the gate means the microphone did not hear
-            # the user -- lid closed, stale input after sleep, wrong device.
             seconds = self._frames_written / SAMPLE_RATE
-            hint = (
-                ""
-                if self._peak_level >= SILENCE_RMS_THRESHOLD * 10
-                else " -- at the noise floor, check the input device"
-            )
+            at_noise_floor = self._peak_level < NOISE_FLOOR_PEAK_LEVEL
+            hint = " -- at the noise floor, check the input device" if at_noise_floor else ""
+            if at_noise_floor and seconds >= MIN_UNHEARD_ALERT_S:
+                self._unheard_input = self._input_name
             logger.info("[audio] capture closed: %.1fs, peak level %.3f%s", seconds, self._peak_level, hint)
             # Capture health for this recording. A dropped block is audio the
             # model never sees, so it is a loss, not a statistic -- and
