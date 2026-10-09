@@ -17,6 +17,10 @@
   length, never the text), so the loss rate can be read from `~/.whispy.log`.
 
 ### Fixed
+- **Quiet dictation is no longer dropped.** When the model returns nothing
+  twice for a clip that cleared every gate, Whispy now tries once more on the
+  clip scaled to a normal loudness. On 20 real lost clips this recovered all 4
+  that held clear speech; the other 16 were noise or too faint to tell.
 - **The test suite no longer rewrites your real config.** Tests that build an
   `Engine()` without a config path saved to `~/.config/whispy/config.json`,
   resetting `streaming_enabled` to false on the installed app after every

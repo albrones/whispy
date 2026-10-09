@@ -129,6 +129,15 @@ TRIM_MIN_GAIN_S = 0.25
 
 RECORDING_PATH = os.path.join(tempfile.gettempdir(), "whispy.wav")
 
+# Last attempt on a clip the model returned empty twice: the same audio, DC
+# removed and scaled to this whole-clip RMS. Measured on 20 real lost clips
+# (2026-10-09, openspec change lost-speech-probe): the 4 that a second model
+# (Whisper small) heard as clear speech all sat at RMS 0.010-0.013 -- quiet
+# dictation -- and came back as text at 0.05; untrimmed or wider-trimmed copies
+# rescued none. At 0.05 none of the 15 non-speech clips produced a filler; at
+# 0.1 one did ("Uh").
+LOUDNESS_RETRY_RMS = 0.05
+
 # A clip lost to the model (see "Lost speech" in ``transcribe``) is kept here so
 # it can be replayed (scripts/replay_lost.py) instead of guessed at. Only losses
 # are kept -- never a clip that was transcribed -- and only the newest
@@ -707,6 +716,8 @@ class AudioEngine:
                     duration or 0.0,
                 )
                 text = (model.recognize(audio_path) or "").strip()
+            if not text:
+                text = self._recognize_louder(audio_path, model, duration)
         except Exception:
             # Logged, not printed: the bundled app has no stderr sink, so a
             # print here is invisible in a live drive.
@@ -733,6 +744,39 @@ class AudioEngine:
         # stays out of it.
         logger.info("[audio] Transcribed a %.2fs clip (%d characters).", duration or 0.0, len(text))
         return text
+
+    def _recognize_louder(self, audio_path: str, model: Any, duration: float | None) -> str:
+        """Recognize a copy of the clip scaled to LOUDNESS_RETRY_RMS; "" when there is nothing to scale."""
+        try:
+            with wave.open(audio_path, "rb") as wf:
+                rate = wf.getframerate()
+                samples = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16).astype(np.float32)
+        except (OSError, wave.Error, EOFError):
+            return ""
+        if not samples.size:
+            return ""
+        samples -= samples.mean()
+        rms = float(np.sqrt(np.mean(samples**2))) / 32768
+        # Already as loud as the target: scaling would only turn it down.
+        if rms == 0.0 or rms >= LOUDNESS_RETRY_RMS:
+            return ""
+        louder = np.clip(samples * (LOUDNESS_RETRY_RMS / rms), -32768, 32767).astype(np.int16)
+        louder_path = f"{audio_path}.louder.wav"
+        try:
+            with _open_recording_wav(louder_path) as wf:
+                wf.setnchannels(CHANNELS)
+                wf.setsampwidth(SAMPLE_WIDTH)
+                wf.setframerate(rate)
+                wf.writeframes(louder.tobytes())
+            logger.info(
+                "[audio] Still empty — retrying the %.2fs original at RMS %.2f (was %.4f).",
+                duration or 0.0,
+                LOUDNESS_RETRY_RMS,
+                rms,
+            )
+            return (model.recognize(louder_path) or "").strip()
+        finally:
+            self.cleanup_audio_file(louder_path)
 
     def _transcribe_in_pieces(self, audio_path: str, model: Any, min_recording_duration: float) -> str | None:
         """Transcribe a clip longer than ``MODEL_INPUT_MAX_S`` piece by piece.

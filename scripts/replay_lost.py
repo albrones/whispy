@@ -5,7 +5,8 @@ Usage: .venv/bin/python scripts/replay_lost.py ~/.whispy/lost/*.wav
 Whispy keeps every clip that cleared the gates but came back empty (see
 LOST_CLIPS_DIR in src/whispy/core/audio.py). For each one this prints what the
 model returns on the clip untouched, trimmed the way Whispy trims it, trimmed
-with a wider margin, and gain-normalized -- so a cause is measured on real
+with a wider margin, gain-normalized, and through Whispy's own louder last
+retry -- so a cause is measured on real
 losses instead of guessed at. Empty output prints as "" so a loss stays visible.
 """
 
@@ -19,7 +20,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from whispy.core.audio import TRIM_MARGIN_S, AudioEngine  # noqa: E402
+from whispy.core.audio import LOUDNESS_RETRY_RMS, TRIM_MARGIN_S, AudioEngine  # noqa: E402
 from whispy.core.engine import _load_model  # noqa: E402
 from whispy.core.state_machine import StateMachine  # noqa: E402
 
@@ -89,6 +90,8 @@ def replay(path: str, model, engine: AudioEngine) -> None:
         finally:
             if variant_path != path:
                 os.remove(variant_path)
+    # Whispy's own last retry, so a replay shows what the live path now returns.
+    print(f"   {f'louder RMS {LOUDNESS_RETRY_RMS} (Whispy)':24s} {engine._recognize_louder(path, model, None)!r}")
 
 
 def main(paths: list[str]) -> int:
