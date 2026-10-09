@@ -638,6 +638,36 @@ class TestCaptureFailureSurfaced:
         assert engine.start_recording() is True
 
 
+class TestInputUnheardSurfaced:
+    """stop_recording() warns -- failure sound plus callback naming the device --
+    when the recording only caught the noise floor, and stays quiet otherwise."""
+
+    def _stop_with(self, engine, mocker, unheard: str | None):
+        mocker.patch.object(engine._audio_engine, "stop", return_value=True)
+        mocker.patch.object(
+            type(engine._audio_engine),
+            "unheard_input",
+            new_callable=mocker.PropertyMock,
+            return_value=unheard,
+        )
+        sound = mocker.patch.object(engine._notifier, "input_unheard")
+        messages: list[str] = []
+        engine.on_input_unheard(messages.append)
+        assert engine.stop_recording() is True
+        return sound, messages
+
+    def test_unheard_recording_plays_failure_sound_and_names_device(self, engine, mocker):
+        sound, messages = self._stop_with(engine, mocker, "Micro MacBook Pro")
+        sound.assert_called_once()
+        assert len(messages) == 1
+        assert "Micro MacBook Pro" in messages[0]
+
+    def test_heard_recording_stays_quiet(self, engine, mocker):
+        sound, messages = self._stop_with(engine, mocker, None)
+        sound.assert_not_called()
+        assert messages == []
+
+
 # ---------------------------------------------------------------------------
 # Explicitly-denied startup permissions are surfaced (v1 blocker #2)
 # ---------------------------------------------------------------------------

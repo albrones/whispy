@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Added
+- **Whispy says when the microphone heard nothing.** A recording of half a
+  second or more that only caught background noise now plays a failure sound
+  (Basso) and posts « Microphone heard nothing », naming the input device —
+  instead of ending with no text and no sound, which looked like a crash. The
+  noise-floor threshold rises from 0.05 to 0.1 peak level so a 72 s deaf take
+  at 0.055 is caught.
 - **Lost speech can be replayed.** A clip that clears every gate but comes
   back empty from the model is now kept in `~/.whispy/lost/` (newest 20,
   readable only by you) and named in its `Lost speech` warning;

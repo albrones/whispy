@@ -4,6 +4,7 @@ import subprocess
 
 _RECORDING_START_SOUND = "/System/Library/Sounds/Tink.aiff"
 _SUCCESS_SOUND = "/System/Library/Sounds/Pop.aiff"
+_FAILURE_SOUND = "/System/Library/Sounds/Basso.aiff"
 
 
 class MacNotifier:
@@ -21,3 +22,6 @@ class MacNotifier:
 
     def transcription_succeeded(self) -> None:
         self._play(_SUCCESS_SOUND)
+
+    def input_unheard(self) -> None:
+        self._play(_FAILURE_SOUND)

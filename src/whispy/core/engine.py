@@ -195,6 +195,7 @@ class Engine:
         self._model_load_failed_callbacks: list[Callable] = []
         self._permission_missing_callbacks: list[Callable] = []
         self._capture_failed_callbacks: list[Callable] = []
+        self._input_unheard_callbacks: list[Callable] = []
         self._config_path = config_path or (Path.home() / ".config" / "whispy" / "config.json")
         self._fn_pressed = False
         self._recording_limit_callbacks: list[Callable] = []
@@ -475,6 +476,26 @@ class Engine:
             except Exception:
                 logger.exception("[engine] Error in capture-failed callback")
 
+    def on_input_unheard(self, callback: Callable) -> None:
+        """Register a callback fired when a recording only caught the noise floor.
+
+        The callback receives a message (str). Without it a muted or stale
+        microphone yields no text and no sound, and the user takes it for a
+        crash and relaunches.
+        """
+        self._input_unheard_callbacks.append(callback)
+
+    def _notify_input_unheard(self, device: str) -> None:
+        """Cue the failure sound and fan out a heard-nothing recording to callbacks."""
+        logger.warning("[engine] input heard nothing: %s", device)
+        self._notifier.input_unheard()
+        message = f"{device} only picked up background noise — check the input device and its volume, then try again."
+        for cb in list(self._input_unheard_callbacks):
+            try:
+                cb(message)
+            except Exception:
+                logger.exception("[engine] Error in input-unheard callback")
+
     def on_recording_limit_reached(self, callback: Callable) -> None:
         """Register a callback fired when a recording hits the maximum duration.
 
@@ -541,7 +562,12 @@ class Engine:
         (callers gate the transcription stop event on this so a stray release
         does not transcribe a stale/missing file).
         """
-        return self._audio_engine.stop()
+        stopped = self._audio_engine.stop()
+        if stopped:
+            device = getattr(self._audio_engine, "unheard_input", None)
+            if isinstance(device, str):
+                self._notify_input_unheard(device)
+        return stopped
 
     def _deliver(self, text: str) -> None:
         """Hand assembled text to the user: type it, or copy it if this cycle was

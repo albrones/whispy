@@ -66,6 +66,8 @@ class Notifier(Protocol):
 
     def transcription_succeeded(self) -> None: ...
 
+    def input_unheard(self) -> None: ...
+
 
 @runtime_checkable
 class TrayUI(Protocol):

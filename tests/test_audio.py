@@ -1389,6 +1389,45 @@ class TestCaptureDiagnosticsLog:
         assert "noise floor" not in caplog.text
 
 
+class TestUnheardInput:
+    """A recording that only caught the noise floor names its input device so
+    the engine can warn the user (live, 2026-10-09: four deaf takes in a row,
+    no text, no sound, and the user relaunched believing Whispy had crashed)."""
+
+    def _record_at_level(self, mocker, level: float):
+        import numpy as np
+
+        spy = _install_spy_sd(mocker)
+        audio_module.sd.query_devices.return_value = {"name": "Micro MacBook Pro", "default_samplerate": 44100.0}
+        audio = AudioEngine(MagicMock())
+        audio.start()  # one second of digital silence
+        block = np.full(1600, level / 10 * 32767).astype("<i2").tobytes()  # level = RMS x10
+        spy.instances[-1]._callback(block, 1600, None, None)
+        return audio
+
+    def test_the_72_second_take_of_2026_10_09_is_unheard(self, mocker):
+        audio = self._record_at_level(mocker, 0.055)
+        audio.stop()
+        assert audio.unheard_input == "Micro MacBook Pro"
+
+    def test_speech_level_is_heard(self, mocker):
+        audio = self._record_at_level(mocker, 0.2)
+        audio.stop()
+        assert audio.unheard_input is None
+
+    def test_an_accidental_tap_is_not_reported(self, mocker):
+        audio = self._record_at_level(mocker, 0.0)
+        audio._frames_written = 1600  # 0.1 s: released before anyone could speak
+        audio.stop()
+        assert audio.unheard_input is None
+
+    def test_the_next_recording_starts_clear(self, mocker):
+        audio = self._record_at_level(mocker, 0.0)
+        audio.stop()
+        audio.start()
+        assert audio.unheard_input is None
+
+
 @requires_vad
 class TestModelInputCeiling:
     """No single model call receives more than MODEL_INPUT_MAX_S of audio.
