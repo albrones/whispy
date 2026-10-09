@@ -564,6 +564,38 @@ class TestTranscribe:
         assert "0.150000" in warnings[0].getMessage()
         assert "1.00" in warnings[0].getMessage()
 
+    def test_quiet_clip_empty_twice_is_retried_louder(self, sm, mock_asr_model, tmp_path):
+        """Quiet dictation the model missed twice gets a last try at normalized loudness."""
+        import numpy as np
+
+        audio = AudioEngine(sm)
+        audio_path = str(tmp_path / "quiet.wav")
+        quiet_voice = (np.sin(np.linspace(0, 2000, 32000)) * 0.012 * 32768 * 1.414).astype(np.int16)
+        with wave.open(audio_path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(quiet_voice.tobytes())
+        audio._get_peak_rms = MagicMock(return_value=0.012)
+        audio._speech_span = MagicMock(return_value=(0.1, 1.5, 1.0))
+        audio._trim_to_speech = MagicMock(return_value=audio_path + ".trim.wav")
+        heard_rms = []
+
+        def recognize(path):
+            if path.endswith(".louder.wav"):
+                with wave.open(path, "rb") as wf:
+                    pcm = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16) / 32768
+                heard_rms.append(float(np.sqrt(np.mean(pcm**2))))
+                return "bonjour"
+            return ""
+
+        mock_asr_model.recognize.side_effect = recognize
+
+        assert audio.transcribe(audio_path, mock_asr_model) == "bonjour"
+        assert mock_asr_model.recognize.call_count == 3
+        assert abs(heard_rms[0] - 0.05) < 0.005
+        assert not os.path.exists(audio_path + ".louder.wav")
+
     def _lose(self, sm, mock_asr_model, tmp_path, name="test.wav"):
         audio = AudioEngine(sm)
         audio_path = str(tmp_path / name)

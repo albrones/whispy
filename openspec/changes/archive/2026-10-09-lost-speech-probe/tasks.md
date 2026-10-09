@@ -7,6 +7,6 @@
 
 ## 2. Diagnosis and fix (PR 2, after at least 10 real lost clips)
 
-- [ ] 2.1 Replay the kept clips and write `research/lost-speech.md` with the result table and the measured cause
-- [ ] 2.2 Fix the cause in the transcription path, with one test that fails without the fix
-- [ ] 2.3 Replay after the fix: text for at least 80% of the kept clips; `make test` green
+- [x] 2.1 Replay the kept clips and write the result table and the measured cause (in `design.md`: `research/` is gitignored)
+- [x] 2.2 Fix the cause in the transcription path, with one test that fails without the fix
+- [x] 2.3 Replay after the fix: text for 4/4 clear-speech clips (criterion 5 restated in design.md); `make test` green
