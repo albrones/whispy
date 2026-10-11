@@ -15,6 +15,19 @@
   `scripts/replay_lost.py` replays those clips untouched, trimmed and
   gain-normalized. Successful transcriptions are logged too (duration and
   length, never the text), so the loss rate can be read from `~/.whispy.log`.
+- **Interactive docs site at `/docs`.** An install checklist with an OS switcher,
+  a troubleshooting tree mapped to `make doctor`, a config builder and a
+  streaming visualizer, generated from `docs/src/` into `website/docs/`.
+- **`make docs`** regenerates the docs site; `tests/test_docs_site.py` fails
+  when the committed output is stale.
+
+### Changed
+- **README shortened.** It now carries the pitch, the one-line install, links to
+  the docs, platform support, the model and the license; the install,
+  troubleshooting, configuration and API detail moved to the docs site, and the
+  test-suite table moved to `CONTRIBUTING.md`.
+- **Config keys are declared in one schema.** The loader, the docs and the
+  config builder read the same declaration. No behavior change.
 
 ### Fixed
 - **Quiet dictation is no longer dropped.** When the model returns nothing

@@ -764,3 +764,35 @@ def test_tests_never_resolve_the_real_config_path():
 
     real_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
     assert not get_default_config_path().is_relative_to(real_home / ".config")
+
+
+class TestConfigSchema:
+    """CONFIG_SCHEMA is the single source of truth for defaults and validation."""
+
+    def test_default_config_derives_from_schema(self):
+        from whispy.core.config import CONFIG_SCHEMA
+
+        assert list(DEFAULT_CONFIG) == list(CONFIG_SCHEMA)
+        for key, spec in CONFIG_SCHEMA.items():
+            assert DEFAULT_CONFIG[key] == spec.default
+            assert isinstance(spec.description, str)
+            assert spec.description.strip()
+
+    def test_default_vocabulary_is_not_shared_with_schema(self):
+        from whispy.core.config import CONFIG_SCHEMA
+
+        DEFAULT_CONFIG["custom_vocabulary"].append("leak")
+        try:
+            assert CONFIG_SCHEMA["custom_vocabulary"].default == []
+        finally:
+            DEFAULT_CONFIG["custom_vocabulary"].clear()
+
+    def test_vad_aggressiveness_out_of_range_falls_back(self, capsys):
+        result = _validate_config({"vad_aggressiveness": 4})
+        assert result["vad_aggressiveness"] == 2
+        assert "vad_aggressiveness" in capsys.readouterr().err
+
+    def test_max_chunk_must_exceed_min_chunk(self):
+        result = _validate_config({"min_chunk_s": 2, "max_chunk_s": 1})
+        assert result["min_chunk_s"] == 2
+        assert result["max_chunk_s"] == 8.0

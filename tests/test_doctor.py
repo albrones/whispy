@@ -190,3 +190,15 @@ class TestDoctorOnLinux:
         mocker.patch("whispy.doctor.urllib.request.urlopen", side_effect=OSError("refused"))
         result = doctor.check_daemon()
         assert "systemctl --user start whispy" in result.detail
+
+
+class TestCheckMetadata:
+    def test_static_metadata_without_running_checks(self):
+        assert len(doctor.CHECKS) == 9
+        ids = [c.check_id for c in doctor.CHECKS]
+        assert len(set(ids)) == len(ids)
+        for c in doctor.CHECKS:
+            assert c.check_id
+            assert c.check_name
+            assert isinstance(c.platforms, tuple) and c.platforms
+            assert set(c.platforms) <= {"macos", "linux"}

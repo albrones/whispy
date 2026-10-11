@@ -1,0 +1,65 @@
+/* Styles for the config builder and the segmentation visualizer.
+ * Uses only the variables defined by ../styles.css. */
+#config-builder, #segment-viz { max-width: 100%; box-sizing: border-box; }
+#config-builder *, #segment-viz * { box-sizing: border-box; }
+
+.cb-group { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); margin: 0 0 1rem; padding: 0.5rem 1rem 1rem; min-width: 0; }
+.cb-group legend { padding: 0 0.5rem; color: var(--green); font-weight: 600; }
+.cb-row { padding: 0.75rem 0; border-top: 1px solid var(--border); }
+.cb-group legend + .cb-row { border-top: 0; }
+.cb-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem; }
+.cb-label { color: var(--text); overflow-wrap: anywhere; }
+.cb-unit { color: var(--muted); }
+.cb-row input[type="text"], .cb-row input[type="number"], .cb-row select, .cb-row textarea {
+  width: 100%; max-width: 24rem; padding: 0.5rem 0.65rem; font: inherit; color: var(--text);
+  background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.cb-row input[type="checkbox"] { width: 1.15rem; height: 1.15rem; accent-color: var(--green); }
+.cb-row textarea { resize: vertical; font-family: inherit; }
+.cb-row input:focus-visible, .cb-row select:focus-visible, .cb-row textarea:focus-visible,
+.cb-reset:focus-visible, .cb-copy:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.cb-row [aria-invalid="true"] { border-color: #ff6b6b; }
+.cb-help { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.9rem; }
+.cb-error { margin: 0.35rem 0 0; color: #ff8a8a; font-size: 0.9rem; }
+.cb-reset, .cb-copy {
+  font: inherit; font-size: 0.8rem; color: var(--text); background: transparent; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 0.2rem 0.6rem;
+}
+.cb-reset:hover, .cb-copy:hover { border-color: var(--green); color: var(--green); }
+.cb-out { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); padding: 1rem; }
+.cb-out-head { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.cb-out-head h3 { margin: 0; margin-right: auto; font-size: 1rem; }
+.cb-status { color: var(--green); font-size: 0.85rem; min-width: 4rem; }
+.cb-pre { margin: 0.75rem 0; padding: 0.75rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; max-width: 100%; }
+.cb-pre code { white-space: pre; }
+.cb-note { margin: 0; color: var(--muted); font-size: 0.9rem; }
+
+.wv-fig { margin: 0; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); }
+.wv-svg-host { width: 100%; }
+.wv-svg { display: block; width: 100%; height: auto; font-family: var(--font); }
+.wv-speech { fill: var(--green); }
+.wv-base { stroke: var(--border); stroke-width: 1; }
+.wv-chunk-a { fill: var(--green); fill-opacity: 0.3; }
+.wv-chunk-b { fill: var(--text); fill-opacity: 0.14; stroke: var(--muted); stroke-width: 1; }
+.wv-chunk-discarded { fill: var(--muted); fill-opacity: 0.18; stroke: var(--muted); stroke-dasharray: 4 3; }
+.wv-cut { stroke: var(--text); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.wv-cut-soft { stroke-dasharray: 2 3; }
+.wv-cut-hard { stroke-dasharray: none; stroke-width: 2.5; }
+.wv-label { fill: var(--muted); font-size: 13px; }
+.wv-label-cut { fill: var(--text); }
+.wv-axis { stroke: var(--muted); stroke-width: 1; }
+.wv-playhead { stroke: var(--text); stroke-width: 2; }
+.wv-legend { list-style: none; margin: 0.75rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; color: var(--muted); font-size: 0.85rem; }
+.wv-sw { display: inline-block; width: 0.9rem; height: 0.9rem; vertical-align: -0.1rem; border-radius: 2px; border: 1px solid var(--border); }
+.wv-sw-speech { background: var(--green); }
+.wv-sw-a { background: rgba(36, 191, 158, 0.3); border-color: rgba(36, 191, 158, 0.5); }
+.wv-sw-b { background: rgba(255, 255, 255, 0.14); border-color: var(--muted); }
+.wv-sw-discarded { background: var(--muted); opacity: 0.4; border-style: dashed; }
+.wv-sw-cut { background: transparent; border: 0; border-left: 2px dashed var(--text); border-radius: 0; width: 0.4rem; }
+.wv-caption { margin-top: 0.75rem; color: var(--muted); font-size: 0.9rem; }
+.wv-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; list-style: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wv-playhead { display: none; }
+  #config-builder *, #segment-viz * { transition: none !important; animation: none !important; }
+}

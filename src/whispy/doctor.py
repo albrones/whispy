@@ -37,6 +37,29 @@ class CheckResult:
     detail: str
 
 
+CHECKS: list = []
+
+
+def check(id: str, name: str, platforms: tuple[str, ...]):
+    """Register a diagnostic check and attach static metadata to it.
+
+    The metadata (``check_id``, ``check_name``, ``platforms``) is readable
+    without running the check, so docs tooling can list checks. The function is
+    returned unchanged and stays directly callable. Checks run in definition
+    order.
+    """
+
+    def decorator(fn):
+        fn.check_id = id
+        fn.check_name = name
+        fn.platforms = platforms
+        CHECKS.append(fn)
+        return fn
+
+    return decorator
+
+
+@check("audio-backend", "audio backend", ("macos", "linux"))
 def check_audio_backend() -> CheckResult:
     """sounddevice (PortAudio) is required for cross-platform audio capture."""
     try:
@@ -50,16 +73,7 @@ def check_audio_backend() -> CheckResult:
     return CheckResult("audio backend", OK, "sounddevice (PortAudio) available")
 
 
-def check_xdotool() -> CheckResult:
-    """On Linux/X11, xdotool is required for text injection."""
-    if sys.platform != "linux":
-        return CheckResult("xdotool", OK, "not required on this platform")
-    path = shutil.which("xdotool")
-    if path:
-        return CheckResult("xdotool", OK, path)
-    return CheckResult("xdotool", FAIL, "not found — install with your package manager (e.g. `apt install xdotool`)")
-
-
+@check("display", "X11 session", ("linux",))
 def check_display() -> CheckResult:
     """On Linux the global hotkey and text injection both need an X11 session."""
     if sys.platform != "linux":
@@ -77,6 +91,18 @@ def check_display() -> CheckResult:
     return CheckResult("X11 session", OK, f"DISPLAY={display}")
 
 
+@check("xdotool", "xdotool", ("linux",))
+def check_xdotool() -> CheckResult:
+    """On Linux/X11, xdotool is required for text injection."""
+    if sys.platform != "linux":
+        return CheckResult("xdotool", OK, "not required on this platform")
+    path = shutil.which("xdotool")
+    if path:
+        return CheckResult("xdotool", OK, path)
+    return CheckResult("xdotool", FAIL, "not found — install with your package manager (e.g. `apt install xdotool`)")
+
+
+@check("clipboard-tool", "clipboard tool", ("linux",))
 def check_clipboard_tool() -> CheckResult:
     """``copy_to_clipboard`` defaults to true, and on Linux that needs xclip or xsel."""
     if sys.platform != "linux":
@@ -98,6 +124,7 @@ def check_clipboard_tool() -> CheckResult:
 MODEL_CACHE_GLOB = "models--istupakov--parakeet-tdt-0.6b-v3-onnx"
 
 
+@check("model", "model", ("macos", "linux"))
 def check_model(config_path: Path | None = None) -> CheckResult:
     """The Parakeet model should be present in the HF cache.
 
@@ -115,6 +142,7 @@ def check_model(config_path: Path | None = None) -> CheckResult:
     )
 
 
+@check("input-monitoring", "Input Monitoring", ("macos",))
 def check_input_monitoring() -> CheckResult:
     """Input Monitoring is required for the Fn-key event tap."""
     if sys.platform != "darwin":
@@ -132,6 +160,7 @@ def check_input_monitoring() -> CheckResult:
     )
 
 
+@check("accessibility", "Accessibility", ("macos",))
 def check_accessibility() -> CheckResult:
     """Accessibility is required for osascript text injection."""
     if sys.platform != "darwin":
@@ -153,6 +182,7 @@ def check_accessibility() -> CheckResult:
     )
 
 
+@check("microphone", "Microphone", ("macos",))
 def check_microphone() -> CheckResult:
     """Microphone access is required to record audio."""
     if sys.platform != "darwin":
@@ -174,6 +204,7 @@ def check_microphone() -> CheckResult:
     return CheckResult("Microphone", FAIL, "denied — System Settings → Privacy & Security → Microphone")
 
 
+@check("daemon", "Daemon", ("macos", "linux"))
 def check_daemon(port: int = 9090) -> CheckResult:
     """The daemon exposes an HTTP status endpoint when running."""
     from .core.auth import AUTH_HEADER, AUTH_SCHEME, read_token
@@ -192,19 +223,6 @@ def check_daemon(port: int = 9090) -> CheckResult:
     except (urllib.error.URLError, OSError):
         hint = "systemctl --user start whispy" if sys.platform == "linux" else "./install.sh"
         return CheckResult("Daemon", WARN, f"not running (start with {hint})")
-
-
-CHECKS = [
-    check_audio_backend,
-    check_display,
-    check_xdotool,
-    check_clipboard_tool,
-    check_model,
-    check_input_monitoring,
-    check_accessibility,
-    check_microphone,
-    check_daemon,
-]
 
 
 def run_doctor(checks=None) -> int:

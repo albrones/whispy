@@ -1,0 +1,99 @@
+<h1>Usage</h1>
+<p class="lede">Hold the trigger, speak, release. The text is typed into the focused field.</p>
+
+<h2>Dictating</h2>
+<ol>
+  <li>Put the cursor in any text field.</li>
+  <li>Hold the trigger key: <kbd>Fn</kbd> on macOS, <kbd>Right Ctrl</kbd> on Linux. A sound confirms recording.</li>
+  <li>Speak.</li>
+  <li>Release the key. The text is transcribed and inserted.</li>
+</ol>
+<p><span data-os="macos">On macOS you can change the key from the menu bar (<strong>Settings → Trigger</strong>).</span> <span data-os="linux">On Linux the trigger is Right Ctrl unless you set <a href="config.html#cfg-trigger"><code>trigger</code></a>.</span></p>
+
+<h3>Hold or toggle</h3>
+<p>The default <strong>hold</strong> mode is push-to-talk. With <a href="config.html#cfg-trigger_mode"><code>trigger_mode</code></a> set to <code>"toggle"</code>, press the trigger once to start and again to stop. In toggle mode, <a href="config.html#cfg-type_while_speaking"><code>type_while_speaking</code></a> types each chunk about a second after each pause instead of all at once; switching windows mid-dictation scatters the text across them.</p>
+
+<h3>Menu bar and tray</h3>
+<p data-os="macos">Whispy lives in the menu bar. From there you can switch the trigger, toggle <strong>Type while speaking</strong> and <strong>Start at login</strong>, restart, and quit. If it cannot type, a <strong>Can't type — fix permissions…</strong> row appears.</p>
+<p data-os="linux">Whispy shows its state in the system tray (there is no floating overlay on Linux). Set options such as <code>type_while_speaking: false</code> in the config and restart the service.</p>
+
+<h3>Custom vocabulary</h3>
+<p>Add names, brands and jargon to <a href="config.html#cfg-custom_vocabulary"><code>custom_vocabulary</code></a>. After transcription, an output word is corrected when its spelling or pronunciation is close to one of your terms (<em>wispy</em> becomes <em>Whispy</em>). It fixes close misses only and never adds words you did not say.</p>
+
+<h2>Logs</h2>
+<ul>
+  <li>Standard log: <code>~/.whispy.log</code></li>
+  <li>Error log: <code>~/.whispy-error.log</code></li>
+</ul>
+<pre data-copy><code>tail -f ~/.whispy.log ~/.whispy-error.log</code></pre>
+
+<h2>Restart</h2>
+<p data-os="macos">Menu bar → <strong>Restart</strong>, or quit and reopen <code>/Applications/Whispy.app</code>.</p>
+<div data-os="linux"><pre data-copy><code>systemctl --user restart whispy.service</code></pre></div>
+<p>From a source checkout, <code>make run</code> runs the daemon in the foreground against your working tree.</p>
+
+<h2 id="uninstall">Uninstall</h2>
+<p>If you installed with the one-liner:</p>
+<pre data-copy><code>curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash -s -- --uninstall</code></pre>
+<div data-os="macos">
+<p>Or by hand:</p>
+<pre data-copy><code># 1. Quit Whispy (menu bar → Quit), then remove the venv and legacy LaunchAgents
+./install.sh --uninstall
+# 2. Delete the app bundle (this also drops the Start at login item)
+rm -rf /Applications/Whispy.app
+# 3. Optional: wipe settings, auth token and logs
+rm -rf ~/.config/whispy ~/.whispy.log ~/.whispy-error.log</code></pre>
+<p>Permission grants are tied to the <code>Whispy.app</code> identity. After reinstalling, macOS may ask you to approve them again.</p>
+</div>
+<div data-os="linux">
+<p>Or by hand, which removes the <code>systemd --user</code> unit and the venv:</p>
+<pre data-copy><code>./install.sh --uninstall</code></pre>
+</div>
+
+<h2>Local HTTP API</h2>
+<p>The API listens on loopback only and requires a per-install token, so a web page in your browser cannot drive the daemon. Every request must send the token from <code>~/.config/whispy/config.token</code> as a bearer header. The port is defined near the top of <code>src/whispy/api/server.py</code>.</p>
+<pre data-copy><code>curl -H "Authorization: Bearer $$(cat ~/.config/whispy/config.token)" http://localhost:9090/status</code></pre>
+<pre data-copy><code>curl -H "Authorization: Bearer $$(cat ~/.config/whispy/config.token)" -X POST http://localhost:9090/start</code></pre>
+<pre data-copy><code>curl -H "Authorization: Bearer $$(cat ~/.config/whispy/config.token)" -X POST http://localhost:9090/stop</code></pre>
+<p><code>/status</code> checks the daemon, <code>/start</code> begins recording and <code>/stop</code> stops and transcribes.</p>
+
+<h2 id="model">The model</h2>
+<p>Whispy ships one model, <code>nvidia/parakeet-tdt-0.6b-v3</code>, int8-quantized to ONNX and run on your CPU. There is nothing to choose, so there is no model setting. The download is about 639 MB, automatic on first use, cached at <code>~/.cache/huggingface/hub/models--istupakov--parakeet-tdt-0.6b-v3-onnx</code>. It uses about 1.4 GB of memory while loaded.</p>
+<h3>No language setting</h3>
+<p>The model detects the language of each utterance and copes with switching languages mid-recording. Forcing a language was measurably wrong (English speech came back translated into French), so there is no such setting. See the <a href="install.html#first-run-the-model">supported languages</a>.</p>
+<h3>Short sounds and silence are ignored</h3>
+<p>Given silence or room noise, the model answers with a short filler such as <code>Yeah.</code> or <code>Okay.</code>, which would be typed into whatever you have focused. Two gates run first, and a clip must clear both:</p>
+<ul>
+<li><strong>Loudness.</strong> Anything below 0.005 normalized RMS is discarded: a muted mic, a misfire, a quiet room.</li>
+<li><strong>Voice detection.</strong> Anything with under 0.20 s of detected voice is discarded: steady noise, a fan, mains hum.</li>
+</ul>
+<p>Both fail open: a clip that cannot be measured is transcribed rather than dropped, because losing real dictation is worse than an occasional stray word. Whispy never filters by what was said, since <code>Okay.</code> and <code>No.</code> are legitimate one-word dictations. Pausing to think while holding the trigger is fine too.</p>
+<p>In a genuinely loud room (noise above roughly 0.04 RMS) voice detection can no longer tell noise from speech and you rely on the model alone. A stray word in a noisy environment is that gap.</p>
+<h3>Upgrading from a Whisper-era Whispy</h3>
+<p>The old model cache at <code>~/.cache/huggingface/hub/models--Systran--faster-whisper-*</code> is no longer used. <code>./install.sh --uninstall</code> will not delete it; remove it by hand to reclaim the space.</p>
+<h3>Upgrading the speech runtime</h3>
+<p>From the source folder:</p>
+<pre data-copy><code>./.venv/bin/pip install --upgrade onnx-asr</code></pre>
+
+<h2>FAQ</h2>
+<details><summary>Will Whispy start automatically at each reboot?</summary>
+<p data-os="macos">Yes, if you enable <strong>Settings → Start at login</strong> in the menu bar (it uses <code>SMAppService</code>, no LaunchAgent).</p>
+<p data-os="linux">Yes. The <code>systemd --user</code> unit installed by <code>install.sh</code> starts it at login.</p>
+</details>
+<details><summary>How do I update Whispy?</summary>
+<p>Pull the latest code with <code>git pull</code>, then:</p>
+<p data-os="macos">Run <code>make reinstall</code>. It rebuilds and signs the bundle, replaces <code>/Applications/Whispy.app</code>, relaunches it and waits until the daemon answers. Running an old build is the usual reason a fix does not take effect.</p>
+<p data-os="linux">Rerun <code>./install.sh</code>. It reinstalls the venv and reloads the systemd unit.</p>
+</details>
+<details><summary>Can I use a different model or language?</summary>
+<p>No. Whispy ships one model, <code>nvidia/parakeet-tdt-0.6b-v3</code>, which covers 25 languages and detects them automatically. There is no model or language setting. Speech outside those languages will not transcribe.</p>
+</details>
+<details><summary>I spoke and nothing was typed.</summary>
+<p>The clip may have been discarded: shorter than <a href="config.html#cfg-min_recording_duration"><code>min_recording_duration</code></a> (a tap rather than a hold), near-silent, or with too little detected voice. <code>~/.whispy.log</code> shows <code>Recording too short</code>, <code>near-silent (RMS ...)</code> or <code>No speech detected</code>. A muted or wrong input device is another usual cause. <a href="#model">Why short clips are ignored</a>. See <a href="troubleshooting.html">Troubleshooting</a>.</p>
+</details>
+<details><summary>How do I know whether Whispy is running?</summary>
+<p>Call <code>/status</code> as shown above, or look for the process in your system monitor.</p>
+</details>
+<details><summary>Can I use my own Python version or environment?</summary>
+<p>The install script creates and uses its own virtual environment in <code>.venv</code>; you do not need to manage it.</p>
+</details>

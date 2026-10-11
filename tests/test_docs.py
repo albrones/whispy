@@ -7,6 +7,8 @@ in the non-website docs can't silently drift from the code again (see
 ``openspec/changes/sync-docs-with-code``).
 """
 
+import html
+import json
 import re
 from pathlib import Path
 
@@ -18,7 +20,11 @@ ROOT = Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
 AGENTS = ROOT / "AGENTS.md"
 CHANGELOG = ROOT / "CHANGELOG.md"
+CONTRIBUTING = ROOT / "CONTRIBUTING.md"
 TESTS_DIR = ROOT / "tests"
+DOCS_DIR = ROOT / "website" / "docs"
+DOCS_BASE = "https://whispy-dun.vercel.app/docs/"
+INSTALL_ONE_LINER = "curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash"
 
 FRENCH_MARKERS = [
     "Non publié",
@@ -35,6 +41,30 @@ FRENCH_MARKERS = [
 @pytest.fixture(scope="module")
 def readme() -> str:
     return README.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def contributing() -> str:
+    return CONTRIBUTING.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def config_rows() -> dict[str, str]:
+    """Map each documented config key to its Default cell text (HTML-unescaped)."""
+    page = (DOCS_DIR / "config.html").read_text(encoding="utf-8")
+    table = re.search(r'<table id="config-reference">(.*?)</table>', page, re.DOTALL)
+    assert table is not None, "config.html has no config-reference table"
+    rows = {}
+    for key, cells in re.findall(r'<tr id="cfg-([^"]+)">(.*?)</tr>', table.group(1), re.DOTALL):
+        tds = re.findall(r"<td>(.*?)</td>", cells, re.DOTALL)
+        default = re.sub(r"</?code>", "", tds[1])
+        rows[key] = html.unescape(default)
+    return rows
+
+
+@pytest.fixture(scope="module")
+def usage_page() -> str:
+    return (DOCS_DIR / "usage.html").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -57,24 +87,18 @@ def _section(text: str, heading: str) -> str:
     return text[start:end]
 
 
-def _config_table_keys(readme_text: str) -> set[str]:
-    section = _section(readme_text, "Configuration")
-    return set(re.findall(r"^\|\s*`([a-zA-Z_]+)`\s*\|", section, re.MULTILINE))
-
-
-def _test_table_paths(readme_text: str) -> list[str]:
-    section = _section(readme_text, "Testing")
+def _test_table_paths(contributing_text: str) -> list[str]:
+    section = _section(contributing_text, "Test suite")
     return re.findall(r"`(tests/[^`]+\.py(?:::[^`]+)?)`", section)
 
 
 # --- Documented defaults match code -----------------------------------------
 
 
-def test_readme_does_not_document_removed_config_keys(readme: str):
+def test_docs_do_not_document_removed_config_keys(config_rows: dict[str, str]):
     """Keys that configured the Whisper decoder must not appear as settings."""
-    section = _section(readme, "Configuration")
     for gone in ("model_size", "language", "beam_size", "best_of", "auto_detect_min_duration"):
-        assert f"`{gone}`" not in section, f"README still documents the removed `{gone}` setting"
+        assert gone not in config_rows, f"config docs still document the removed `{gone}` setting"
 
 
 def test_readme_names_the_model_that_actually_runs(readme: str):
@@ -98,18 +122,24 @@ def test_readme_names_the_model_that_actually_runs(readme: str):
 # --- Complete config key reference ------------------------------------------
 
 
-def test_readme_config_table_covers_every_default_config_key(readme: str):
-    documented = _config_table_keys(readme)
-    missing = set(DEFAULT_CONFIG.keys()) - documented
-    assert not missing, f"DEFAULT_CONFIG keys missing from the README Configuration table: {missing}"
+def test_config_docs_cover_every_default_config_key(config_rows: dict[str, str]):
+    missing = set(DEFAULT_CONFIG.keys()) - set(config_rows)
+    assert not missing, f"DEFAULT_CONFIG keys missing from docs/config.html: {missing}"
+
+
+def test_config_docs_defaults_match_code(config_rows: dict[str, str]):
+    for key, default in DEFAULT_CONFIG.items():
+        assert config_rows[key] == json.dumps(default), (
+            f"docs default for `{key}` is {config_rows[key]!r}, code says {json.dumps(default)!r}"
+        )
 
 
 # --- API examples are authenticated and correctly attributed ---------------
 
 
-def test_readme_port_attribution(readme: str):
-    assert "defined near the top of `src/whispy/api/server.py`" in readme
-    assert "defined near the top of `whispy_daemon.py`" not in readme
+def test_usage_docs_port_attribution(usage_page: str):
+    assert "defined near the top of <code>src/whispy/api/server.py</code>" in usage_page
+    assert "defined near the top of <code>whispy_daemon.py</code>" not in usage_page
 
 
 def test_agents_curl_examples_include_auth_header(agents: str):
@@ -144,21 +174,46 @@ def test_agents_lists_linux_dependencies(agents: str):
 # --- Test suite documentation matches the tests/ directory -----------------
 
 
-def test_readme_test_table_paths_exist(readme: str):
-    for path in _test_table_paths(readme):
+def test_contributing_test_table_paths_exist(contributing: str):
+    paths = _test_table_paths(contributing)
+    assert paths, "CONTRIBUTING.md test table lists no test files"
+    for path in paths:
         file_path = path.split("::")[0]
-        assert (ROOT / file_path).is_file(), f"README references nonexistent test file: {file_path}"
+        assert (ROOT / file_path).is_file(), f"CONTRIBUTING references nonexistent test file: {file_path}"
 
 
-def test_readme_does_not_reference_test_stress(readme: str):
-    assert "test_stress.py" not in readme
+def test_contributing_does_not_reference_test_stress(contributing: str):
+    assert "test_stress.py" not in contributing
 
 
-def test_readme_error_handling_description_has_no_sox_claim(readme: str):
-    section = _section(readme, "Testing")
+def test_contributing_error_handling_description_has_no_sox_claim(contributing: str):
+    section = _section(contributing, "Test suite")
     line = next((li for li in section.splitlines() if "test_error_handling.py" in li), None)
-    assert line is not None, "test_error_handling.py row not found in README test table"
+    assert line is not None, "test_error_handling.py row not found in CONTRIBUTING test table"
     assert "sox" not in line.lower()
+
+
+# --- README stays short and points at the docs -----------------------------
+
+
+def test_readme_is_short(readme: str):
+    assert len(readme.splitlines()) <= 120
+
+
+@pytest.mark.parametrize("page", ["install.html", "troubleshooting.html", "config.html", "usage.html"])
+def test_readme_links_to_docs_pages(readme: str, page: str):
+    assert DOCS_BASE + page in readme, f"README must link to the docs {page} page"
+
+
+def test_readme_has_no_config_table(readme: str):
+    assert "## Configuration" not in readme
+    assert not re.search(r"^\|\s*`copy_to_clipboard`\s*\|", readme, re.MULTILINE)
+
+
+def test_readme_one_liner_precedes_documentation_heading(readme: str):
+    assert INSTALL_ONE_LINER in readme
+    assert "## Documentation" in readme
+    assert readme.index(INSTALL_ONE_LINER) < readme.index("## Documentation")
 
 
 # --- Feature documentation parity -------------------------------------------

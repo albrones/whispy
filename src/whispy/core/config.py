@@ -3,11 +3,13 @@
 Handles loading, saving, validation, and migration of the user config file.
 """
 
+import copy
 import json
 import logging
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -33,8 +35,27 @@ TRIGGER_PRESETS: list[tuple[str, int | str | None]] = [
     ("F13", 105),
 ]
 
-# Default configuration values
-DEFAULT_CONFIG: dict[str, Any] = {
+
+@dataclass(frozen=True)
+class ConfigKey:
+    """One config key: its default, what it accepts, and how to describe it to users."""
+
+    default: Any
+    kind: str  # "bool" | "number" | "int" | "choice" | "trigger" | "str_list"
+    description: str  # one plain-English sentence for end users
+    group: str  # "Delivery" | "Trigger" | "Startup" | "Recording" | "Streaming" | "Vocabulary"
+    ge: float | None = None
+    gt: float | None = None
+    le: float | None = None
+    gt_key: str | None = None  # value must be > the validated value of this other key
+    choices: tuple[str, ...] | None = None
+    unit: str | None = None  # "s" | "ms" | None
+    step: float | None = None  # UI hint for a number input
+
+
+# Single source of truth for every config key: default, accepted values and
+# user-facing description. DEFAULT_CONFIG and _validate_config derive from it.
+CONFIG_SCHEMA: dict[str, ConfigKey] = {
     # Clipboard paste is the layout-safe delivery path: it snapshots and
     # restores the clipboard and forces UTF-8 through every helper, so
     # accented characters and punctuation survive regardless of the active
@@ -42,18 +63,46 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # resolved character-by-character against the active layout) is only
     # correct when that layout is US; on any other layout it silently
     # corrupts accented characters and punctuation.
-    "copy_to_clipboard": True,
+    "copy_to_clipboard": ConfigKey(
+        default=True,
+        kind="bool",
+        group="Delivery",
+        description="Paste the text through the clipboard, which keeps accents and punctuation intact on any keyboard layout.",
+    ),
     # Register the app as a macOS login item (start at login). macOS .app
     # bundle only; ignored on the loose-script path (LaunchAgent handles it).
-    "start_at_login": False,
-    "min_recording_duration": 0.3,
+    "start_at_login": ConfigKey(
+        default=False,
+        kind="bool",
+        group="Startup",
+        description="Start Whispy automatically when you log in (macOS app only).",
+    ),
+    "min_recording_duration": ConfigKey(
+        default=0.3,
+        kind="number",
+        group="Recording",
+        ge=0,
+        unit="s",
+        step=0.1,
+        description="Recordings shorter than this many seconds are ignored.",
+    ),
     # User-curated terms (names, jargon) used to bias transcription toward the
     # words the user habitually says. Empty by default.
-    "custom_vocabulary": [],
+    "custom_vocabulary": ConfigKey(
+        default=[],
+        kind="str_list",
+        group="Vocabulary",
+        description="Names and jargon you often say, so transcription favors those spellings.",
+    ),
     # Push-to-talk trigger key/combo. ``None`` means "use the platform default"
     # (Fn / keycode 63 on macOS, Right Ctrl on Linux), resolved at runtime by
     # the engine. May be an int (macOS keycode) or a string (key/combo name).
-    "trigger": None,
+    "trigger": ConfigKey(
+        default=None,
+        kind="trigger",
+        group="Trigger",
+        description="The key or key combination you press to dictate; leave empty to use the platform default.",
+    ),
     # How the trigger controls recording. "hold" is push-to-talk — the trigger
     # must be held for the whole dictation (current, default behavior).
     # "toggle" means a trigger press starts recording and the next trigger
@@ -61,21 +110,45 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # deliberately a key of its own rather than a property of each trigger
     # preset, so any trigger composes with either mode without doubling the
     # menu's trigger list.
-    "trigger_mode": "hold",
+    "trigger_mode": ConfigKey(
+        default="hold",
+        kind="choice",
+        group="Trigger",
+        choices=("hold", "toggle"),
+        description="Hold the trigger while you speak (hold), or press it once to start and again to stop (toggle).",
+    ),
     # --- Streaming / incremental transcription ---
     # When enabled (default), the recording is segmented on silence (and a max
     # length) and each chunk is transcribed during recording, so the assembled
     # text is typed near-instantly on release instead of after a multi-second
     # whole-file pass. Disable to use the legacy record-then-transcribe path.
-    "streaming_enabled": True,
+    "streaming_enabled": ConfigKey(
+        default=True,
+        kind="bool",
+        group="Streaming",
+        description="Transcribe while you speak so the text appears almost instantly when you stop.",
+    ),
     # Toggle mode only — type each chunk's text as soon as it is transcribed,
     # instead of waiting for the whole dictation to finish. Hold mode always
     # types once at release regardless of this setting: the trigger key is
     # physically held while recording, and typing under a held modifier alters
     # every character.
-    "type_while_speaking": True,
+    "type_while_speaking": ConfigKey(
+        default=True,
+        kind="bool",
+        group="Streaming",
+        description="In toggle mode, type each piece of text as soon as it is ready instead of waiting until you stop.",
+    ),
     # Minimum trailing silence (milliseconds) that closes a chunk.
-    "pause_ms": 600,
+    "pause_ms": ConfigKey(
+        default=600,
+        kind="number",
+        group="Streaming",
+        gt=0,
+        unit="ms",
+        step=50,
+        description="Silence (in milliseconds) that ends a chunk during streaming transcription.",
+    ),
     # Minimum *voiced* seconds a chunk must hold before a pause may close it.
     # Each chunk is one independent model call, and a chunk carrying too little
     # speech is resolved into the wrong language (an isolated "oui" of 0.39s
@@ -85,10 +158,26 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # synthesized speech with a single voice, so a real microphone or room may
     # move where VAD counts a frame as voiced -- retune rather than refile.
     # Distinct from min_chunk_s below, which discards; this one only defers.
-    "min_speech_s": 0.7,
+    "min_speech_s": ConfigKey(
+        default=0.7,
+        kind="number",
+        group="Streaming",
+        ge=0,
+        unit="s",
+        step=0.1,
+        description="Seconds of actual speech a chunk needs before a pause may end it, so short words are not misread.",
+    ),
     # A chunk shorter than this (seconds) is discarded rather than transcribed
     # (mirrors min_recording_duration, applied per chunk).
-    "min_chunk_s": 0.4,
+    "min_chunk_s": ConfigKey(
+        default=0.4,
+        kind="number",
+        group="Streaming",
+        ge=0,
+        unit="s",
+        step=0.1,
+        description="Chunks shorter than this many seconds are discarded instead of transcribed.",
+    ),
     # Hard cap (seconds) on chunk length: force-flush run-on speech with no pause
     # so streaming keeps making progress and never builds one huge packet.
     # Measured: over one daemon log of 610 chunks from a French dictation,
@@ -96,7 +185,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # 7.0s overall, and six of seven were at least 8.5s. The backend resolves
     # language once per model call, so this ceiling bounds how much audio one
     # wrong language decision can carry away.
-    "max_chunk_s": 8.0,
+    "max_chunk_s": ConfigKey(
+        default=8.0,
+        kind="number",
+        group="Streaming",
+        gt_key="min_chunk_s",
+        unit="s",
+        step=0.5,
+        description="Longest chunk, in seconds, before it is cut even without a pause; must exceed the minimum chunk length.",
+    ),
     # Once a chunk has passed max_chunk_s, the cut waits for a gap of at least
     # this many milliseconds instead of falling at the next frame. The gap is the
     # only thing between the ceiling and a cut placed mid-word, and 200 ms (the
@@ -109,23 +206,116 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # run-on speech to the unconditional hard cap, which cuts at an arbitrary
     # frame -- a rarer failure, not no failure. Provisional: one speaker, one VAD
     # aggressiveness, which is exactly why it is a key and not a constant.
-    "soft_gap_ms": 350,
+    "soft_gap_ms": ConfigKey(
+        default=350,
+        kind="number",
+        group="Streaming",
+        gt=0,
+        unit="ms",
+        step=50,
+        description="Once a chunk is too long, wait for a gap of this many milliseconds to cut it, to avoid splitting a word.",
+    ),
     # WebRTC VAD aggressiveness (0-3): higher = more aggressive at classifying
     # audio as non-speech. Used to find chunk boundaries (gain-independent).
-    "vad_aggressiveness": 2,
+    "vad_aggressiveness": ConfigKey(
+        default=2,
+        kind="int",
+        group="Streaming",
+        ge=0,
+        le=3,
+        step=1,
+        description="How strictly silence is detected, from 0 (lenient) to 3 (strict); used to find where chunks end.",
+    ),
 }
+
+# Default configuration values, derived from the schema.
+DEFAULT_CONFIG: dict[str, Any] = {key: copy.deepcopy(spec.default) for key, spec in CONFIG_SCHEMA.items()}
 
 # Config version for migration tracking
 CONFIG_VERSION = 3
 
 
+def _warn_invalid(key: str, value: Any) -> None:
+    print(
+        f"[config] Invalid {key} '{value}', defaulting to {DEFAULT_CONFIG[key]}",
+        file=sys.stderr,
+    )
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _number_ok(spec: ConfigKey, value: Any, validated: dict[str, Any]) -> bool:
+    """True when ``value`` satisfies a spec's numeric bounds (bool rejected)."""
+    if not _is_number(value):
+        return False
+    if spec.ge is not None and value < spec.ge:
+        return False
+    if spec.gt is not None and value <= spec.gt:
+        return False
+    if spec.le is not None and value > spec.le:
+        return False
+    return not (spec.gt_key is not None and value <= validated[spec.gt_key])
+
+
+def _validate_trigger(key: str, value: Any) -> Any:
+    """None = platform default, else a non-negative int keycode or a non-empty key/combo string."""
+    ok = (
+        value is None
+        or (isinstance(value, int) and not isinstance(value, bool) and value >= 0)
+        or (isinstance(value, str) and value.strip() != "")
+    )
+    if not ok:
+        print(
+            f"[config] Invalid {key} '{value}', defaulting to platform default (None)",
+            file=sys.stderr,
+        )
+        return CONFIG_SCHEMA[key].default
+    return value.strip() if isinstance(value, str) else value
+
+
+def _validate_str_list(key: str, value: Any) -> list[str]:
+    """A list of non-empty strings (stripped); anything else becomes an empty list."""
+    if not isinstance(value, list):
+        if value is not None:
+            print(
+                f"[config] Invalid {key} '{value}', defaulting to []",
+                file=sys.stderr,
+            )
+        return []
+    return [term.strip() for term in value if isinstance(term, str) and term.strip()]
+
+
+def _validate_value(key: str, spec: ConfigKey, value: Any, validated: dict[str, Any]) -> Any:
+    """Return ``value`` if it satisfies ``spec``, else warn and return the default."""
+    if spec.kind == "trigger":
+        return _validate_trigger(key, value)
+    if spec.kind == "str_list":
+        return _validate_str_list(key, value)
+    if spec.kind == "bool":
+        ok = isinstance(value, bool)
+    elif spec.kind == "int":
+        ok = isinstance(value, int) and not isinstance(value, bool) and _number_ok(spec, value, validated)
+    elif spec.kind == "number":
+        ok = _number_ok(spec, value, validated)
+    elif spec.kind == "choice":
+        ok = value in (spec.choices or ())
+    else:  # pragma: no cover - guarded by the schema itself
+        raise ValueError(f"Unknown config kind {spec.kind!r} for {key}")
+    if ok:
+        return value
+    _warn_invalid(key, value)
+    return copy.deepcopy(spec.default)
+
+
 def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
     """Validate and normalize config values. Returns a cleaned copy with only known keys."""
     # Start fresh with defaults — discard any unknown keys from input
-    validated = dict(DEFAULT_CONFIG)
+    validated = copy.deepcopy(DEFAULT_CONFIG)
 
     # Merge known keys from config
-    for key in DEFAULT_CONFIG:
+    for key in CONFIG_SCHEMA:
         if key in config:
             validated[key] = config[key]
 
@@ -133,143 +323,12 @@ def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
     if "_version" in config:
         validated["_version"] = config["_version"]
 
-    # Validate copy_to_clipboard (must be bool)
-    ctc = validated.get("copy_to_clipboard")
-    if not isinstance(ctc, bool):
-        print(
-            f"[config] Invalid copy_to_clipboard '{ctc}', defaulting to {DEFAULT_CONFIG['copy_to_clipboard']}",
-            file=sys.stderr,
-        )
-        validated["copy_to_clipboard"] = DEFAULT_CONFIG["copy_to_clipboard"]
-
-    # Validate start_at_login (must be bool)
-    sal = validated.get("start_at_login")
-    if not isinstance(sal, bool):
-        print(
-            f"[config] Invalid start_at_login '{sal}', defaulting to {DEFAULT_CONFIG['start_at_login']}",
-            file=sys.stderr,
-        )
-        validated["start_at_login"] = DEFAULT_CONFIG["start_at_login"]
-
-    # Validate min_recording_duration (must be a non-negative number)
-    mrd = validated.get("min_recording_duration")
-    if not isinstance(mrd, int | float) or isinstance(mrd, bool) or mrd < 0:
-        print(
-            f"[config] Invalid min_recording_duration '{mrd}', defaulting to {DEFAULT_CONFIG['min_recording_duration']}",
-            file=sys.stderr,
-        )
-        validated["min_recording_duration"] = DEFAULT_CONFIG["min_recording_duration"]
-
-    # Validate trigger (None = platform default, else a positive int keycode or
-    # a non-empty key/combo string).
-    trigger = validated.get("trigger")
-    trigger_ok = (
-        trigger is None
-        or (isinstance(trigger, int) and not isinstance(trigger, bool) and trigger >= 0)
-        or (isinstance(trigger, str) and trigger.strip() != "")
-    )
-    if not trigger_ok:
-        print(
-            f"[config] Invalid trigger '{trigger}', defaulting to platform default (None)",
-            file=sys.stderr,
-        )
-        validated["trigger"] = DEFAULT_CONFIG["trigger"]
-    elif isinstance(trigger, str):
-        validated["trigger"] = trigger.strip()
-
-    # Validate trigger_mode (must be exactly "hold" or "toggle").
-    trigger_mode = validated.get("trigger_mode")
-    if trigger_mode not in ("hold", "toggle"):
-        print(
-            f"[config] Invalid trigger_mode '{trigger_mode}', defaulting to {DEFAULT_CONFIG['trigger_mode']}",
-            file=sys.stderr,
-        )
-        validated["trigger_mode"] = DEFAULT_CONFIG["trigger_mode"]
-
-    # Validate streaming_enabled (must be bool).
-    se = validated.get("streaming_enabled")
-    if not isinstance(se, bool):
-        print(
-            f"[config] Invalid streaming_enabled '{se}', defaulting to {DEFAULT_CONFIG['streaming_enabled']}",
-            file=sys.stderr,
-        )
-        validated["streaming_enabled"] = DEFAULT_CONFIG["streaming_enabled"]
-
-    # Validate type_while_speaking (must be bool).
-    tws = validated.get("type_while_speaking")
-    if not isinstance(tws, bool):
-        print(
-            f"[config] Invalid type_while_speaking '{tws}', defaulting to {DEFAULT_CONFIG['type_while_speaking']}",
-            file=sys.stderr,
-        )
-        validated["type_while_speaking"] = DEFAULT_CONFIG["type_while_speaking"]
-
-    # Validate pause_ms (must be a positive number; bool rejected).
-    pause = validated.get("pause_ms")
-    if not isinstance(pause, int | float) or isinstance(pause, bool) or pause <= 0:
-        print(
-            f"[config] Invalid pause_ms '{pause}', defaulting to {DEFAULT_CONFIG['pause_ms']}",
-            file=sys.stderr,
-        )
-        validated["pause_ms"] = DEFAULT_CONFIG["pause_ms"]
-
-    # Validate min_speech_s (must be a non-negative number; bool rejected).
-    mss = validated.get("min_speech_s")
-    if not isinstance(mss, int | float) or isinstance(mss, bool) or mss < 0:
-        print(
-            f"[config] Invalid min_speech_s '{mss}', defaulting to {DEFAULT_CONFIG['min_speech_s']}",
-            file=sys.stderr,
-        )
-        validated["min_speech_s"] = DEFAULT_CONFIG["min_speech_s"]
-
-    # Validate min_chunk_s (must be a non-negative number; bool rejected).
-    mcs = validated.get("min_chunk_s")
-    if not isinstance(mcs, int | float) or isinstance(mcs, bool) or mcs < 0:
-        print(
-            f"[config] Invalid min_chunk_s '{mcs}', defaulting to {DEFAULT_CONFIG['min_chunk_s']}",
-            file=sys.stderr,
-        )
-        validated["min_chunk_s"] = DEFAULT_CONFIG["min_chunk_s"]
-
-    # Validate max_chunk_s (must be a positive number greater than min_chunk_s).
-    maxcs = validated.get("max_chunk_s")
-    if not isinstance(maxcs, int | float) or isinstance(maxcs, bool) or maxcs <= validated["min_chunk_s"]:
-        print(
-            f"[config] Invalid max_chunk_s '{maxcs}', defaulting to {DEFAULT_CONFIG['max_chunk_s']}",
-            file=sys.stderr,
-        )
-        validated["max_chunk_s"] = DEFAULT_CONFIG["max_chunk_s"]
-
-    # Validate soft_gap_ms (must be a positive number)
-    sgm = validated.get("soft_gap_ms")
-    if not isinstance(sgm, int | float) or isinstance(sgm, bool) or sgm <= 0:
-        print(
-            f"[config] Invalid soft_gap_ms '{sgm}', defaulting to {DEFAULT_CONFIG['soft_gap_ms']}",
-            file=sys.stderr,
-        )
-        validated["soft_gap_ms"] = DEFAULT_CONFIG["soft_gap_ms"]
-
-    # Validate vad_aggressiveness (integer 0-3; bool rejected).
-    va = validated.get("vad_aggressiveness")
-    if not isinstance(va, int) or isinstance(va, bool) or va < 0 or va > 3:
-        print(
-            f"[config] Invalid vad_aggressiveness '{va}', defaulting to {DEFAULT_CONFIG['vad_aggressiveness']}",
-            file=sys.stderr,
-        )
-        validated["vad_aggressiveness"] = DEFAULT_CONFIG["vad_aggressiveness"]
-
-    # Validate custom_vocabulary (must be a list of non-empty strings).
-    vocab = validated.get("custom_vocabulary")
-    if not isinstance(vocab, list):
-        if vocab is not None:
-            print(
-                f"[config] Invalid custom_vocabulary '{vocab}', defaulting to []",
-                file=sys.stderr,
-            )
-        validated["custom_vocabulary"] = []
-    else:
-        cleaned = [term.strip() for term in vocab if isinstance(term, str) and term.strip()]
-        validated["custom_vocabulary"] = cleaned
+    # Validate in declaration order (a key may depend on an earlier validated
+    # one, e.g. max_chunk_s > min_chunk_s). List-valued keys go last so their
+    # warnings keep the order they have always had.
+    ordered = sorted(CONFIG_SCHEMA.items(), key=lambda item: item[1].kind == "str_list")
+    for key, spec in ordered:
+        validated[key] = _validate_value(key, spec, validated.get(key), validated)
 
     return validated
 

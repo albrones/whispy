@@ -1,0 +1,21 @@
+<h1>Configuration</h1>
+<p class="lede">Whispy reads <code>~/.config/whispy/config.json</code>. Every key is optional: anything missing falls back to its default, and an invalid value is replaced by the default with a warning in the log.</p>
+
+<h2>Config builder</h2>
+<p>Set the values you want and copy the result. Only the keys you changed are shown; merge them into your existing <code>config.json</code>, then restart Whispy.</p>
+<div id="config-builder"><p class="no-js-only">This builder needs JavaScript. Without it, use the reference table below to write the JSON by hand.</p></div>
+
+<h2>How chunking works</h2>
+<p>While you speak, Whispy cuts the recording into chunks at pauses and transcribes each one. This illustration shows where the cuts fall for the current <code>pause_ms</code>, <code>min_speech_s</code>, <code>soft_gap_ms</code>, <code>min_chunk_s</code> and <code>max_chunk_s</code>.</p>
+<div id="segment-viz"><p><span class="no-js-only">The visualizer needs JavaScript. </span>In short: a pause longer than <code>pause_ms</code> closes a chunk once it holds <code>min_speech_s</code> of speech; a chunk longer than <code>max_chunk_s</code> is cut at the next gap of <code>soft_gap_ms</code>, or unconditionally at 1.5 times <code>max_chunk_s</code>.</p></div>
+
+<h2>Reference</h2>
+<p>Generated from the configuration schema in <code>src/whispy/core/config.py</code>.</p>
+<div class="table-scroll">
+$config_table
+</div>
+
+<p>On macOS you can also choose the trigger from the menu bar (<strong>Settings → Trigger</strong>): Fn, Right Command, Right Option or F13. The change applies immediately.</p>
+
+$config_schema_json
+$segmenter_constants_json

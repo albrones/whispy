@@ -129,18 +129,41 @@ def test_crawler_files_present():
     assert CANONICAL_HOST in sitemap.read_text(encoding="utf-8"), "sitemap.xml must list the canonical host"
 
 
-def test_all_local_assets_exist(html: str):
-    """Every relative href/src in the page must resolve to a file on disk."""
-    refs = re.findall(r'(?:href|src)="([^"]+)"', html)
+def _missing_local_refs(page: Path) -> list[str]:
+    """Relative href/src values in ``page`` that do not resolve against its directory."""
+    refs = re.findall(r'(?:href|src)="([^"]+)"', page.read_text(encoding="utf-8"))
     missing = []
     for ref in refs:
         # Skip external URLs and in-page anchors.
         if ref.startswith(("http://", "https://", "//", "#", "mailto:", "data:")):
             continue
-        target = (WEBSITE_DIR / ref).resolve()
-        if not target.is_file():
+        target = (page.parent / ref.split("#", 1)[0].split("?", 1)[0]).resolve()
+        if not target.is_file() and not (target.is_dir() and (target / "index.html").is_file()):
             missing.append(ref)
+    return missing
+
+
+def test_all_local_assets_exist(html: str):
+    """Every relative href/src in the page must resolve to a file on disk."""
+    missing = _missing_local_refs(INDEX)
     assert not missing, f"referenced local assets do not exist: {missing}"
+
+
+@pytest.mark.parametrize("page", sorted((WEBSITE_DIR / "docs").glob("*.html")), ids=lambda p: p.name)
+def test_docs_pages_local_assets_exist(page: Path):
+    missing = _missing_local_refs(page)
+    assert not missing, f"{page.name} references local assets that do not exist: {missing}"
+
+
+def test_header_nav_links_to_docs(html: str):
+    nav = re.search(r'<nav class="nav">(.*?)</nav>', html, re.DOTALL)
+    assert nav is not None, "missing header nav"
+    assert re.search(r'<a href="docs/">\s*Docs\s*</a>', nav.group(1)), "header nav must link to docs/"
+
+
+def test_install_section_links_to_install_guide(html: str):
+    section = html.split('id="install"', 1)[1].split("</section>", 1)[0]
+    assert 'href="docs/install.html"' in section, "install section must link to docs/install.html"
 
 
 def test_no_adaptive_learning_claim(html: str):
