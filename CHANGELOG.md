@@ -35,6 +35,11 @@
   since. The build now stops on a branch behind `origin/main`, on uncommitted
   `src/` changes, and on a venv wired to another checkout;
   `WHISPY_ALLOW_STALE_BUILD=1` builds anyway.
+- **The macOS app can download the model again.** py2app's boot script points
+  `SSL_CERT_FILE` at a file that does not exist, and the old `setdefault` kept
+  it, so every HTTPS request failed with a bare `[Errno 2] No such file or
+  directory` and the menu bar stayed on "Model not loaded" whenever the model
+  was not already cached. A missing CA path is now replaced with certifi's.
 
 ## [2.0.0] — 2026-10-06
 
