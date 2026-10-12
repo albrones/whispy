@@ -1,0 +1,144 @@
+{
+  "symptoms": [
+    {
+      "id": "trigger-does-nothing",
+      "title": "Pressing the trigger does nothing",
+      "os": ["macos", "linux"],
+      "intro": "No start sound and no recording. Work through the likely causes below.",
+      "steps": [
+        {
+          "check": "input-monitoring",
+          "fix": {
+            "macos": "<p>Whispy detects the <kbd>Fn</kbd> key through an event tap, which needs <strong>Input Monitoring</strong>. Open <strong>System Settings → Privacy &amp; Security → Input Monitoring</strong>, enable <strong>Whispy</strong>, then restart it from the menu bar (<strong>Restart</strong>).</p>"
+          }
+        },
+        {
+          "check": "display",
+          "fix": {
+            "linux": "<p>The trigger key is captured from an <strong>X11 session</strong>. If <code>DISPLAY</code> is not set, no X server is available to listen on. Run Whispy from your graphical session, or restart the service with <code>systemctl --user restart whispy.service</code>. Under Wayland, see the Wayland entry below.</p>"
+          }
+        },
+        {
+          "check": "daemon",
+          "fix": {
+            "macos": "<p>The daemon is not answering on its local port. Open <code>/Applications/Whispy.app</code> (menu bar icon should appear) and check <code>~/.whispy-error.log</code>. If the doctor reports a token mismatch, quit and reopen the app.</p>",
+            "linux": "<p>Start the service with <code>systemctl --user start whispy.service</code> and read <code>~/.whispy-error.log</code> if it stops again. If the doctor reports a token mismatch, restart it with <code>systemctl --user restart whispy.service</code>.</p>"
+          }
+        },
+        {
+          "text": "<p><strong>A custom trigger is set.</strong> If you changed <code>trigger</code> in the config, press that key instead of the default (Fn on macOS, Right Ctrl on Linux). See <a href=\"config.html#cfg-trigger\"><code>trigger</code></a> and <a href=\"config.html#cfg-trigger_mode\"><code>trigger_mode</code></a>. In toggle mode a single press starts and a second press stops.</p>"
+        }
+      ]
+    },
+    {
+      "id": "no-text-appears",
+      "title": "Recording works but no text appears",
+      "os": ["macos", "linux"],
+      "intro": "You hear the sounds, but nothing is typed into the focused field.",
+      "steps": [
+        {
+          "check": "accessibility",
+          "fix": {
+            "macos": "<p>Whispy types through <code>osascript</code>, which needs <strong>Accessibility</strong>. Open <strong>System Settings → Privacy &amp; Security → Accessibility</strong> and enable <strong>Whispy</strong>. A look at <code>~/.whispy.log</code> showing <code>osascript timeout</code> or error <code>(1002)</code> confirms it.</p><p>Upgrading from an older build? macOS keys grants to the app identity. Reset and re-grant:</p><pre data-copy><code>tccutil reset Accessibility com.whispy\ntccutil reset AppleEvents com.whispy</code></pre><p>Then relaunch Whispy and accept the prompts.</p>"
+          }
+        },
+        {
+          "check": "xdotool",
+          "fix": {
+            "linux": "<p>Text injection on Linux uses <code>xdotool</code>. Install it, then restart the service:</p><pre data-copy><code>sudo apt install xdotool      # Debian/Ubuntu\nsudo dnf install xdotool      # Fedora\nsudo pacman -S xdotool        # Arch</code></pre>"
+          }
+        },
+        {
+          "check": "clipboard-tool",
+          "fix": {
+            "linux": "<p><code>copy_to_clipboard</code> is on by default and needs <code>xclip</code> or <code>xsel</code>. Without one, delivery silently falls back to typing key by key. Install one:</p><pre data-copy><code>sudo apt install xclip        # Debian/Ubuntu\nsudo dnf install xclip        # Fedora\nsudo pacman -S xclip          # Arch</code></pre><p>In a terminal emulator, clipboard paste uses <kbd>Ctrl</kbd>+<kbd>V</kbd>, which most terminals do not treat as paste. If you mostly dictate into a terminal, set <a href=\"config.html#cfg-copy_to_clipboard\"><code>copy_to_clipboard</code></a> to <code>false</code>.</p>"
+          }
+        },
+        {
+          "check": "microphone",
+          "fix": {
+            "macos": "<p>Whispy needs microphone access. Open <strong>System Settings → Privacy &amp; Security → Microphone</strong> and enable <strong>Whispy</strong>. If you clicked <em>Don't Allow</em> earlier, reset it and relaunch:</p><pre data-copy><code>tccutil reset Microphone com.whispy</code></pre>"
+          }
+        },
+        {
+          "check": "audio-backend",
+          "fix": {
+            "macos": "<p>The audio library (<code>sounddevice</code>/PortAudio) failed to load. Reinstall with the one-line installer, or rebuild with <code>make app</code>.</p>",
+            "linux": "<p>The PortAudio runtime is missing. Install it, then restart the service:</p><pre data-copy><code>sudo apt install libportaudio2   # Debian/Ubuntu\nsudo dnf install portaudio       # Fedora\nsudo pacman -S portaudio         # Arch</code></pre>"
+          }
+        },
+        {
+          "text": "<p><strong>The clip was discarded.</strong> A recording is dropped when it is shorter than <a href=\"config.html#cfg-min_recording_duration\"><code>min_recording_duration</code></a> (a tap rather than a hold), near-silent, or has almost no detected voice. <code>~/.whispy.log</code> says which: <code>Recording too short</code>, <code>near-silent (RMS ...)</code> or <code>No speech detected</code>. Very short or quiet clips are dropped on purpose, so a stray filler word is never typed; see <a href=\"usage.html#model\">how the model and its silence gates work</a>. Also check the input device and your distance from the microphone.</p>"
+        }
+      ]
+    },
+    {
+      "id": "garbled-text",
+      "title": "Text appears garbled / accents wrong",
+      "os": ["macos", "linux"],
+      "intro": "Characters such as <code>é</code> or <code>,</code> come out wrong, for example commas typed as full stops.",
+      "steps": [
+        {
+          "text": "<p><strong>Keystroke delivery on a non-US keyboard.</strong> With <a href=\"config.html#cfg-copy_to_clipboard\"><code>copy_to_clipboard</code></a> set to <code>false</code>, Whispy synthesizes keystrokes, which are only correct on a US layout. Set it back to <code>true</code> (the default) so text is pasted byte-exact whatever your layout. See the <a href=\"config.html\">configuration page</a> to build the change.</p>"
+        },
+        {
+          "check": "clipboard-tool",
+          "fix": {
+            "linux": "<p>Clipboard delivery on Linux needs <code>xclip</code> or <code>xsel</code>; without one the text is typed key by key and may be garbled. Install one:</p><pre data-copy><code>sudo apt install xclip</code></pre>"
+          }
+        }
+      ]
+    },
+    {
+      "id": "does-not-start",
+      "title": "Whispy doesn't start / no menu bar or tray icon",
+      "os": ["macos", "linux"],
+      "intro": "The app does not appear, or exits right after launching.",
+      "steps": [
+        {
+          "check": "daemon",
+          "fix": {
+            "macos": "<p>Open <code>/Applications/Whispy.app</code> and wait a few seconds. If nothing appears, read <code>~/.whispy-error.log</code>. A port in use (9090 by default) prevents startup. A build older than your source also looks like a missing fix: run <code>make reinstall</code> to rebuild and relaunch.</p>",
+            "linux": "<p>Check the service with <code>systemctl --user status whispy.service</code> and read <code>~/.whispy-error.log</code>. A port in use (9090 by default) prevents startup. Restart with <code>systemctl --user restart whispy.service</code>.</p>"
+          }
+        },
+        {
+          "check": "audio-backend",
+          "fix": {
+            "macos": "<p>If the audio library cannot load, Whispy cannot start recording. Reinstall with the one-line installer, or rebuild with <code>make app</code>.</p>",
+            "linux": "<p>Install the PortAudio runtime (<code>libportaudio2</code> on Debian/Ubuntu, <code>portaudio</code> on Fedora and Arch), then restart the service.</p>"
+          }
+        }
+      ]
+    },
+    {
+      "id": "first-dictation-slow",
+      "title": "First dictation is slow or fails (model)",
+      "os": ["macos", "linux"],
+      "intro": "The first run downloads the speech model, about 639 MB, once.",
+      "steps": [
+        {
+          "check": "model",
+          "fix": {
+            "macos": "<p>Wait for the download to finish: it needs a network connection once and is then cached under <code>~/.cache/huggingface/hub/models--istupakov--parakeet-tdt-0.6b-v3-onnx</code>. The doctor shows a warning, not a failure, until the model is cached. If it never finishes, check <code>~/.whispy-error.log</code> and your connection, then restart Whispy.</p>",
+            "linux": "<p>Wait for the download to finish: it needs a network connection once and is then cached under <code>~/.cache/huggingface/hub/models--istupakov--parakeet-tdt-0.6b-v3-onnx</code>. The doctor shows a warning, not a failure, until the model is cached. If it never finishes, check <code>~/.whispy-error.log</code> and your connection, then run <code>systemctl --user restart whispy.service</code>.</p>"
+          }
+        }
+      ]
+    },
+    {
+      "id": "wayland",
+      "title": "Linux: nothing works under Wayland",
+      "os": ["linux"],
+      "intro": "Whispy supports <strong>X11 sessions only</strong>. Wayland restricts global hotkeys and synthetic keyboard input.",
+      "steps": [
+        {
+          "check": "display",
+          "fix": {
+            "linux": "<p>Log out and choose an <strong>Xorg</strong> or <strong>X11</strong> session at your display manager (usually under a gear icon on the login screen), then log back in. Wayland support is planned for a later release.</p>"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -63,7 +63,7 @@ The main thread orchestrates and reviews; subagents execute and report.
 - **Config:** Stored in `~/.config/whispy/config.json`.
 - **Logging:** Logs are written to `~/.whispy.log` and `~/.whispy-error.log`.
 - **Language:** All code, documentation, and UI strings must be in English (though the current UI has some French).
-- **Keep the website in sync:** any user-facing change (new feature, changed install flow, renamed setting, dropped option) MUST update `website/index.html` in the same change — install commands, feature cards, and the menu-bar demo. `tests/test_website.py` guards some of this; treat it as a floor, not the whole job.
+- **Keep the website in sync:** any user-facing change (new feature, changed install flow, renamed setting, dropped option) MUST update `website/index.html` in the same change — install commands, feature cards, and the menu-bar demo. `tests/test_website.py` guards some of this; treat it as a floor, not the whole job. User docs live in `docs/src/` and must be regenerated with `make docs` (commit `website/docs/`); `tests/test_docs_site.py` fails on stale output.
 |- **Testing:** A test suite exists in `tests/` with files for core, audio, integration, e2e, event tap, API, config validation, and stress testing. Run with `./.venv/bin/pytest`.
 
 **Language Policy**

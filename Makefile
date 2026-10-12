@@ -1,4 +1,4 @@
-.PHONY: help install update reinstall test lint format check run app uninstall clean validate validate-unattended
+.PHONY: help install update reinstall test lint format check run app uninstall clean validate validate-unattended docs
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -43,6 +43,9 @@ validate: ## Full release validation: preflight + live-drive (real daemon over H
 
 validate-unattended: ## Validation without the human operator layer (preflight + live-drive only)
 	$(PY) -m tests.validation.run --no-operator $(ARGS)
+
+docs: ## Regenerate the documentation site (website/docs) from docs/src
+	$(PY) scripts/build_docs.py
 
 update: ## Pull latest, rebuild the app, and relaunch
 	git pull --ff-only

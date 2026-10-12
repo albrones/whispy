@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>$title</title>
+  <link rel="icon" type="image/png" href="../assets/favicon.png">
+  <script>
+    (function () {
+      var os = null;
+      try { os = localStorage.getItem("whispy-docs-os"); } catch (e) { os = null; }
+      if (os !== "macos" && os !== "linux") {
+        var p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || "";
+        os = /linux|x11/i.test(p) ? "linux" : "macos";
+      }
+      document.documentElement.dataset.os = os;
+    })();
+  </script>
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="docs.css">
+$extra_head  <script src="docs.js" defer></script>
+</head>
+<body data-page="$page_id">
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="docs-header">
+    <a class="brand" href="../index.html">
+      <img src="../assets/logo.svg" width="28" height="28" alt="">
+      <span>Whispy</span>
+      <span class="brand-docs">docs</span>
+    </a>
+    <div class="os-switch" role="group" aria-label="Operating system">
+      <button type="button" data-set-os="macos" aria-pressed="false">macOS</button>
+      <button type="button" data-set-os="linux" aria-pressed="false">Linux</button>
+    </div>
+  </header>
+  <div class="docs-shell">
+    <nav class="docs-nav" aria-label="Documentation">
+$nav
+    </nav>
+    <main id="content" class="docs-main">
+$body
+    </main>
+  </div>
+  <footer class="docs-footer">
+    <a href="https://github.com/albrones/whispy">github.com/albrones/whispy</a>
+    <span>Whispy is released under the <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPLv3</a> licence.</span>
+  </footer>
+</body>
+</html>

@@ -13,17 +13,6 @@ import signal
 import sys
 from pathlib import Path
 
-# Point SSL at certifi's CA bundle. Inside the .app bundle the interpreter has
-# no system CA file, so ssl.create_default_context() raises FileNotFoundError
-# and any HTTPS (e.g. a HuggingFace model download) crashes. Harmless elsewhere.
-try:
-    import certifi
-
-    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
-    os.environ.setdefault("SSL_CERT_DIR", os.path.dirname(certifi.where()))
-except Exception:  # pragma: no cover - certifi absent on a minimal host
-    pass
-
 # Configure logging. Force UTF-8: inside a .app bundle stdout defaults to ASCII,
 # so any log line with non-ASCII (the em-dashes used throughout) raised
 # UnicodeEncodeError in the handler and the record was dropped. UTF-8 stdout +
@@ -38,6 +27,12 @@ except (AttributeError, ValueError):  # pragma: no cover - non-standard streams
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR / "src") not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR / "src"))
+
+# Point SSL at certifi's CA bundle before anything opens an HTTPS connection
+# (the first-run model download); see whispy.ssl_certs for why the bundle needs it.
+from whispy.ssl_certs import use_certifi_if_missing  # noqa: E402
+
+use_certifi_if_missing()
 
 # Configure logging and capture stderr to ~/.whispy-error.log. Both the handler
 # set and the ordering constraint live in configure_logging (see its docstring);

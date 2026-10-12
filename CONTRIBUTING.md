@@ -21,7 +21,7 @@ python3 -m venv .venv
 
 Audio capture uses `sounddevice`/PortAudio, installed automatically as a Python
 dependency — no `sox` or other system audio package is required on macOS. On Linux,
-install `xdotool`/`xclip` for text injection (see the README).
+install `xdotool`/`xclip` for text injection (see the [install guide](https://whispy-dun.vercel.app/docs/install.html)).
 
 ## Trying a change in the real app
 
@@ -48,6 +48,36 @@ pick the edit up: it restarts the previously built bundle.
 
 The macOS-only dependencies (`Quartz`, `rumps`) are mocked in `tests/conftest.py`, so the
 suite runs on non-macOS machines and in CI.
+
+## Test suite
+
+Test files are organized by scope:
+
+| File | Scope |
+|------|-------|
+| `tests/test_engine.py` | Core engine, state machine, config |
+| `tests/test_audio.py` | AudioEngine, transcription, audio duration detection |
+| `tests/test_integration.py` | Multi-module integration |
+| `tests/test_e2e.py` | End-to-end workflow tests |
+| `tests/test_event_tap_e2e.py` | EventTapListener E2E tests |
+| `tests/test_api/test_server.py` | HTTP API server tests |
+| `tests/test_text_cleaning.py` | whitespace normalization, custom-vocabulary correction |
+| `tests/test_config_validation.py` | Config validation and migration |
+| `tests/test_error_handling.py` | Error cases (capture-backend failure, mic unavailable) |
+| `tests/test_docs_site.py` | Generated docs freshness, determinism, troubleshooting coverage, config reference |
+| `tests/test_docs_widgets.py` | Config builder output accepted by the loader; widget logic via node when available |
+
+## Regenerating the docs
+
+The user docs (install, troubleshooting, configuration, usage) live as sources in
+`docs/src/` and are published from the generated pages in `website/docs/`.
+
+```bash
+make docs    # regenerate website/docs/ from docs/src/
+```
+
+Commit the regenerated `website/docs/` together with your change, and never edit
+`website/docs/` by hand. `tests/test_docs_site.py` fails when the generated pages are stale.
 
 ## Code style
 
