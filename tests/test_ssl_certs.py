@@ -2,7 +2,9 @@
 
 import os
 
-import certifi
+import pytest
+
+certifi = pytest.importorskip("certifi")
 
 from whispy.ssl_certs import use_certifi_if_missing
 
