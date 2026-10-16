@@ -1,0 +1,15 @@
+[package]
+name = "banc"
+version = "0.1.0"
+description = "Whispy V2 bench: replays lost and reference clips on every engine and strategy, next to V1"
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "banc"
+path = "src/main.rs"
+
+[dependencies]
+whispy-core = { path = "../whispy-core" }
+# Peak RSS of the memory probe (getrusage); already a dependency of the engines.
+libc = "0.2"
