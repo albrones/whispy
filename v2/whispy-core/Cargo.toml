@@ -1,0 +1,19 @@
+[package]
+name = "whispy-core"
+version = "0.1.0"
+description = "Whispy V2 core: transcription engines, audio gates and splitting, PCM-to-text pipeline"
+edition.workspace = true
+publish.workspace = true
+
+# Every dependency is justified in openspec/changes/archive/*-v2-engines-and-bench/proposal.md ("Cost").
+[dependencies]
+# Parakeet runs on ONNX Runtime, CPU provider only (CoreML took the machine down in V1).
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "download-binaries", "copy-dylibs"] }
+# whisper.cpp bindings for the whisper small engine (ggml-small.bin).
+whisper-rs = { version = "=0.16.0", features = ["metal"] }
+# The exact WebRTC VAD the V1 gates were calibrated on (aggressiveness 2, 30 ms frames).
+webrtc-vad = "=0.4.0"
+# FFT for the NeMo log-mel features Parakeet expects.
+rustfft = "=6.4.1"
+# WAV reading for clips on disk (the app hands PCM directly).
+hound = "=3.5.1"

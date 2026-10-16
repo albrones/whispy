@@ -1,0 +1,27 @@
+fr-short-ameliorer.wav	fr	short	à améliorer, je pense
+fr-short-daccord.wav	fr	short	d'accord
+fr-short-merci.wav	fr	short	merci beaucoup
+fr-short-demain.wav	fr	short	on verra demain
+fr-short-parfait.wav	fr	short	c'est parfait
+fr-short-ameliorer-jacques.wav	fr	short	à améliorer, je pense
+fr-short-rappelle-jacques.wav	fr	short	rappelle-moi plus tard
+fr-short-oui-jacques.wav	fr	short	oui, vas-y
+fr-sentence-rapport.wav	fr	sentence	je vais envoyer le rapport à l'équipe demain matin avant la réunion
+fr-sentence-courses.wav	fr	sentence	pense à acheter du pain et des tomates en rentrant ce soir
+fr-sentence-train-jacques.wav	fr	sentence	le train de huit heures est annulé, je prendrai le suivant
+fr-sentence-mixed.wav	fr	sentence	je dois pousser la branche sur GitHub avant la revue de code
+fr-long-projet.wav	fr	long	nous avons terminé la première version du projet la semaine dernière, mais il reste plusieurs problèmes à corriger avant de la présenter aux utilisateurs, notamment la vitesse et la fiabilité de la transcription
+fr-long-vacances.wav	fr	long	pour les vacances, nous pensons partir en Bretagne au mois d'août, louer une petite maison près de la mer et faire de longues promenades à vélo le long de la côte
+en-short-sounds-good.wav	en	short	sounds good
+en-short-thanks.wav	en	short	thank you
+en-short-check.wav	en	short	let me check
+en-short-not-today.wav	en	short	not today
+en-short-later-daniel.wav	en	short	talk to you later
+en-short-perfect-daniel.wav	en	short	that is perfect
+en-sentence-report.wav	en	sentence	I will send the report to the team tomorrow morning before the meeting
+en-sentence-groceries.wav	en	sentence	remember to buy bread and tomatoes on your way home tonight
+en-sentence-train-daniel.wav	en	sentence	the eight o'clock train is cancelled so I will take the next one
+en-long-project.wav	en	long	we finished the first version of the project last week, but several problems remain to be fixed before we show it to users, especially the speed and the reliability of the transcription
+en-long-holidays.wav	en	long	for the holidays we are thinking of going to the coast in August, renting a small house near the sea and taking long bike rides along the shore
+../../../tests/fixtures/audio/fr_speech.wav	fr	sentence	test un deux trois, le test est fini
+../../../tests/fixtures/audio/en_speech.wav	en	sentence	testing one two three, the test is done

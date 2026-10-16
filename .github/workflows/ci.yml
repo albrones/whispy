@@ -86,6 +86,28 @@ jobs:
       - name: Run macOS real-seam tests
         run: .venv/bin/pytest -m macos -v --tb=short --timeout=300 --ignore=tests/test_transcription_quality.py
 
+  # Whispy V2 (v2/, Rust): unit tests and lint. The engines' model files are
+  # not needed here; the bench that uses them runs on a Mac with the models.
+  v2:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: rustup update stable && rustup default stable && rustup component add clippy rustfmt
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Cargo test
+        run: cargo test --release --locked
+
+      - name: Clippy
+        run: cargo clippy --release --locked --all-targets -- -D warnings
+
   test-linux:
     runs-on: ubuntu-latest
     strategy:
