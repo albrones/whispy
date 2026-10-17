@@ -1,5 +1,5 @@
 [workspace]
-members = ["whispy-core", "banc"]
+members = ["whispy-core", "banc", "whispy2"]
 resolver = "2"
 
 [workspace.package]
