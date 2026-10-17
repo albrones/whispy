@@ -8,13 +8,15 @@ use whispy_core::vad;
 
 use crate::corpus::{Clip, Group};
 use crate::measure::{outcome, percentile, Config, Measured, Metrics, Runs};
+use crate::memory::LazyUse;
+use crate::oracle::{Class, Labels, Recovery};
 use crate::v1::V1Results;
 
-/// Criterion 3: share of V1's lost clips that must come back with text.
+/// Criterion 3: share of V1's lost clips holding speech that must come back with text.
 const LOST_TARGET: f64 = 0.70;
 /// Criterion 4 (transcription part): p95 for a ~5 s sentence.
 const SENTENCE_P95_TARGET_S: f64 = 1.5;
-/// Criterion 5: peak RSS of a 180 s dictation.
+/// Criterion 5: memory outside a reprise (peak RSS and physical footprint).
 const MEMORY_TARGET_BYTES: u64 = 1_500_000_000;
 
 pub struct MemoryUse {
@@ -34,6 +36,8 @@ pub struct Report<'a> {
     pick: Config,
     pick_meets_guards: bool,
     memory: Vec<MemoryProbe>,
+    lazy: Result<LazyUse, String>,
+    oracle: Result<Labels, String>,
 }
 
 impl<'a> Report<'a> {
@@ -42,19 +46,22 @@ impl<'a> Report<'a> {
         runs: &'a Runs,
         v1: Result<V1Results, String>,
         memory: Vec<MemoryProbe>,
+        lazy: Result<LazyUse, String>,
+        oracle: Result<Labels, String>,
     ) -> Self {
+        let labels = oracle.as_ref().ok();
         let rows: Vec<(Config, Metrics)> = Config::all()
             .into_iter()
             .map(|config| {
                 (
                     config,
-                    Metrics::from_outcomes(clips, |index| outcome(runs, &config, index)),
+                    Metrics::from_outcomes(clips, labels, |index| outcome(runs, &config, index)),
                 )
             })
             .collect();
         let v1 = v1.map(|results| {
             let metrics =
-                Metrics::from_outcomes(clips, |index| v1_outcome(&results, &clips[index]));
+                Metrics::from_outcomes(clips, labels, |index| v1_outcome(&results, &clips[index]));
             (results, metrics)
         });
         let v1_reference_wer = v1
@@ -70,6 +77,8 @@ impl<'a> Report<'a> {
             pick,
             pick_meets_guards,
             memory,
+            lazy,
+            oracle,
         }
     }
 
@@ -109,6 +118,7 @@ impl<'a> Report<'a> {
             machine()
         );
         self.write_corpus(&mut md);
+        self.write_oracle(&mut md);
         self.write_table(&mut md);
         self.write_pick(&mut md);
         self.write_criteria(&mut md);
@@ -138,13 +148,73 @@ impl<'a> Report<'a> {
         );
     }
 
+    fn write_oracle(&self, md: &mut String) {
+        let _ = writeln!(md, "## Which lost clips hold speech\n");
+        let labels = match &self.oracle {
+            Ok(labels) => labels,
+            Err(reason) => {
+                let _ = writeln!(
+                    md,
+                    "Not classified: {reason}. Criterion 3 then falls back to all lost clips.\n"
+                );
+                return;
+            }
+        };
+        let lost: Vec<&Clip> = self
+            .clips
+            .iter()
+            .filter(|c| c.group == Group::Lost)
+            .collect();
+        let count = |class: Class, is_heard: bool| {
+            lost.iter()
+                .filter_map(|clip| labels.get(&clip.id))
+                .filter(|label| label.class == class && label.is_heard == is_heard)
+                .count()
+        };
+        let unlabelled = lost
+            .iter()
+            .filter(|clip| !labels.contains_key(&clip.id))
+            .count();
+        let _ = writeln!(
+            md,
+            "V1 lost breath, clicks and silence too, and no engine should type anything for those. \
+             A referee far larger than the shipped engines, **whisper large-v3-turbo** (MLX, run by `bench/oracle.py`, never shipped), \
+             decodes each lost clip; a confident French or English utterance (mean token log probability > −0.6, not one of whisper's stock \
+             one-liners such as « Thank you. ») is **speech**, a failed decode of a stock one-liner (< −1) is **no speech**, the rest is \
+             **doubtful** and left to the user's ear (`bench/oracle/listen.html`, local only); a verdict by ear overrides the oracle.\n"
+        );
+        let _ = writeln!(md, "| class | by the oracle | by ear |\n|---|---|---|");
+        for (class, name) in [
+            (Class::Speech, "speech"),
+            (Class::Doubtful, "doubtful (not heard yet)"),
+            (Class::NoSpeech, "no speech"),
+        ] {
+            let _ = writeln!(
+                md,
+                "| {name} | {} | {} |",
+                count(class, false),
+                count(class, true)
+            );
+        }
+        if unlabelled > 0 {
+            let _ = writeln!(
+                md,
+                "| not in the oracle's output (rerun `bench/oracle.py`) | {unlabelled} | – |"
+            );
+        }
+        let _ = writeln!(
+            md,
+            "\n\"lost speech\" columns below count only the **speech** clips; \"WER vs oracle\" compares a recovered clip's text with the oracle's, over recovered clips only.\n"
+        );
+    }
+
     fn write_table(&self, md: &mut String) {
         let _ = writeln!(md, "## Results\n");
         let _ = writeln!(
             md,
-            "| configuration | lost: text | reference: WER | reference: text | quiet: WER | quiet: text | non-speech: invented | p50 | p95 | p95, ~5 s sentence |"
+            "| configuration | lost: text | lost speech: text | lost speech: WER vs oracle | reference: WER | reference: text | quiet: WER | quiet: text | non-speech: invented | p50 | p95 | p95, ~5 s sentence |"
         );
-        let _ = writeln!(md, "|---|---|---|---|---|---|---|---|---|---|");
+        let _ = writeln!(md, "|---|---|---|---|---|---|---|---|---|---|---|---|");
         match &self.v1 {
             Ok((_, metrics)) => {
                 let _ = writeln!(
@@ -154,7 +224,7 @@ impl<'a> Report<'a> {
                 );
             }
             Err(reason) => {
-                let _ = writeln!(md, "| **V1** | not measured: {reason} |||||||||");
+                let _ = writeln!(md, "| **V1** | not measured: {reason} |||||||||||");
             }
         }
         for (config, metrics) in &self.rows {
@@ -179,16 +249,17 @@ impl<'a> Report<'a> {
         let _ = writeln!(
             md,
             "Rule: a configuration that invents text on non-speech is out (it would be typed into the user's window). \
-             Among the rest, one whose reference WER is not worse than V1's comes first; then the most lost clips with text, \
-             the lowest WER over reference and quiet clips, the lowest ~5 s p95.\n"
+             Among the rest, one whose reference WER is not worse than V1's comes first; then the most lost speech clips with text, \
+             the most lost clips with text, the lowest WER over reference and quiet clips, the lowest ~5 s p95.\n"
         );
         if !self.pick_meets_guards {
             let _ = writeln!(md, "**No configuration matches V1's reference WER**; the pick is the best of the others by the same order.\n");
         }
         let _ = writeln!(
             md,
-            "**Pick: {}** — lost clips with text {}, reference WER {}, quiet WER {}, invented on non-speech {}, ~5 s sentence p95 {:.2} s.\n",
+            "**Pick: {}** — lost speech clips with text {}, all lost clips with text {}, reference WER {}, quiet WER {}, invented on non-speech {}, ~5 s sentence p95 {:.2} s.\n",
             self.pick.label(),
+            recovery_ratio(&metrics.lost_speech),
             ratio(metrics.non_empty(Group::Lost)),
             percent(metrics.wer(Group::Reference)),
             percent(metrics.wer(Group::Quiet)),
@@ -211,18 +282,30 @@ impl<'a> Report<'a> {
     fn write_criteria(&self, md: &mut String) {
         let metrics = self.metrics_of(&self.pick);
         let _ = writeln!(md, "## Card criteria measured here\n");
-        let lost_rate = metrics.non_empty_rate(Group::Lost);
-        let _ = writeln!(
-            md,
-            "- **3a, lost clips ≥ {:.0}% with text**: {} → {}.",
-            LOST_TARGET * 100.0,
-            ratio(metrics.non_empty(Group::Lost)),
-            if lost_rate >= LOST_TARGET {
-                "met"
-            } else {
-                "**not met**"
-            }
-        );
+        let speech = &metrics.lost_speech;
+        if speech.speech_clips > 0 {
+            let _ = writeln!(
+                md,
+                "- **3a, lost clips that hold speech ≥ {:.0}% with text**: {} (WER vs oracle {}) → {}. All lost clips, speech or not: {}.",
+                LOST_TARGET * 100.0,
+                recovery_ratio(speech),
+                percent(speech.wer_against_oracle()),
+                if speech.rate() >= LOST_TARGET {
+                    "met"
+                } else {
+                    "**not met**"
+                },
+                ratio(metrics.non_empty(Group::Lost))
+            );
+            self.write_doubtful_bound(md, speech);
+        } else {
+            let _ = writeln!(
+                md,
+                "- **3a, lost clips that hold speech ≥ {:.0}% with text**: not measured (no oracle labels); all lost clips: {}.",
+                LOST_TARGET * 100.0,
+                ratio(metrics.non_empty(Group::Lost))
+            );
+        }
         match &self.v1 {
             Ok((_, v1)) => {
                 let _ = writeln!(
@@ -247,7 +330,8 @@ impl<'a> Report<'a> {
             "- **4, transcription part**: p95 {:.2} s for a ~5 s sentence (target for the whole release-to-insert path: {SENTENCE_P95_TARGET_S} s; insertion is measured by the app's PR).",
             p95
         );
-        let _ = writeln!(md, "- **5, memory of a 180 s dictation** (peak RSS of a fresh process, model load included):\n");
+        self.write_lazy(md);
+        let _ = writeln!(md, "Each engine alone, a 180 s dictation in a fresh process (peaks, model load included):\n");
         let _ = writeln!(
             md,
             "| configuration | peak RSS | peak physical footprint | time | characters | both ≤ 1.5 GB |\n|---|---|---|---|---|---|"
@@ -280,6 +364,95 @@ impl<'a> Report<'a> {
         let _ = writeln!(md, "\nFor scale, V1 measured Parakeet at 1476 MB for one 30 s call and 3503 MB for 180 s in one call; V2 splits at 20 s pauses.\n");
     }
 
+    /// Until the user has heard the doubtful clips, 3a rests on the oracle's
+    /// sure cases only: say how low it falls if every doubtful clip held speech.
+    fn write_doubtful_bound(&self, md: &mut String, speech: &Recovery) {
+        let Ok(labels) = &self.oracle else {
+            return;
+        };
+        let (mut doubtful, mut recovered) = (0, 0);
+        for (index, clip) in self.clips.iter().enumerate() {
+            let is_doubtful = clip.group == Group::Lost
+                && labels
+                    .get(&clip.id)
+                    .is_some_and(|label| label.class == Class::Doubtful);
+            if is_doubtful {
+                doubtful += 1;
+                if !outcome(self.runs, &self.pick, index).text.trim().is_empty() {
+                    recovered += 1;
+                }
+            }
+        }
+        if doubtful == 0 {
+            return;
+        }
+        let _ = writeln!(
+            md,
+            "  - {doubtful} doubtful clips not heard yet. If every one held speech, 3a would read {}; the pick returns text on {recovered} of them.",
+            ratio((speech.recovered + recovered, speech.speech_clips + doubtful))
+        );
+    }
+
+    fn write_lazy(&self, md: &mut String) {
+        let usage = match &self.lazy {
+            Ok(usage) => usage,
+            Err(reason) => {
+                let _ = writeln!(
+                    md,
+                    "- **5, memory outside a reprise**: not measured ({reason}).\n"
+                );
+                return;
+            }
+        };
+        let mb = |bytes: u64| format!("{:.0} MB", bytes as f64 / 1_000_000.0);
+        let is_within = usage.normal_peak_rss <= MEMORY_TARGET_BYTES
+            && usage.normal_peak_footprint <= MEMORY_TARGET_BYTES
+            && !usage.normal_loaded_fallback
+            && usage.is_released;
+        let _ = writeln!(
+            md,
+            "- **5, ≤ 1.5 GB outside a reprise**: {} → {}. The default pipeline (`Pipeline::load_default`) loads whisper only when \
+             Parakeet returns nothing (a *reprise*) and frees it after {} s unused. Measured in one fresh process: a 180 s dictation, \
+             then a ~5 s sentence (`fr-sentence-rapport`) Parakeet is made to miss, twice, then {} s of quiet.\n",
+            mb(usage.normal_peak_rss.max(usage.normal_peak_footprint)),
+            if is_within { "met" } else { "**not met**" },
+            whispy_core::FALLBACK_IDLE.as_secs(),
+            whispy_core::FALLBACK_IDLE.as_secs() + 2
+        );
+        let _ = writeln!(
+            md,
+            "| phase | peak RSS | peak physical footprint | note |\n|---|---|---|---|"
+        );
+        let _ = writeln!(
+            md,
+            "| 180 s dictation, Parakeet only | {} | {} | whisper loaded: {} |",
+            mb(usage.normal_peak_rss),
+            mb(usage.normal_peak_footprint),
+            if usage.normal_loaded_fallback {
+                "**yes**"
+            } else {
+                "no"
+            }
+        );
+        let _ = writeln!(
+            md,
+            "| reprise (whisper loaded beside Parakeet) | {} | {} | first reprise {:.2} s, next one {:.2} s: loading whisper adds {:.2} s |",
+            mb(usage.reprise_peak_rss),
+            mb(usage.reprise_peak_footprint),
+            usage.cold_reprise_s,
+            usage.warm_reprise_s,
+            usage.cold_reprise_s - usage.warm_reprise_s
+        );
+        let _ = writeln!(
+            md,
+            "| {} s after the last reprise | {} (now) | {} (now) | whisper freed: {} |\n",
+            whispy_core::FALLBACK_IDLE.as_secs() + 2,
+            mb(usage.released_rss),
+            mb(usage.released_footprint),
+            if usage.is_released { "yes" } else { "**no**" }
+        );
+    }
+
     fn write_lost_clips(&self, md: &mut String) {
         let _ = writeln!(md, "## Lost clips, one by one\n");
         let columns = [
@@ -296,11 +469,11 @@ impl<'a> Report<'a> {
         ];
         let _ = writeln!(
             md,
-            "| clip | length | peak RMS | voiced | V1 | {} | {} | pick |",
+            "| clip | length | peak RMS | voiced | holds speech | V1 | {} | {} | pick |",
             columns[0].label(),
             columns[1].label()
         );
-        let _ = writeln!(md, "|---|---|---|---|---|---|---|---|");
+        let _ = writeln!(md, "|---|---|---|---|---|---|---|---|---|");
         for (index, clip) in self
             .clips
             .iter()
@@ -314,11 +487,12 @@ impl<'a> Report<'a> {
             };
             let _ = writeln!(
                 md,
-                "| {} | {:.1} s | {:.4} | {:.2} s | {} | {} | {} | {} |",
+                "| {} | {:.1} s | {:.4} | {:.2} s | {} | {} | {} | {} | {} |",
                 clip.id,
                 audio::seconds(&clip.samples),
                 audio::peak_rms(&clip.samples),
                 span.voiced_s,
+                self.speech_cell(&clip.id),
                 private_cell(&v1_text),
                 private_cell(&outcome(self.runs, &columns[0], index).text),
                 private_cell(&outcome(self.runs, &columns[1], index).text),
@@ -330,6 +504,28 @@ impl<'a> Report<'a> {
             "\nLost clips are the user's real voice: like V1's log, the report keeps their length, \
              never their text. Set `{SHOW_LOST_TEXT}=1` to read the texts in a local run, and do not commit that report.\n"
         );
+    }
+
+    /// The clip's class for the lost-clip table, "(ear)" when the user heard it.
+    fn speech_cell(&self, clip_id: &str) -> String {
+        let Some(label) = self
+            .oracle
+            .as_ref()
+            .ok()
+            .and_then(|labels| labels.get(clip_id))
+        else {
+            return "–".to_string();
+        };
+        let class = match label.class {
+            Class::Speech => "**speech**",
+            Class::Doubtful => "doubtful",
+            Class::NoSpeech => "no speech",
+        };
+        if label.is_heard {
+            format!("{class} (ear)")
+        } else {
+            class.to_string()
+        }
     }
 
     fn write_reference_clips(&self, md: &mut String) {
@@ -385,6 +581,7 @@ fn choose(rows: &[(Config, Metrics)], v1_reference_wer: Option<f64>) -> (Config,
     let order = |a: &&(Config, Metrics), b: &&(Config, Metrics)| -> Ordering {
         matches_v1(&b.1)
             .cmp(&matches_v1(&a.1))
+            .then(b.1.lost_speech.rate().total_cmp(&a.1.lost_speech.rate()))
             .then(
                 b.1.non_empty_rate(Group::Lost)
                     .total_cmp(&a.1.non_empty_rate(Group::Lost)),
@@ -413,8 +610,14 @@ fn choose(rows: &[(Config, Metrics)], v1_reference_wer: Option<f64>) -> (Config,
 
 fn table_row(label: &str, metrics: &Metrics) -> String {
     format!(
-        "| {label} | {} | {} | {} | {} | {} | {} | {:.2} s | {:.2} s | {:.2} s |",
+        "| {label} | {} | {} | {} | {} | {} | {} | {} | {} | {:.2} s | {:.2} s | {:.2} s |",
         ratio(metrics.non_empty(Group::Lost)),
+        recovery_ratio(&metrics.lost_speech),
+        if metrics.lost_speech.recovered == 0 {
+            "–".to_string()
+        } else {
+            percent(metrics.lost_speech.wer_against_oracle())
+        },
         percent(metrics.wer(Group::Reference)),
         ratio(metrics.non_empty(Group::Reference)),
         percent(metrics.wer(Group::Quiet)),
@@ -445,6 +648,10 @@ fn ratio((with_text, total): (usize, usize)) -> String {
         "{with_text}/{total} ({:.0}%)",
         100.0 * with_text as f64 / total as f64
     )
+}
+
+fn recovery_ratio(recovery: &Recovery) -> String {
+    ratio((recovery.recovered, recovery.speech_clips))
 }
 
 fn percent(value: f64) -> String {

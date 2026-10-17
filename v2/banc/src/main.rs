@@ -6,6 +6,8 @@
 
 mod corpus;
 mod measure;
+mod memory;
+mod oracle;
 mod report;
 mod v1;
 mod wer;
@@ -24,6 +26,10 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
         Some("--memory-probe") => memory_probe(&args[1..]),
+        Some("--lazy-probe") => memory::lazy_probe(DICTATION_SECONDS).map(|usage| {
+            println!("{}", usage.line());
+            ExitCode::SUCCESS
+        }),
         Some("--transcribe") => transcribe_files(&args[1..]),
         Some("--help") | Some("-h") => {
             println!("{}", usage());
@@ -94,30 +100,28 @@ fn run_in(work_dir: &std::path::Path, skip_v1: bool) -> Result<ExitCode, String>
 
     let mut memory = Vec::new();
     let default = Config::library_default();
-    let mut probes = vec![
-        Config {
-            primary: EngineKind::Parakeet,
+    // Each engine alone; the default pipeline, whose fallback loads lazily,
+    // is probed apart by `spawn_lazy_probe`.
+    for primary in EngineKind::ALL {
+        let config = Config {
+            primary,
             fallback: None,
             strategy: default.strategy,
-        },
-        Config {
-            primary: EngineKind::Whisper,
-            fallback: None,
-            strategy: default.strategy,
-        },
-    ];
-    if !probes.contains(&default) {
-        probes.push(default);
-    }
-    for config in probes {
+        };
         eprintln!(
             "banc: memory of a {DICTATION_SECONDS:.0} s dictation, {}",
             config.label()
         );
         memory.push((config, spawn_memory_probe(&config)));
     }
+    eprintln!(
+        "banc: default pipeline: {DICTATION_SECONDS:.0} s dictation, two reprises, then {} s idle",
+        whispy_core::FALLBACK_IDLE.as_secs()
+    );
+    let lazy = spawn_lazy_probe();
+    let oracle = oracle::load();
 
-    let report = report::Report::build(&clips, &runs, v1, memory);
+    let report = report::Report::build(&clips, &runs, v1, memory, lazy, oracle);
     let path = corpus::bench_dir().join("REPORT.md");
     std::fs::write(&path, report.markdown())
         .map_err(|error| format!("{}: {error}", path.display()))?;
@@ -132,6 +136,23 @@ fn run_in(work_dir: &std::path::Path, skip_v1: bool) -> Result<ExitCode, String>
         return Ok(ExitCode::from(2));
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// The default pipeline's memory and reprise latency, in a fresh process.
+fn spawn_lazy_probe() -> Result<memory::LazyUse, String> {
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let output = std::process::Command::new(exe)
+        .arg("--lazy-probe")
+        .output()
+        .map_err(|error| format!("lazy probe: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "lazy probe failed ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    memory::LazyUse::parse(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// Peak memory of a dictation, measured in a fresh process so engines loaded
@@ -194,45 +215,11 @@ fn memory_probe(args: &[String]) -> Result<ExitCode, String> {
     let seconds = started.elapsed().as_secs_f64();
     println!(
         "{}\t{}\t{seconds:.2}\t{}",
-        peak_rss_bytes(),
-        peak_footprint_bytes(),
+        memory::peak_rss_bytes(),
+        memory::peak_footprint_bytes(),
         transcript.text.chars().count()
     );
     Ok(ExitCode::SUCCESS)
-}
-
-/// Lifetime peak physical footprint (what macOS memory pressure counts,
-/// Metal buffers included), in bytes; 0 when unavailable.
-fn peak_footprint_bytes() -> u64 {
-    let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
-    // SAFETY: proc_pid_rusage writes one rusage_info_v4 into the struct we own.
-    let status = unsafe {
-        libc::proc_pid_rusage(
-            std::process::id() as libc::c_int,
-            libc::RUSAGE_INFO_V4,
-            &mut info as *mut libc::rusage_info_v4 as *mut libc::rusage_info_t,
-        )
-    };
-    if status == 0 {
-        info.ri_lifetime_max_phys_footprint
-    } else {
-        0
-    }
-}
-
-fn peak_rss_bytes() -> u64 {
-    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
-    // SAFETY: getrusage only writes into the struct we own.
-    let status = unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
-    if status != 0 {
-        return 0;
-    }
-    // macOS reports ru_maxrss in bytes (Linux in kilobytes).
-    if cfg!(target_os = "macos") {
-        usage.ru_maxrss as u64
-    } else {
-        usage.ru_maxrss as u64 * 1024
-    }
 }
 
 /// Debug helper: one engine and strategy on given files.
