@@ -4,13 +4,13 @@ A rewrite of Whispy's core in Rust, compared against V1 on a bench before it
 replaces anything. V1 (the Python app at the repository root) stays installed
 and untouched.
 
-This directory holds the first half: the transcription engines, the audio
-pipeline and the bench. The macOS app (menu bar, Fn key, text insertion) comes
-next and builds on the library below.
+It holds the transcription engines and the audio pipeline (`whispy-core`),
+the bench (`banc`), and the macOS app built on them (`whispy2`).
 
 ```
 v2/
 ├── whispy-core/   library: engines, gates, splitting, PCM → text pipeline
+├── whispy2/       the app: menu bar icon, Fn to dictate, text inserted
 ├── banc/          the bench binary
 └── bench/
     ├── reference/ synthetic reference clips with a known text (+ generate.sh)
@@ -38,6 +38,74 @@ the models are the files already downloaded, and the V1 replay runs with
 | whisper small (`ggml-small.bin`) | `~/.whispy/models/`, then `~/.jarvis/models/` | `WHISPY_WHISPER_MODEL` |
 
 A missing model is an error naming the paths looked at; V2 never downloads one.
+
+## The app: `whispy2`
+
+```bash
+cd v2
+cargo build --release
+./target/release/whispy2
+```
+
+A microphone icon appears in the menu bar (no Dock icon, no window). Then, in
+any app:
+
+- **hold Fn** while you speak; on release the text is pasted where the cursor is;
+- **tap Fn** (under 0.3 s) to start a dictation hands-free; **press Fn again** to
+  stop it and paste.
+
+The menu says what V2 is doing (ready, recording, transcribing) and the last
+problem, if any; **Quit Whispy V2** frees the models and exits. The terminal
+that launched it prints the same lines.
+
+**Permissions, once.** Launched from a terminal, macOS attributes whispy2 to that
+terminal app, so the grants go to it (System Settings → Privacy & Security):
+
+| permission | for | if missing |
+|---|---|---|
+| Input Monitoring | reading Fn (a listen-only event tap) | the menu says « Fn is not available… » |
+| Microphone | recording | macOS asks at the first dictation |
+| Accessibility | pasting (System Events presses ⌘V) | the menu says « macOS refused the paste… »; the text stays on the clipboard |
+
+Set **Keyboard → « Press 🌐 key to » → Do Nothing**: otherwise every Fn tap
+also opens the emoji picker or switches the input source (the tap only listens,
+it cannot swallow the key).
+
+**V1 and V2 never both answer Fn.** When V1 runs (its API port 9090 answers, or
+a `Whispy.app/Contents/MacOS/Whispy` process exists) V2 shows « Whispy V1 is
+running — Fn is left to it » with a crossed-out microphone and ignores Fn. It
+looks again every 2 s: quit V1 and V2 takes Fn within 2 s; start V1 and V2 lets
+go as soon as its current dictation, if any, is inserted. V1 itself is not
+touched.
+
+**What V1 taught, kept here.**
+
+- One explicit state machine (`whispy2/src/machine.rs`: idle, recording,
+  transcribing, inserting, yielded to V1), pure and unit-tested. Fn is decoded
+  from the secondary-Fn flag on each event, never from a diff with the
+  previous one; if macOS disables the tap, it is re-enabled within a second
+  and a release missed meanwhile is replayed, so the app cannot freeze in
+  recording. A watchdog stops a recording after 5 minutes and leaves its text
+  on the clipboard instead of pasting it into whatever is focused by then.
+- Fn used as a modifier (Fn+Delete, Fn+arrow) cancels the dictation it started.
+- Insertion is V1's: text on the clipboard through `pbcopy` with a UTF-8
+  locale, ⌘V by System Events, previous clipboard restored after 150 ms.
+- A dictation whose speech came back empty, or failed, is kept as a WAV in
+  `~/.whispy/v2-lost/`, ready for the bench.
+
+**Latency (criterion 4).** `whispy2/tests/latency.rs` runs the whole app path —
+state machine, threads, resampling from 48 kHz, default pipeline with the real
+models — with a WAV in place of the microphone and a recorder in place of the
+paste, and measures Fn release → text delivered:
+
+```bash
+cargo test --release -p whispy2 --test latency -- --ignored --nocapture
+```
+
+2026-10-17, M1 Pro, macOS 26.5, 43 dictations of 6.5–6.8 s (two reference sentences
+back to back): **p50 0.31 s, p95 0.37 s, max 0.41 s** (target p95 < 1.5 s); the
+first dictation after loading 0.46 s. The real paste adds `pbpaste` + `pbcopy`
+(~0.01 s each) and `osascript` (~0.06 s to start, plus System Events' keystroke).
 
 ## The interface the app uses
 
