@@ -1,6 +1,7 @@
 //! PCM to text: split, gate, prepare, transcribe, fall back.
 
 use crate::audio::{self, LOUDNESS_TARGET_RMS, SILENCE_RMS_THRESHOLD};
+use crate::lazy::{Lazy, FALLBACK_IDLE};
 use crate::parakeet::Parakeet;
 use crate::split::{self, MAX_PIECE_S};
 use crate::vad;
@@ -41,6 +42,17 @@ impl EngineKind {
             EngineKind::Parakeet => Box::new(Parakeet::load(&models::parakeet_dir()?)?),
             EngineKind::Whisper => Box::new(Whisper::load(&models::whisper_model()?)?),
         })
+    }
+
+    /// The engine as a [`Lazy`]: loaded on its first call, freed after `idle`.
+    /// Its model files are checked now, so a missing one fails at startup,
+    /// not in the middle of a dictation.
+    pub fn lazy(self, idle: std::time::Duration) -> Result<Lazy, Error> {
+        match self {
+            EngineKind::Parakeet => models::parakeet_dir().map(drop)?,
+            EngineKind::Whisper => models::whisper_model().map(drop)?,
+        }
+        Ok(Lazy::new(self.name(), idle, move || self.load()))
     }
 }
 
@@ -128,8 +140,13 @@ impl Pipeline {
     }
 
     /// The configuration the bench chose: `DEFAULT_ENGINE`, `DEFAULT_FALLBACK`, `DEFAULT_STRATEGY`.
+    /// The primary engine is loaded now; the fallback only when the primary
+    /// first returns nothing, and it is freed after [`FALLBACK_IDLE`] unused.
     pub fn load_default() -> Result<Self, Error> {
-        let fallback = DEFAULT_FALLBACK.map(EngineKind::load).transpose()?;
+        let fallback = DEFAULT_FALLBACK
+            .map(|kind| kind.lazy(FALLBACK_IDLE))
+            .transpose()?
+            .map(|lazy| Box::new(lazy) as Box<dyn Transcriber>);
         Ok(Pipeline::new(
             DEFAULT_ENGINE.load()?,
             fallback,

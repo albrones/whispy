@@ -7,6 +7,7 @@ use whispy_core::pipeline::{DEFAULT_ENGINE, DEFAULT_FALLBACK, DEFAULT_STRATEGY};
 use whispy_core::{EngineKind, Strategy};
 
 use crate::corpus::{Clip, Group, Kind};
+use crate::oracle::{Labels, Recovery};
 use crate::wer;
 
 /// Each ~5 s reference sentence is transcribed this many times, so the p95
@@ -157,13 +158,25 @@ pub struct Metrics {
     pub latencies: Vec<f64>,
     /// The ~5 s reference sentences only (criterion 4).
     pub sentence_latencies: Vec<f64>,
+    /// The lost clips that hold speech, per the oracle and the user's ear
+    /// (criterion 3); zero clips when the oracle was not run.
+    pub lost_speech: Recovery,
 }
 
 impl Metrics {
-    pub fn from_outcomes(clips: &[Clip], outcome_of: impl Fn(usize) -> Measured) -> Self {
+    pub fn from_outcomes(
+        clips: &[Clip],
+        labels: Option<&Labels>,
+        outcome_of: impl Fn(usize) -> Measured,
+    ) -> Self {
         let mut metrics = Metrics::default();
         for (index, clip) in clips.iter().enumerate() {
             let measured = outcome_of(index);
+            if let (Group::Lost, Some(labels)) = (clip.group, labels) {
+                metrics
+                    .lost_speech
+                    .add(labels.get(&clip.id), &measured.text);
+            }
             let group = clip.group.name();
             let counts = metrics.non_empty.entry(group).or_default();
             counts.1 += 1;

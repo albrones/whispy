@@ -15,6 +15,8 @@ v2/
 └── bench/
     ├── reference/ synthetic reference clips with a known text (+ generate.sh)
     ├── v1_replay.py   runs V1's own engine on the same clips (read-only)
+    ├── oracle.py  a larger reference model says which lost clips hold speech
+    ├── oracle/    its output and a listening page (gitignored: the user's voice)
     └── REPORT.md  the last bench run: numbers and the default engine
 ```
 
@@ -60,9 +62,16 @@ transcript.engine; // Some("parakeet") / Some("whisper"), None when empty
   20 s, cut in pauses (`split::pieces`), so memory stays bounded whatever the
   length; each piece goes through the strategy, the primary engine, then the
   fallback engine when the primary returns nothing.
-- Loading takes about a second per engine: load once at startup, on a worker
-  thread, and keep the pipeline. `Pipeline` is `Send`, not `Sync`: one
-  dictation at a time.
+- `load_default` loads Parakeet (about a second): call it once at startup, on
+  a worker thread, and keep the pipeline. `Pipeline` is `Send`, not `Sync`:
+  one dictation at a time.
+- whisper, the fallback, is **lazy** (`Lazy`, `EngineKind::lazy`): its model
+  file is checked at `load_default`, but it is loaded only the first time
+  Parakeet returns nothing (a *reprise*), and freed after `FALLBACK_IDLE`
+  (30 s) without a call, by a short-lived thread that exists only while it is
+  loaded. Outside a reprise the process holds Parakeet alone (~1.1 GB); a
+  reprise briefly holds both (~1.8 GB) and the first one waits for whisper to
+  load. The bench measures both (`REPORT.md`, criterion 5).
 - `audio::read_wav` reads the 16 kHz mono 16-bit WAVs V1 records and keeps.
 
 ### Strategies
@@ -104,9 +113,34 @@ The thresholds are V1's, measured on real dictation (see the comments in
 
 through both engines and every strategy, alone and with the other engine as
 fallback, and runs V1 on the same clips through `bench/v1_replay.py` with V1's
-venv (`WHISPY_V1_PYTHON`). It measures the memory of a 180 s dictation in a
-fresh process, writes `bench/REPORT.md`, and exits with code 2 when its pick
-differs from the library's default.
+venv (`WHISPY_V1_PYTHON`). It measures, each in a fresh process, the memory
+of a 180 s dictation per engine, and the default pipeline through a 180 s
+dictation, two reprises and 30 s of quiet (normal peak, reprise peak, the
+latency the first whisper load adds, whether whisper was freed). It writes
+`bench/REPORT.md`, and exits with code 2 when its pick differs from the
+library's default.
+
+### Which lost clips hold speech (criterion 3)
+
+V1 lost breath, clicks and silence as well as speech. Criterion 3 counts only
+the lost clips that really hold speech, as judged by a referee far larger than
+the shipped engines: whisper large-v3-turbo (MLX, `~/models/whisper-large-v3-turbo-asr-fp16`,
+override `WHISPY_ORACLE_MODEL`). It runs in a throwaway venv, never in the app:
+
+```bash
+uv venv -p 3.12 /tmp/oracle-venv && uv pip install -p /tmp/oracle-venv/bin/python mlx-audio
+ls ~/.whispy/lost/*.wav | HF_HUB_OFFLINE=1 /tmp/oracle-venv/bin/python -I -B bench/oracle.py bench/oracle
+open bench/oracle/listen.html   # settle the doubtful clips by ear
+pbpaste > bench/oracle/verdicts.tsv   # after "Copy" on the page
+```
+
+It classes each clip **speech** (a confident French or English decode that is
+not one of whisper's stock one-liners), **no speech** (a failed decode of a
+stock one-liner such as « so » or « you ») or **doubtful**. The page plays
+every clip, doubtful first; the verdicts it copies override the oracle. The
+bench reads `bench/oracle/` and adds the "lost speech" columns; without it,
+criterion 3 is reported as not measured. Everything in `bench/oracle/` is the
+user's voice or words: it is gitignored and never committed.
 
 See [`bench/REPORT.md`](bench/REPORT.md) for the latest numbers and the pick.
 Lost clips are real dictation: the report gives their word counts, never their

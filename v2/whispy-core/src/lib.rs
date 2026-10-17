@@ -12,6 +12,7 @@
 //! ```
 
 pub mod audio;
+pub mod lazy;
 pub mod mel;
 pub mod models;
 pub mod parakeet;
@@ -20,6 +21,7 @@ pub mod split;
 pub mod vad;
 pub mod whisper;
 
+pub use lazy::{Lazy, FALLBACK_IDLE};
 pub use pipeline::{EngineKind, Pipeline, Strategy, Transcript, DEFAULT_ENGINE, DEFAULT_STRATEGY};
 
 use std::fmt;
