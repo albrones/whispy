@@ -16,6 +16,12 @@ use crate::{Error, Transcriber};
 
 const MAX_TOKENS_PER_STEP: usize = 10;
 const WORD_START: char = '\u{2581}';
+/// Digital silence put before and after every input. V1 measured it
+/// (fcf7861): cut tight to its speech, a clip reaches Parakeet with no
+/// silence around it, and Parakeet drops phrases or answers French in
+/// English; 0.25 s cured that without losing a mixed-language clip. whisper
+/// needs none: it pads every input to 30 s itself.
+pub const FRAME_S: f32 = 0.25;
 
 pub struct Parakeet {
     encoder: Session,
@@ -140,7 +146,8 @@ impl Transcriber for Parakeet {
     }
 
     fn transcribe(&mut self, samples: &[f32]) -> Result<String, Error> {
-        let frames = self.encode(samples)?;
+        let framed = crate::audio::padded(samples, FRAME_S, FRAME_S);
+        let frames = self.encode(&framed)?;
         let tokens = self.decode(&frames)?;
         let joined: String = tokens
             .iter()

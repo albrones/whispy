@@ -13,7 +13,7 @@ pub const DEFAULT_ENGINE: EngineKind = EngineKind::Parakeet;
 /// The engine tried when the default one returns nothing; `None` for no fallback.
 pub const DEFAULT_FALLBACK: Option<EngineKind> = Some(EngineKind::Whisper);
 /// How a clip is prepared before the engine sees it.
-pub const DEFAULT_STRATEGY: Strategy = Strategy::Louder;
+pub const DEFAULT_STRATEGY: Strategy = Strategy::Padded;
 
 /// Clips shorter than this get silence around them under [`Strategy::Padded`].
 pub const SHORT_CLIP_S: f32 = 3.0;
@@ -178,7 +178,7 @@ impl Pipeline {
         let Some(input) = self.strategy.prepare(piece) else {
             return Ok(Transcript::default());
         };
-        let text = self.primary.transcribe(&input)?;
+        let text = worded(self.primary.transcribe(&input)?);
         if !text.is_empty() {
             return Ok(Transcript {
                 text,
@@ -187,12 +187,23 @@ impl Pipeline {
         }
         match self.fallback.as_mut() {
             Some(fallback) => {
-                let text = fallback.transcribe(&input)?;
+                let text = worded(fallback.transcribe(&input)?);
                 let engine = (!text.is_empty()).then(|| fallback.name());
                 Ok(Transcript { text, engine })
             }
             None => Ok(Transcript::default()),
         }
+    }
+}
+
+/// An answer without a single letter or digit is no answer: Parakeet returns
+/// "..." on some quiet speech, which would be pasted as is and keep the
+/// fallback from trying.
+fn worded(text: String) -> String {
+    if text.chars().any(char::is_alphanumeric) {
+        text
+    } else {
+        String::new()
     }
 }
 
@@ -276,6 +287,21 @@ mod tests {
         let transcript = pipeline.transcribe(&clip).unwrap();
         assert_eq!(transcript.text, "à améliorer, je pense");
         assert_eq!(transcript.engine, Some("scripted"));
+    }
+
+    #[test]
+    fn punctuation_alone_counts_as_empty_and_calls_the_fallback() {
+        let (primary, _) = scripted("...");
+        let (fallback, _) = scripted("à améliorer, je pense");
+        let mut pipeline = Pipeline::new(primary, Some(fallback), Strategy::Louder);
+        let mut clip = vec![0.0; 8_000];
+        clip.extend(voiced(1.0, 0.012));
+        let transcript = pipeline.transcribe(&clip).unwrap();
+        assert_eq!(transcript.text, "à améliorer, je pense");
+
+        let (primary, _) = scripted("...");
+        let mut pipeline = Pipeline::new(primary, None, Strategy::Louder);
+        assert_eq!(pipeline.transcribe(&clip).unwrap(), Transcript::default());
     }
 
     #[test]

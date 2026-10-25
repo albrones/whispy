@@ -153,9 +153,12 @@ impl<'a> Report<'a> {
         let labels = match &self.oracle {
             Ok(labels) => labels,
             Err(reason) => {
+                // The report is committed: no home directory in it.
+                let reason =
+                    reason.replace(&crate::corpus::bench_dir().display().to_string(), "bench");
                 let _ = writeln!(
                     md,
-                    "Not classified: {reason}. Criterion 3 then falls back to all lost clips.\n"
+                    "Not classified: {reason}. `banc --labelled` decides criterion 3 on the user's own labels.\n"
                 );
                 return;
             }
