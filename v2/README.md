@@ -104,9 +104,10 @@ paste, and measures Fn release → text delivered:
 cargo test --release -p whispy2 --test latency -- --ignored --nocapture
 ```
 
-2026-10-17, M1 Pro, macOS 26.5, 43 dictations of 6.5–6.8 s (two reference sentences
-back to back): **p50 0.31 s, p95 0.37 s, max 0.41 s** (target p95 < 1.5 s); the
-first dictation after loading 0.46 s. The real paste adds `pbpaste` + `pbcopy`
+2026-10-25, M1 Pro, macOS 26.5, 43 dictations of 6.5–6.8 s (two reference sentences
+back to back): **p50 0.31 s, p95 0.32 s, max 0.32 s** (target p95 < 1.5 s); the
+first dictation after loading 0.32 s (2026-10-17, before Parakeet's 0.25 s frame:
+p95 0.37 s). The real paste adds `pbpaste` + `pbcopy`
 (~0.01 s each) and `osascript` (~0.06 s to start, plus System Events' keystroke).
 
 ## The interface the app uses
@@ -149,7 +150,11 @@ transcript.engine; // Some("parakeet") / Some("whisper"), None when empty
 | `Raw` | the clip as captured |
 | `Gated` | nothing for near-silence (peak RMS < 0.005) or too little voice (< 0.20 s voiced, WebRTC VAD); otherwise the clip cut to its voiced span ± 0.3 s |
 | `Louder` | `Gated`, and a clip quieter than RMS 0.05 scaled up to it |
-| `Padded` | `Louder`, and a clip under 3 s with 0.5 s of silence on each side |
+| `Padded` | `Louder`, and a clip under 3 s with 0.5 s of silence on each side (the default) |
+
+Whatever the strategy, Parakeet itself frames every input with 0.25 s of
+digital silence (`parakeet::FRAME_S`), and an answer without a letter or a
+digit (Parakeet's « ... ») counts as empty, so the fallback tries.
 
 The thresholds are V1's, measured on real dictation (see the comments in
 `whispy-core/src/audio.rs` and `vad.rs`).
@@ -165,6 +170,10 @@ The thresholds are V1's, measured on real dictation (see the comments in
   communauté d'Amara.org".
 - **Silence around a lone word makes Parakeet return nothing**: the clip is cut
   to its voiced span.
+- **…but no silence at all makes it drop phrases or answer French in English**:
+  V1 (fcf7861) and V2 frame every Parakeet input with 0.25 s of digital
+  silence. On the user's labelled clips (`banc --labelled`) it took V2's WER
+  from 18.9 % to 15.4 %.
 - **Quiet dictation is the real loss**: V1's lost clips that held speech sat at
   RMS 0.010–0.013 and came back at 0.05.
 - **Language is detected, never forced**: forcing one made Whisper translate.
