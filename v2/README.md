@@ -210,6 +210,23 @@ bench reads `bench/oracle/` and adds the "lost speech" columns; without it,
 criterion 3 is reported as not measured. Everything in `bench/oracle/` is the
 user's voice or words: it is gitignored and never committed.
 
+### Criterion 3 on your own labelled clips
+
+```bash
+cargo run --release --bin banc -- --labelled [dir]   # default ~/.whispy/bench
+```
+
+The directory is the corpus of V1's `scripts/quality_bench.py`: `<id>.wav`
+next to `<id>.json` (`{"ref": ..., "kind": "chunk" | "noise" | "dictation",
+"reviewed": true}`) and V1's `baseline.json`. Through the default pipeline it
+prints, per clip, the words V2 returned, then three parts: (a) the share of
+`lost-*` chunk clips that came back with text (target 70 %), (b) the noise clips
+that got invented text, (c) the word error rate over chunk and dictation clips
+against V1's baseline, normalized the way V1's bench does. It reads and writes
+nothing, exits 1 when a part fails, and prints no text unless
+`WHISPY_BANC_SHOW_LOST_TEXT=1` (a local read of references and V2's texts).
+The clips and labels stay in `~/.whispy/bench`, never in the repository.
+
 See [`bench/REPORT.md`](bench/REPORT.md) for the latest numbers and the pick.
 Lost clips are real dictation: the report gives their word counts, never their
 text, unless `WHISPY_BANC_SHOW_LOST_TEXT=1` is set for a local read (do not
