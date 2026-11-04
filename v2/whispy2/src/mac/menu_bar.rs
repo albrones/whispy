@@ -13,7 +13,10 @@ use objc2_app_kit::{
     NSApplication, NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem,
     NSVariableStatusItemLength,
 };
+use objc2_app_kit::{NSControlStateValueOff, NSControlStateValueOn};
 use objc2_foundation::{NSObject, NSString};
+
+use super::login_item::{self, LoginState};
 
 use crate::controller::Status;
 use crate::machine::State;
@@ -22,8 +25,11 @@ struct MenuBar {
     item: Retained<NSStatusItem>,
     headline: Retained<NSMenuItem>,
     note: Retained<NSMenuItem>,
+    login: Retained<NSMenuItem>,
     /// The Quit item's target; a menu item does not retain its target.
     _quit_target: Retained<QuitTarget>,
+    /// The login item's target, also the menu's delegate (both are held weakly by AppKit).
+    _login_target: Retained<LoginTarget>,
 }
 
 thread_local! {
@@ -51,6 +57,38 @@ define_class!(
     }
 );
 
+define_class!(
+    // SAFETY: NSObject has no subclassing requirements; LoginTarget adds no ivars.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "Whispy2LoginTarget"]
+    struct LoginTarget;
+
+    impl LoginTarget {
+        // SAFETY: the signature matches an AppKit action, `- (void)toggleLogin:(id)sender`.
+        #[unsafe(method(toggleLogin:))]
+        fn toggle_login(&self, _sender: Option<&AnyObject>) {
+            let result = login_item::toggle();
+            MENU_BAR.with(|cell| {
+                if let Some(menu_bar) = cell.get() {
+                    menu_bar.refresh_login(result.err());
+                }
+            });
+        }
+
+        // SAFETY: the signature matches `NSMenuDelegate`'s `- (void)menuWillOpen:(NSMenu *)menu`.
+        #[unsafe(method(menuWillOpen:))]
+        fn menu_will_open(&self, _menu: &NSMenu) {
+            // The user may have changed the login item in System Settings meanwhile.
+            MENU_BAR.with(|cell| {
+                if let Some(menu_bar) = cell.get() {
+                    menu_bar.refresh_login(None);
+                }
+            });
+        }
+    }
+);
+
 /// Puts the icon in the menu bar. Call once, on the main thread, before
 /// [`show`]. `on_quit` runs on Quit, before the process exits.
 pub fn install(mtm: MainThreadMarker, on_quit: impl FnOnce() + 'static) {
@@ -63,6 +101,26 @@ pub fn install(mtm: MainThreadMarker, on_quit: impl FnOnce() + 'static) {
     menu.addItem(&headline);
     menu.addItem(&note);
     menu.addItem(&NSMenuItem::separatorItem(mtm));
+    // SAFETY: plain allocation and `init` of an NSObject subclass.
+    let login_target: Retained<LoginTarget> = unsafe { msg_send![LoginTarget::alloc(mtm), init] };
+    // SAFETY: `toggleLogin:` is implemented by LoginTarget, which `MenuBar` keeps alive.
+    let login = unsafe {
+        let login = NSMenuItem::initWithTitle_action_keyEquivalent(
+            NSMenuItem::alloc(mtm),
+            &NSString::from_str("Start at login"),
+            Some(sel!(toggleLogin:)),
+            &NSString::from_str(""),
+        );
+        login.setTarget(Some(&login_target));
+        login
+    };
+    menu.addItem(&login);
+    // `menuWillOpen:` refreshes the check mark each time the menu opens.
+    // SAFETY: LoginTarget implements `menuWillOpen:`, the only delegate method used.
+    unsafe {
+        let delegate: &AnyObject = &login_target;
+        let _: () = msg_send![&*menu, setDelegate: delegate];
+    }
     // SAFETY: plain allocation and `init` of an NSObject subclass.
     let quit_target: Retained<QuitTarget> = unsafe { msg_send![QuitTarget::alloc(mtm), init] };
     // SAFETY: `quit:` is implemented by QuitTarget, which `MenuBar` keeps alive.
@@ -82,9 +140,12 @@ pub fn install(mtm: MainThreadMarker, on_quit: impl FnOnce() + 'static) {
         item,
         headline,
         note,
+        login,
         _quit_target: quit_target,
+        _login_target: login_target,
     };
     menu_bar.set_icon(mtm, State::Idle);
+    menu_bar.refresh_login(None);
     MENU_BAR.with(|cell| {
         if cell.set(menu_bar).is_err() {
             panic!("menu_bar::install called twice");
@@ -105,6 +166,34 @@ pub fn show(status: Status) {
 }
 
 impl MenuBar {
+    /// Syncs the "Start at login" item with the OS; `failure` is a note to show.
+    fn refresh_login(&self, failure: Option<String>) {
+        if !login_item::is_available() {
+            self.login.setTitle(&NSString::from_str(
+                "Start at login (needs the installed app)",
+            ));
+            self.login.setEnabled(false);
+            self.login.setState(NSControlStateValueOff);
+            return;
+        }
+        let state = login_item::state();
+        self.login.setTitle(&NSString::from_str("Start at login"));
+        self.login.setEnabled(true);
+        let checked = matches!(state, LoginState::Enabled | LoginState::RequiresApproval);
+        self.login.setState(if checked {
+            NSControlStateValueOn
+        } else {
+            NSControlStateValueOff
+        });
+        let note = failure.or_else(|| {
+            (state == LoginState::RequiresApproval).then(|| login_item::APPROVAL_NOTE.to_string())
+        });
+        if let Some(note) = note {
+            self.note.setTitle(&NSString::from_str(&note));
+            self.note.setHidden(false);
+        }
+    }
+
     fn show(&self, mtm: MainThreadMarker, status: &Status) {
         self.set_icon(mtm, status.state);
         self.headline

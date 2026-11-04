@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.whispy.v2</string>
+    <key>CFBundleName</key>
+    <string>Whispy V2</string>
+    <key>CFBundleDisplayName</key>
+    <string>Whispy V2</string>
+    <key>CFBundleExecutable</key>
+    <string>whispy2</string>
+    <key>CFBundleIconFile</key>
+    <string>whispy</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleVersion</key>
+    <string>0.1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <!-- Agent app: menu bar icon, no Dock icon. -->
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Whispy V2 records your voice while you hold the Fn key, to transcribe it locally on this Mac.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Whispy V2 asks System Events to press Command-V so the transcribed text is pasted into the frontmost app.</string>
+</dict>
+</plist>

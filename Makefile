@@ -1,4 +1,4 @@
-.PHONY: help install update reinstall test lint format check run app uninstall clean validate validate-unattended docs
+.PHONY: help install update reinstall test lint format check run app uninstall clean validate validate-unattended docs v2-app v2-reinstall
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -60,6 +60,12 @@ reinstall: ## Rebuild, replace /Applications/Whispy.app, relaunch, and wait for 
 
 app: ## Build & sign the native macOS bundle (self-signed "Whispy Local Signing" cert, ad-hoc fallback) (dist/Whispy.app)
 	./packaging/macos/build_app.sh
+
+v2-app: ## Build & sign the Whispy V2 (Rust) bundle (dist/Whispy V2.app)
+	./packaging/macos-v2/build_bundle.sh
+
+v2-reinstall: ## Rebuild V2, replace /Applications/Whispy V2.app, relaunch, and wait for its control socket
+	./packaging/macos-v2/reinstall.sh
 
 uninstall: ## Remove the venv and any legacy LaunchAgents
 	./install.sh --uninstall

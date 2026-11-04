@@ -24,6 +24,24 @@ const CLIPBOARD_RESTORE_DELAY: Duration = Duration::from_millis(150);
 
 pub struct PasteInserter;
 
+/// Starts System Events and passes macOS's Apple-event check ahead of the
+/// first paste. Cold, the first paste after a launch took 4.6 s against
+/// 0.5–0.6 s after it (2026-11-04): with a launch per login, that one slow
+/// dictation a day was enough to break the trial's latency p95. Runs on its
+/// own thread; a failure here shows again, with its message, at the paste.
+pub fn warm_up() {
+    let spawned = thread::Builder::new()
+        .name("whispy2-paste-warm-up".into())
+        .spawn(|| {
+            let _ = Command::new("osascript")
+                .args(["-e", r#"tell application "System Events" to get name"#])
+                .output();
+        });
+    if let Err(error) = spawned {
+        crate::log::line(&format!("paste warm-up not started: {error}"));
+    }
+}
+
 impl Inserter for PasteInserter {
     fn deliver(&mut self, text: &str, delivery: Delivery) -> Result<(), String> {
         if delivery == Delivery::Clipboard {
@@ -42,8 +60,8 @@ impl Inserter for PasteInserter {
             // The text stays on the clipboard, for the user to paste by hand.
             if detail.contains(KEYSTROKE_NOT_PERMITTED) {
                 return Err(format!(
-                    "macOS refused the paste: grant Accessibility to the app that launched \
-                     whispy2 (System Settings → Privacy & Security → Accessibility). \
+                    "macOS refused the paste: grant Accessibility to Whispy V2 (or to the \
+                     terminal that launched whispy2) (System Settings → Privacy & Security → Accessibility). \
                      The text is on the clipboard. ({detail})"
                 ));
             }

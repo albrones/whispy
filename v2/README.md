@@ -12,6 +12,7 @@ v2/
 ├── whispy-core/   library: engines, gates, splitting, PCM → text pipeline
 ├── whispy2/       the app: menu bar icon, Fn to dictate, text inserted
 ├── banc/          the bench binary
+├── TRIAL.md       how the V1 → V2 trial runs and what decides it
 └── bench/
     ├── reference/ synthetic reference clips with a known text (+ generate.sh)
     ├── v1_replay.py   runs V1's own engine on the same clips (read-only)
@@ -43,11 +44,22 @@ A missing model is an error naming the paths looked at; V2 never downloads one.
 
 ## The app: `whispy2`
 
+**Install (the way to use it day to day):** from the repository root,
+
 ```bash
-cd v2
-cargo build --release
-./target/release/whispy2
+make v2-reinstall
 ```
+
+builds `dist/Whispy V2.app` (bundle id `com.whispy.v2`, signed with V1's
+« Whispy Local Signing » identity, see `packaging/macos/create_signing_cert.sh`),
+installs it as `/Applications/Whispy V2.app` **next to** V1's `Whispy.app`
+(V1 is never modified, its executable's checksum is checked), launches it and
+waits until it answers on its control socket. Run it again after every change:
+a plain relaunch reruns the old build. `make v2-app` only builds the bundle.
+
+For development, `cargo build --release && ./target/release/whispy2` still
+works; it then logs to the terminal as well, and macOS attributes its
+permissions to that terminal.
 
 A microphone icon appears in the menu bar (no Dock icon, no window). Then, in
 any app:
@@ -56,12 +68,22 @@ any app:
 - **tap Fn** (under 0.3 s) to start a dictation hands-free; **press Fn again** to
   stop it and paste.
 
-The menu says what V2 is doing (ready, recording, transcribing) and the last
-problem, if any; **Quit Whispy V2** frees the models and exits. The terminal
-that launched it prints the same lines.
+While you speak, a small panel at the bottom of the screen shows « Recording »
+and the input level, then « Transcribing… »; it never takes the focus and shows
+over full-screen apps too. A dictation of half a second or more in which the
+microphone heard nothing (no 30 ms window above RMS 0.01, V1's noise floor) inserts
+nothing, plays the Basso sound and says « Microphone heard nothing » with the
+input device's name. Each dictation opens the current default input device, so
+a change in System Settings applies to the next one.
 
-**Permissions, once.** Launched from a terminal, macOS attributes whispy2 to that
-terminal app, so the grants go to it (System Settings → Privacy & Security):
+The menu says what V2 is doing (ready, recording, transcribing) and the last
+problem, if any; **Start at login** registers the installed app as a login
+item (disabled outside the installed bundle; if macOS asks for approval, the
+menu says so); **Quit Whispy V2** frees the models and exits.
+
+**Permissions, once.** Grant them to **Whispy V2** (System Settings → Privacy &
+Security); they stay granted across `make v2-reinstall`, because the signing
+identity does not change:
 
 | permission | for | if missing |
 |---|---|---|
@@ -72,6 +94,33 @@ terminal app, so the grants go to it (System Settings → Privacy & Security):
 Set **Keyboard → « Press 🌐 key to » → Do Nothing**: otherwise every Fn tap
 also opens the emoji picker or switches the input source (the tap only listens,
 it cannot swallow the key).
+
+**Files.** Everything is local and readable only by you:
+
+| path | what |
+|---|---|
+| `~/.whispy/v2/whispy2.log` | status lines, errors, one line per dictation (never its text); rotated to `whispy2.log.1` past 5 MB |
+| `~/.whispy/v2/dictations.jsonl` | one JSON line per dictation for the trial: time, duration, latency, trigger, outcome, engine, text length — never the text |
+| `~/.whispy/v2/control.sock` | the control socket (below) |
+| `~/.whispy/v2-lost/` | dictations whose speech came back empty or failed, as WAV, for the bench |
+
+**Control socket.** V2 listens on a Unix socket at `~/.whispy/v2/control.sock`
+(override with `WHISPY_V2_SOCKET`), in an owner-only directory, and opens no
+network port. One request per line, one reply line:
+
+```bash
+printf 'status\n' | nc -U ~/.whispy/v2/control.sock
+# {"state":"idle","models_loaded":true,"yielded":false,"last_problem":null}
+printf 'start\n'  | nc -U ~/.whispy/v2/control.sock   # like pressing Fn down
+printf 'stop\n'   | nc -U ~/.whispy/v2/control.sock   # like releasing it (always a hold)
+printf 'toggle\n' | nc -U ~/.whispy/v2/control.sock   # like a short tap
+```
+
+Requests go through the same state machine as Fn: a `stop` with nothing
+recording is ignored, and `start`/`toggle` are refused while V1 runs. The
+socket is also the single-instance lock: a second V2 finds the first one
+answering and exits; a socket left by a crash is replaced. It replaces V1's
+`:9090` API, and it is what a Linux compositor key binding will call.
 
 **V1 and V2 never both answer Fn.** When V1 runs (its API port 9090 answers, or
 a `Whispy.app/Contents/MacOS/Whispy` process exists) V2 shows « Whispy V1 is
@@ -235,6 +284,20 @@ against V1's baseline, normalized the way V1's bench does. It reads and writes
 nothing, exits 1 when a part fails, and prints no text unless
 `WHISPY_BANC_SHOW_LOST_TEXT=1` (a local read of references and V2's texts).
 The clips and labels stay in `~/.whispy/bench`, never in the repository.
+
+### The trial report
+
+```bash
+cargo run --release --bin banc -- --trial [--since YYYY-MM-DD] [--journal PATH] [--v1-log-dir DIR]
+```
+
+Reads `~/.whispy/v2/dictations.jsonl` and prints the dictation count, the days
+with dictation, each outcome's count and share, the release-to-delivery latency
+p50/p95/max over inserted dictations, and the clips kept in `~/.whispy/v2-lost/`
+over the period. Next to it, the lost-speech share weighted by audio seconds,
+for V2 and for V1 (from `~/.whispy.log` and `~/.whispy.log.1`, whose lines carry
+no date, so read whole). [`TRIAL.md`](TRIAL.md) says how the trial runs and
+which of these numbers decide it.
 
 See [`bench/REPORT.md`](bench/REPORT.md) for the latest numbers and the pick.
 Lost clips are real dictation: the report gives their word counts, never their
