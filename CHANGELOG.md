@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Added
+- **Linux Wayland sessions (Omarchy / Hyprland).** Under Wayland the
+  compositor's key binding drives `POST /start` / `POST /stop`, Whispy types
+  with `wtype` (clipboard mode also copies with `wl-copy`) and errors arrive as
+  desktop notifications instead of a tray. `packaging/omarchy/omarchy-dictation-whispy`
+  is an Omarchy dictation backend (`omarchy-dictation-use whispy`, then hold
+  F9); it notifies « Whispy ne répond pas » when the daemon is down. The
+  `systemd --user` unit follows `graphical-session.target` when the session
+  activates it.
+- **`POST /transcribe`.** Uploads a raw `audio/wav` (16 kHz mono 16-bit) and
+  returns `{"text": …}` — no typing, no file kept.
 - **Whispy says when the microphone heard nothing.** A recording of half a
   second or more that only caught background noise now plays a failure sound
   (Basso) and posts « Microphone heard nothing », naming the input device —

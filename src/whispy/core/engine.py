@@ -1358,12 +1358,12 @@ class Engine:
 
     def start(self) -> None:
         """Start all engine components."""
-        # Linux v1 requires X11; warn (don't block) on a Wayland session before
-        # wiring up the global hotkey, which won't work under Wayland.
+        # Under Wayland the compositor's binding is the trigger; say so up front
+        # so a user looking at the log knows why no key listener starts.
         if self._adapters.name == "linux":
-            from ..platform.linux.session import warn_if_wayland
+            from ..platform.linux.session import announce_wayland_mode
 
-            warn_if_wayland()
+            announce_wayland_mode()
         elif self._adapters.name == "macos":
             # Neither permission prompts on its own for a bundled menu-bar app,
             # so request both explicitly before wiring the hotkey/capture:

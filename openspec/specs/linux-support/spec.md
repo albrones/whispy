@@ -1,13 +1,16 @@
 # linux-support Specification
 
 ## Purpose
-The Linux/X11 adapter set behind the platform ports: a `pynput` global hotkey
-listener, `xdotool` text injection, a `pystray` tray UI, and the X11-session
-requirement that Whispy v1 enforces at startup. These adapters provide the same
-behavior contract as their macOS counterparts.
+The Linux adapter sets behind the platform ports. X11: a `pynput` global hotkey
+listener, `xdotool` text injection and a `pystray` tray UI. Wayland: the
+compositor's key binding drives the API, `wtype` text injection and desktop
+notifications instead of a tray, plus the Omarchy dictation backend. These
+adapters provide the same behavior contract as their macOS counterparts.
 
 Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
+
 ## Requirements
+
 ### Requirement: Linux X11 hotkey listening
 On Linux, the hotkey listener SHALL detect the configured trigger key globally under an X11 session using `pynput`, emitting press and release events to the engine. When the global listen cannot be established, it SHALL degrade gracefully and emit an actionable message to stderr rather than crash.
 
@@ -53,32 +56,6 @@ On Linux, the status/menu surface SHALL be provided via `pystray`, exposing the 
 
 _Tier: linux-real — needs a live tray host; deferred to a Linux smoke run._
 
-### Requirement: X11 session requirement
-On Linux, Whispy v1 SHALL require an X11 session. At startup it SHALL detect a Wayland session (e.g. via `XDG_SESSION_TYPE`/`WAYLAND_DISPLAY`) and SHALL emit a clear message that an X11 session is required for v1, rather than failing opaquely when global hotkeys or injection do not work.
-
-#### Scenario: Wayland session is detected and reported
-- **WHEN** Whispy starts under a Wayland session on Linux
-- **THEN** it SHALL emit a message stating that an X11 session is required in v1
-
-_Tier: unit-mocked — session env vars patched._
-
-#### Scenario: X11 session proceeds normally
-- **WHEN** Whispy starts under an X11 session on Linux
-- **THEN** it SHALL proceed without the Wayland warning
-
-_Tier: unit-mocked — session env vars patched._
-
-### Requirement: Linux hotkey listener warns on Wayland and does not latch
-The Linux hotkey listener SHALL warn the user when started under a Wayland session, and SHALL reset its held-key state on start so a previously missed release does not permanently swallow the next press.
-
-#### Scenario: Started under Wayland
-- **WHEN** the Linux hotkey listener `start()` runs in a Wayland session
-- **THEN** it SHALL emit the Wayland guidance message (not only on a later exception)
-
-#### Scenario: Restart after a missed release
-- **WHEN** the listener is (re)started while its internal held flag was left set
-- **THEN** `start()` SHALL reset the held flag so the next press is detected
-
 ### Requirement: Advertised Linux install path is honest
 The documented Linux install path SHALL actually install and start the daemon, OR the documentation SHALL NOT advertise an install path that does not function on Linux.
 
@@ -86,3 +63,74 @@ The documented Linux install path SHALL actually install and start the daemon, O
 - **WHEN** a Linux user runs the install path the docs advertise for Linux
 - **THEN** either the daemon SHALL be installed and started (e.g. via a `systemd --user` unit), OR the docs SHALL clearly scope that path to macOS and present the supported Linux procedure — never silently no-op
 
+### Requirement: Linux hotkey listener does not latch
+The Linux hotkey listener SHALL reset its held-key state on start so a previously missed release does not permanently swallow the next press.
+
+#### Scenario: Restart after a missed release
+- **WHEN** the listener is (re)started while its internal held flag was left set
+- **THEN** `start()` SHALL reset the held flag so the next press is detected
+
+_Tier: unit-mocked — `tests/test_linux_adapters.py`._
+
+### Requirement: Wayland session support
+On Linux, Whispy SHALL detect a Wayland session (`XDG_SESSION_TYPE=wayland` or a non-empty `WAYLAND_DISPLAY`) and bind the Wayland adapter set: no in-process global key listener (the compositor's key binding drives `POST /start` and `POST /stop`), text injection through `wtype`, and no tray icon. Under an X11 session the X11 adapter set (pynput, xdotool, pystray) SHALL be bound unchanged.
+
+#### Scenario: Wayland session binds the Wayland adapters
+- **WHEN** Whispy starts on Linux under a Wayland session
+- **THEN** it SHALL NOT start the pynput listener, SHALL inject through `wtype`, SHALL run without the pystray tray, and SHALL log that the trigger is the compositor's binding
+
+_Tier: unit-mocked — `tests/test_linux_adapters.py` (session env patched)._
+
+#### Scenario: X11 session is unchanged
+- **WHEN** Whispy starts on Linux under an X11 session
+- **THEN** it SHALL bind the pynput listener, the xdotool injector and the pystray tray
+
+_Tier: unit-mocked — `tests/test_linux_adapters.py`._
+
+#### Scenario: Keystroke mode types via wtype
+- **WHEN** a transcription completes under Wayland with `copy_to_clipboard` disabled
+- **THEN** the injector SHALL type the text with `wtype`, reading it from stdin
+
+_Tier: unit-mocked — `tests/test_linux_adapters.py` (subprocess patched)._
+
+#### Scenario: Clipboard mode copies then types
+- **WHEN** a transcription completes under Wayland with `copy_to_clipboard` enabled and `wl-copy` installed
+- **THEN** the injector SHALL put the text on the clipboard with `wl-copy` and type it with `wtype` (Ctrl+V is ignored by terminals, and `wtype` is independent of the keyboard layout)
+
+_Tier: unit-mocked — `tests/test_linux_adapters.py`._
+
+#### Scenario: wtype missing is reported
+- **WHEN** the `wtype` binary is not available at startup under Wayland
+- **THEN** the injector SHALL emit an actionable install hint
+
+_Tier: unit-mocked — `tests/test_linux_adapters.py`._
+
+#### Scenario: Errors surface as desktop notifications without a tray
+- **WHEN** under Wayland the recording limit is reached, the model fails to load, or capture fails
+- **THEN** Whispy SHALL post a desktop notification through `notify-send` (stderr when absent)
+
+_Tier: unit-mocked — `tests/test_linux_adapters.py`._
+
+### Requirement: Omarchy dictation backend
+Whispy SHALL ship an Omarchy dictation adapter, `omarchy-dictation-whispy start|stop|toggle`, that drives the HTTP API with the per-install token. When Whispy does not answer, the adapter SHALL post the desktop notification « Whispy ne répond pas » and exit non-zero, so a dictation is never lost silently. The Linux installer SHALL link it into `~/.local/bin` when Omarchy's `omarchy-dictation` is present.
+
+#### Scenario: Whispy is not running
+- **WHEN** `omarchy-dictation-whispy start` runs and nothing answers on the API port
+- **THEN** it SHALL post « Whispy ne répond pas » and exit non-zero
+
+_Tier: unit-mocked — `tests/test_omarchy_adapter.py` (fake `notify-send` on PATH)._
+
+#### Scenario: Push-to-talk through the compositor binding
+- **WHEN** Omarchy's F9 binding calls `omarchy-dictation start` then `omarchy-dictation stop` with `whispy` selected
+- **THEN** Whispy SHALL record between the two calls and type the transcript into the focused window
+
+_Tier: manual-ui — Omarchy VM._
+
+### Requirement: Login autostart under a Wayland compositor
+On Linux, when the installing session has an active `graphical-session.target`, the `systemd --user` unit SHALL be wanted by and ordered after that target, so the daemon starts with the compositor's environment (`WAYLAND_DISPLAY`) after every login; otherwise it SHALL keep `default.target`.
+
+#### Scenario: Reboot under Hyprland
+- **WHEN** the machine reboots and the user logs into Hyprland
+- **THEN** Whispy SHALL answer on `/status` without any manual start
+
+_Tier: manual-ui — Omarchy VM._

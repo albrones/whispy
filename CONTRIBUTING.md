@@ -3,9 +3,9 @@
 Thanks for your interest in improving Whispy! This document explains how to set up a
 development environment, run the test suite, and submit changes.
 
-Whispy targets **macOS and Linux (X11)**. Most of the codebase runs and tests cleanly on
+Whispy targets **macOS and Linux (X11 and Wayland)**. Most of the codebase runs and tests cleanly on
 any platform (the OS-coupled dependencies are mocked in the test suite); the app runs end
-to end on macOS and on an X11 Linux session.
+to end on macOS and on an X11 or Wayland Linux session.
 
 ## Development setup
 

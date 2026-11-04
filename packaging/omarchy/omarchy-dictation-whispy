@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# omarchy:summary=Record dictation using Whispy
+# omarchy:args=<start|stop|toggle>
+
+# Omarchy dictation backend for Whispy. `omarchy-dictation` runs it from the
+# Hyprland F9 binding (held: start, released: stop); select it once with
+# `omarchy-dictation-use whispy`. Whispy itself types the transcript (wtype).
+
+api="${WHISPY_API_URL:-http://127.0.0.1:9090}"
+token_file="$HOME/.config/whispy/config.token"
+
+# A failed call must never be silent: the user is holding a key and talking.
+fail() {
+  echo "omarchy-dictation-whispy: $1" >&2
+  notify-send --app-name=Whispy --urgency=critical \
+    --hint=string:x-canonical-private-synchronous:whispy \
+    "Whispy ne répond pas" "$1" 2>/dev/null
+  exit 1
+}
+
+call() {
+  local method=$1 path=$2 max_time=$3 token answer
+  token=$(cat "$token_file" 2>/dev/null) || fail "no API token at $token_file — is Whispy installed?"
+  if ! answer=$(curl -fsS --max-time "$max_time" -X "$method" \
+    -H "Authorization: Bearer $token" "$api$path" 2>&1); then
+    fail "$method $path: ${answer:-no answer} — start it with: systemctl --user start whispy"
+  fi
+  printf '%s' "$answer"
+}
+
+case "${1:-}" in
+  start) call POST /start 5 >/dev/null ;;
+  # /stop answers once the transcript is ready; Whispy types it itself.
+  stop) call POST /stop 60 >/dev/null ;;
+  toggle)
+    status=$(call GET /status 2) || exit 1
+    if [[ $status == *'"is_recording": true'* ]]; then
+      call POST /stop 60 >/dev/null
+    else
+      call POST /start 5 >/dev/null
+    fi
+    ;;
+  *) echo "Usage: omarchy dictation whispy <start|stop|toggle>" >&2; exit 1 ;;
+esac

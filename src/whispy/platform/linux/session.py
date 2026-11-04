@@ -1,19 +1,22 @@
 """X11 / Wayland session detection for Linux.
 
-Whispy v1 requires an X11 session: global hotkey grab and synthetic input are
-restricted under Wayland's security model. These helpers are pure functions of
-the session environment so they are unit-testable with env vars patched.
+Under X11 Whispy grabs the trigger key itself (pynput) and types with xdotool.
+Under Wayland a client cannot grab a global key, so the compositor's own key
+binding drives the HTTP API (``POST /start`` / ``POST /stop``) and the text is
+typed with ``wtype``. These helpers are pure functions of the session
+environment so they are unit-testable with env vars patched.
 """
 
 from __future__ import annotations
 
-import sys
+import logging
+
+logger = logging.getLogger(__name__)
 
 WAYLAND_MESSAGE = (
-    "[whispy] Wayland session detected. Whispy v1 requires an X11 session — "
-    "global hotkeys and text injection do not work under Wayland yet. "
-    "Log out and choose an 'Xorg'/'X11' session at your display manager, "
-    "then start Whispy again."
+    "[whispy] Wayland session detected: the trigger key is your compositor's "
+    "binding (it calls POST /start and POST /stop, e.g. Omarchy's "
+    "omarchy-dictation-whispy); text is typed with wtype."
 )
 
 
@@ -33,9 +36,9 @@ def is_wayland_session(env: dict[str, str] | None = None) -> bool:
     return False
 
 
-def warn_if_wayland(env: dict[str, str] | None = None) -> bool:
-    """Emit the X11-required message on a Wayland session. Returns True if warned."""
+def announce_wayland_mode(env: dict[str, str] | None = None) -> bool:
+    """Log how Whispy is driven on a Wayland session. Returns True if logged."""
     if is_wayland_session(env):
-        print(WAYLAND_MESSAGE, file=sys.stderr)
+        logger.info(WAYLAND_MESSAGE)
         return True
     return False

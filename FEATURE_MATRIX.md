@@ -46,6 +46,11 @@ Tiers are defined in `openspec/specs/TESTING-TIERS.md`.
 | No double injection on rapid re-press | both | unit-mocked | `tests/test_engine.py::TestNoDoubleInjectionOnRapidRepress` | chunk buffer is consumed (swap-and-clear) by the worker, so a second stop_event never re-injects |
 | Permissions detection | macOS | unit-mocked | `tests/test_permissions.py`, `doctor` | Input Monitoring / Accessibility / Mic |
 | Linux adapters wiring | Linux | unit-mocked | `tests/test_linux_adapters.py` | pynput/pystray/xdotool selection |
+| Wayland adapters wiring | Linux | unit-mocked | `tests/test_linux_adapters.py::TestWaylandAdapterSelection` | compositor-bound trigger, wtype injector, notification-only tray |
+| wtype injection (both modes, UTF-8) | Linux | unit-mocked | `tests/test_linux_adapters.py::TestWtypeInjector` | stdin text, LC_ALL=C.UTF-8, wl-copy not piped |
+| /transcribe endpoint (WAV upload) | both | unit-mocked | `tests/test_api/test_server.py::TestPostTranscribe` | 16 kHz mono WAV, 400/413/503 JSON errors, no inject, no file kept |
+| Omarchy backend never fails silently | Linux | unit-mocked | `tests/test_omarchy_adapter.py` | « Whispy ne répond pas » + non-zero exit when the API is down |
+| F9 push-to-talk → text (Omarchy/Wayland) | Linux | manual-ui | operator | hold F9 in a terminal and a web field, speak, release, accents intact |
 | Doctor preflight report | both | unit-mocked | `tests/test_doctor.py`, `doctor` | injected checks |
 | Real mic capture → valid WAV | macOS | live-driven | `tests/test_e2e_smoke.py::TestRealAudioCapture` | 16 kHz mono; UNVERIFIED w/o device |
 | Real mic capture → valid WAV | Linux | live-driven | `tests/test_e2e_smoke_linux.py::TestRealAudioCapture` | 16 kHz mono; UNVERIFIED w/o device |

@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.request
 from http.server import HTTPServer
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -568,3 +569,113 @@ class TestSingleInstanceLock:
             holder.close()
             if server is not None:
                 server.shutdown()
+
+
+def _wav_bytes(rate=16_000, channels=1, seconds=0.5):
+    import io
+    import wave
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(2)
+        wav.setframerate(rate)
+        wav.writeframes(b"\x00\x00" * channels * int(rate * seconds))
+    return buffer.getvalue()
+
+
+def _post_raw(port, path, data, content_type="audio/wav", headers=None):
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, method="POST")
+    req.add_header("Content-Type", content_type)
+    req.add_header("Authorization", f"Bearer {TEST_TOKEN}")
+    for key, value in (headers or {}).items():
+        req.add_header(key, value)
+    try:
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return resp.status, json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read().decode())
+
+
+class TestPostTranscribe:
+    """POST /transcribe — raw WAV upload, the Régie client's contract."""
+
+    def _with_model(self, engine, mocker, text="bonjour à tous"):
+        engine.state.model = object()
+        seen = {}
+
+        def _transcribe(path):
+            seen["path"] = path
+            seen["bytes"] = Path(path).read_bytes()
+            return text
+
+        engine.transcribe_file = _transcribe
+        inject = mocker.patch.object(engine._text_injector, "inject")
+        return seen, inject
+
+    def test_wav_is_transcribed_without_injection_and_not_kept(self, test_server, mocker):
+        _, port, engine = test_server
+        seen, inject = self._with_model(engine, mocker)
+        wav = _wav_bytes()
+        status, body = _post_raw(port, "/transcribe", wav)
+        assert (status, body) == (200, {"text": "bonjour à tous"})
+        assert seen["bytes"] == wav
+        assert not Path(seen["path"]).exists()
+        inject.assert_not_called()
+
+    def test_non_wav_body_is_400_naming_the_expected_format(self, test_server, mocker):
+        _, port, engine = test_server
+        self._with_model(engine, mocker)
+        status, body = _post_raw(port, "/transcribe", b"not audio at all")
+        assert status == 400
+        assert "16 kHz mono" in body["error"]
+
+    def test_wrong_content_type_is_400(self, test_server, mocker):
+        _, port, engine = test_server
+        self._with_model(engine, mocker)
+        status, body = _post_raw(port, "/transcribe", _wav_bytes(), content_type="application/json")
+        assert status == 400
+        assert "audio/wav" in body["error"]
+
+    def test_wrong_sample_rate_is_400(self, test_server, mocker):
+        _, port, engine = test_server
+        self._with_model(engine, mocker)
+        status, body = _post_raw(port, "/transcribe", _wav_bytes(rate=44_100, channels=2))
+        assert status == 400
+        assert "44100 Hz" in body["error"]
+
+    def test_oversized_body_is_413_before_reading(self, test_server, mocker):
+        import http.client
+
+        from whispy.api.server import MAX_AUDIO_BODY_BYTES
+
+        _, port, engine = test_server
+        self._with_model(engine, mocker)
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+        conn.putrequest("POST", "/transcribe")
+        conn.putheader("Content-Type", "audio/wav")
+        conn.putheader("Authorization", f"Bearer {TEST_TOKEN}")
+        conn.putheader("Content-Length", str(MAX_AUDIO_BODY_BYTES + 1))
+        conn.endheaders()
+        response = conn.getresponse()
+        assert response.status == 413
+        assert "error" in json.loads(response.read())
+
+    def test_model_not_loaded_is_503(self, test_server):
+        _, port, engine = test_server
+        engine.state.model = None
+        status, body = _post_raw(port, "/transcribe", _wav_bytes())
+        assert status == 503
+        assert "error" in body
+
+    def test_requires_the_token(self, test_server):
+        _, port, _ = test_server
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/transcribe",
+            data=_wav_bytes(),
+            method="POST",
+            headers={"Content-Type": "audio/wav"},
+        )
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            urllib.request.urlopen(req, timeout=2)
+        assert exc.value.code == 401

@@ -153,12 +153,20 @@ class TestDoctorOnLinux:
             assert result.status == OK, fn.__name__
             assert "System Settings" not in result.detail, fn.__name__
 
-    def test_wayland_is_reported_as_the_blocker_it_is(self, mocker):
+    def test_wayland_passes_and_names_the_compositor_binding(self, mocker):
         mocker.patch("whispy.doctor.sys.platform", "linux")
         mocker.patch.dict(doctor.os.environ, {"XDG_SESSION_TYPE": "wayland"}, clear=True)
         result = doctor.check_display()
-        assert result.status == FAIL
-        assert "Wayland" in result.detail
+        assert result.status == OK
+        assert "Wayland" in result.detail and "/start" in result.detail
+
+    def test_wayland_checks_wtype_and_wl_copy_instead_of_x11_tools(self, mocker):
+        mocker.patch("whispy.doctor.sys.platform", "linux")
+        mocker.patch.dict(doctor.os.environ, {"WAYLAND_DISPLAY": "wayland-1"}, clear=True)
+        mocker.patch("whispy.doctor.shutil.which", return_value=None)
+        injection, clipboard = doctor.check_xdotool(), doctor.check_clipboard_tool()
+        assert (injection.status, injection.name) == (FAIL, "wtype")
+        assert (clipboard.status, clipboard.name) == (FAIL, "wl-copy")
 
     def test_a_missing_display_is_reported(self, mocker):
         mocker.patch("whispy.doctor.sys.platform", "linux")
@@ -175,6 +183,7 @@ class TestDoctorOnLinux:
     def test_a_missing_clipboard_tool_is_a_failure_not_a_footnote(self, mocker):
         # copy_to_clipboard defaults to true, so this is required, not optional.
         mocker.patch("whispy.doctor.sys.platform", "linux")
+        mocker.patch.dict(doctor.os.environ, {"DISPLAY": ":0"}, clear=True)
         mocker.patch("whispy.doctor.shutil.which", return_value=None)
         result = doctor.check_clipboard_tool()
         assert result.status == FAIL
@@ -182,6 +191,7 @@ class TestDoctorOnLinux:
 
     def test_xsel_satisfies_the_clipboard_check(self, mocker):
         mocker.patch("whispy.doctor.sys.platform", "linux")
+        mocker.patch.dict(doctor.os.environ, {"DISPLAY": ":0"}, clear=True)
         mocker.patch("whispy.doctor.shutil.which", side_effect=lambda b: "/usr/bin/xsel" if b == "xsel" else None)
         assert doctor.check_clipboard_tool().status == OK
 

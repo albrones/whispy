@@ -151,3 +151,47 @@ class PystrayApp:
         )
         self._icon = pystray.Icon("whispy", self._make_image(), "Whispy", menu)
         self._icon.run()
+
+
+def post_desktop_notification(title: str, body: str) -> None:
+    """Show a desktop notification via ``notify-send``; stderr when it is absent."""
+    import shutil
+    import subprocess
+
+    notify_send = shutil.which("notify-send")
+    if not notify_send:
+        print(f"[tray] {title}: {body}", file=sys.stderr)
+        return
+    subprocess.Popen(
+        [notify_send, "--app-name=Whispy", title, body],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+class NotificationOnlyTray:
+    """Wayland ``TrayUI``: no icon, errors surface as desktop notifications.
+
+    pystray's X11 icon is invisible in a Wayland bar (Waybar shows
+    StatusNotifierItem icons, which pystray only offers through PyGObject +
+    AppIndicator -- two system libraries for one icon). The compositor binding
+    already gives the user the start/stop feedback, so this surface only has to
+    keep the daemon's main thread alive and report what would otherwise fail
+    unseen.
+    """
+
+    def __init__(self, engine: Any) -> None:
+        import threading
+
+        self.engine = engine
+        self._stopped = threading.Event()
+        engine.on_recording_limit_reached(lambda message: post_desktop_notification("Whispy", message))
+        engine.on_model_load_failed(lambda message: post_desktop_notification("Whispy: model not loaded", message))
+        engine.on_capture_failed(lambda message: post_desktop_notification("Whispy: microphone", message))
+
+    def run(self) -> None:
+        """Block the main thread until ``quit`` (SIGTERM) is called."""
+        self._stopped.wait()
+
+    def quit(self) -> None:
+        self._stopped.set()

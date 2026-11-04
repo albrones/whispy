@@ -131,54 +131,68 @@ if [ "$OS" = "Linux" ]; then
     echo ""
     echo -e "${YELLOW}=== Linux environment check ===${NC}"
 
-    # Wayland first: nothing below matters if the session cannot deliver a
-    # global hotkey. Checked here rather than only at daemon start, where the
-    # message lands in a log file the user has not been told about yet.
+    # The session decides the toolset. X11: Whispy grabs the trigger key itself
+    # and types with xdotool. Wayland: the compositor's key binding drives the
+    # API (/start, /stop) and Whispy types with wtype.
+    SESSION="x11"
     if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
-        echo -e "${RED}[!] Wayland session detected.${NC}"
-        echo "    Whispy needs X11: the global hotkey and text injection do not work"
-        echo "    under Wayland. Whispy will install and run, but pressing the trigger"
-        echo "    key will do nothing."
-        echo "    Log out and pick an 'Xorg' / 'X11' session at your display manager."
-        echo "    Some distributions no longer ship one; there is no workaround yet."
+        SESSION="wayland"
+        echo -e "${GREEN}[OK] Wayland session: the trigger is your compositor's key binding${NC}"
+        echo "    It calls the API (POST /start on press, POST /stop on release)."
+        echo "    Omarchy: the F9 binding works once you run: omarchy-dictation-use whispy"
         echo ""
     elif [ -z "${DISPLAY:-}" ]; then
         echo -e "${YELLOW}[!] No DISPLAY set — this looks like a text-only session.${NC}"
-        echo "    Whispy needs a running X11 desktop to capture the trigger key."
+        echo "    Whispy needs a running X11 or Wayland desktop to type the transcript."
         echo ""
     fi
 
     # Report what is missing by name. The daemon degrades silently without
-    # these: xdotool missing means dictation transcribes and types nothing.
+    # these: no typing tool means dictation transcribes and types nothing.
     MISSING=""
-    command -v xdotool &>/dev/null || MISSING="$MISSING xdotool"
-    { command -v xclip &>/dev/null || command -v xsel &>/dev/null; } || MISSING="$MISSING xclip"
+    if [ "$SESSION" = "wayland" ]; then
+        command -v wtype &>/dev/null || MISSING="$MISSING wtype"
+        command -v wl-copy &>/dev/null || MISSING="$MISSING wl-clipboard"
+    else
+        command -v xdotool &>/dev/null || MISSING="$MISSING xdotool"
+        { command -v xclip &>/dev/null || command -v xsel &>/dev/null; } || MISSING="$MISSING xclip"
+    fi
     "$PYTHON_BIN" -c "import sounddevice" &>/dev/null || MISSING="$MISSING libportaudio2"
 
     if [ -n "$MISSING" ]; then
         echo -e "${RED}[!] Missing system packages:${NC}$MISSING"
-        echo "    xdotool      types the transcript into the focused window (required)"
-        echo "    xclip/xsel   needed by the default clipboard delivery mode (required)"
-        echo "    libportaudio2  audio capture (required)"
+        echo "    xdotool / wtype          types the transcript into the focused window (X11 / Wayland, required)"
+        echo "    xclip, xsel / wl-clipboard  clipboard delivery mode, the default (required)"
+        echo "    libportaudio2            audio capture (required)"
         echo ""
-        echo "    Debian/Ubuntu: sudo apt install xdotool xclip libportaudio2"
-        echo "    Fedora:        sudo dnf install xdotool xclip portaudio"
-        echo "    Arch:          sudo pacman -S xdotool xclip portaudio"
+        echo "    Debian/Ubuntu: sudo apt install xdotool xclip libportaudio2   (Wayland: wtype wl-clipboard)"
+        echo "    Fedora:        sudo dnf install xdotool xclip portaudio       (Wayland: wtype wl-clipboard)"
+        echo "    Arch:          sudo pacman -S xdotool xclip portaudio         (Wayland: wtype wl-clipboard)"
         echo ""
         echo -e "${YELLOW}    Install these, then rerun this script.${NC}"
     else
-        echo -e "${GREEN}[OK] xdotool, clipboard tool and PortAudio present${NC}"
+        echo -e "${GREEN}[OK] Typing tool, clipboard tool and PortAudio present${NC}"
+    fi
+
+    # Omarchy picks its dictation backend by name: `omarchy-dictation` runs the
+    # executable `omarchy-dictation-<backend>` found on PATH. A symlink keeps
+    # the adapter current with this checkout.
+    if command -v omarchy-dictation &>/dev/null; then
+        mkdir -p "$HOME/.local/bin"
+        ln -sf "$SCRIPT_DIR/packaging/omarchy/omarchy-dictation-whispy" "$HOME/.local/bin/omarchy-dictation-whispy"
+        echo -e "${GREEN}[OK] Omarchy dictation backend linked: ~/.local/bin/omarchy-dictation-whispy${NC}"
+        echo "    Select it (stops the previous backend): omarchy-dictation-use whispy"
     fi
     echo ""
 fi
 
 # -------------------------------------------------------------------------
-# Linux (X11): install a systemd --user service. macOS: no LaunchAgent below
+# Linux (X11 or Wayland): install a systemd --user service. macOS: no LaunchAgent below
 # — see the SMAppService-based autostart note further down.
 # -------------------------------------------------------------------------
 if [ "$OS" = "Linux" ]; then
     if ! command -v systemctl &>/dev/null; then
-        echo -e "${YELLOW}systemd not found. Start Whispy manually (X11 session):${NC}"
+        echo -e "${YELLOW}systemd not found. Start Whispy manually from your desktop session:${NC}"
         echo "  $PYTHON_BIN $DAEMON_PATH"
         echo ""
         echo "The model downloads automatically on first run (~639 MB)"
@@ -187,35 +201,41 @@ if [ "$OS" = "Linux" ]; then
     UNIT_DIR="$HOME/.config/systemd/user"
     UNIT_PATH="$UNIT_DIR/whispy.service"
     mkdir -p "$UNIT_DIR"
+    # A session that activates graphical-session.target (Hyprland under uwsm,
+    # GNOME, KDE) imports WAYLAND_DISPLAY/DISPLAY into the user manager when it
+    # does; binding the unit to that target starts Whispy only once they are
+    # there, after every login. Other sessions never activate the target, so
+    # the unit would never start there: they keep default.target.
+    START_TARGET="default.target"
+    if systemctl --user is-active --quiet graphical-session.target 2>/dev/null; then
+        START_TARGET="graphical-session.target"
+    fi
     cat > "$UNIT_PATH" << UNITEOF
 [Unit]
 Description=Whispy voice dictation daemon
-# NOTE: After= does not pull in graphical-session.target, so on some setups this
-# can still start before DISPLAY reaches the systemd user environment, leaving
-# pynput and xdotool with no X server and a hotkey that never fires.
-# WantedBy=graphical-session.target would order it correctly, but never starts at
-# all on a session that does not activate that target. Left on default.target
-# until someone can verify the alternative on a real desktop.
 After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
 ExecStart=$PYTHON_BIN $DAEMON_PATH
 WorkingDirectory=$SCRIPT_DIR
 Restart=on-failure
-# Inherit the session's DISPLAY/XAUTHORITY rather than guessing them.
-PassEnvironment=DISPLAY XAUTHORITY
+# Inherit the session's display variables rather than guessing them.
+PassEnvironment=DISPLAY XAUTHORITY WAYLAND_DISPLAY XDG_SESSION_TYPE
 # Keep the user's own bin directories: xdotool and xclip are not always in /usr/bin.
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
-WantedBy=default.target
+WantedBy=$START_TARGET
 UNITEOF
     echo -e "${GREEN}[OK] systemd user unit installed at $UNIT_PATH${NC}"
     # Unguarded, these abort the script under `set -e` on any machine with no
     # systemd user bus (SSH without lingering, containers, WSL) -- skipping the
     # package and X11 notes below, which are the part the user actually needs.
     if systemctl --user daemon-reload 2>/dev/null; then
+        # Re-enable so a unit moved to another target drops its old symlink.
+        systemctl --user disable whispy.service 2>/dev/null || true
         systemctl --user enable --now whispy.service || {
             echo -e "${YELLOW}Could not enable the service automatically. Start it with:${NC}"
             echo "  systemctl --user enable --now whispy.service"
@@ -227,11 +247,12 @@ UNITEOF
     fi
     echo ""
     echo -e "${YELLOW}=== Linux notes ===${NC}"
-    echo "Whispy v1 requires an X11 session (global hotkeys/text injection do not"
-    echo "work under Wayland). Install xdotool + xclip for text injection and the"
-    echo "PortAudio runtime for audio capture:"
-    echo "  Debian/Ubuntu: sudo apt install xdotool xclip libportaudio2"
-    echo "  Fedora:        sudo dnf install xdotool xclip portaudio"
+    echo "X11: Whispy listens to the trigger key itself and types with xdotool + xclip."
+    echo "Wayland: your compositor's key binding calls /start and /stop; Whispy types"
+    echo "with wtype + wl-clipboard (Omarchy: omarchy-dictation-use whispy, then F9)."
+    echo "PortAudio is needed for audio capture on both:"
+    echo "  Debian/Ubuntu: sudo apt install xdotool xclip libportaudio2   (Wayland: wtype wl-clipboard)"
+    echo "  Fedora:        sudo dnf install xdotool xclip portaudio       (Wayland: wtype wl-clipboard)"
     echo ""
     echo "The model downloads automatically on first run (~639 MB)"
     echo "Logs: journalctl --user -u whispy -f"
