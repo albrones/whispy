@@ -128,14 +128,14 @@
     },
     {
       "id": "wayland",
-      "title": "Linux: nothing works under Wayland",
+      "title": "Linux: the trigger key does nothing under Wayland",
       "os": ["linux"],
-      "intro": "Whispy supports <strong>X11 sessions only</strong>. Wayland restricts global hotkeys and synthetic keyboard input.",
+      "intro": "Under Wayland Whispy cannot listen to a key itself: your <strong>compositor's key binding</strong> must call <code>POST /start</code> on press and <code>POST /stop</code> on release, and Whispy types with <code>wtype</code>.",
       "steps": [
         {
           "check": "display",
           "fix": {
-            "linux": "<p>Log out and choose an <strong>Xorg</strong> or <strong>X11</strong> session at your display manager (usually under a gear icon on the login screen), then log back in. Wayland support is planned for a later release.</p>"
+            "linux": "<p>On Omarchy, run <code>omarchy-dictation-use whispy</code> and hold <kbd>F9</kbd>. Elsewhere, bind a key in your compositor to <code>curl -X POST -H \"Authorization: Bearer $(cat ~/.config/whispy/config.token)\" http://127.0.0.1:9090/start</code> on press and <code>/stop</code> on release. Install <code>wtype</code> and <code>wl-clipboard</code> if <code>make doctor</code> reports them missing.</p>"
           }
         }
       ]

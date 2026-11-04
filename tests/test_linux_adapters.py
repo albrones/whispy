@@ -2,7 +2,8 @@
 
 CI tier: the real pynput/xdotool/pystray seams are exercised only in the
 `linux` real-seam tier. Here we cover the binary probe (xdotool-missing hint)
-and the Wayland-vs-X11 session detection with env/binaries patched.
+the Wayland-vs-X11 session detection and the Wayland adapters (wtype, the
+compositor-bound trigger, the notification-only tray) with env/binaries patched.
 """
 
 import sys
@@ -16,7 +17,7 @@ if str(_src) not in sys.path:
 
 from whispy.platform.linux import injection as linux_injection
 from whispy.platform.linux.injection import XdotoolInjector
-from whispy.platform.linux.session import is_wayland_session, warn_if_wayland
+from whispy.platform.linux.session import announce_wayland_mode, is_wayland_session
 
 
 class TestXdotoolProbe:
@@ -109,46 +110,124 @@ class TestWaylandDetection:
     def test_empty_env_not_wayland(self):
         assert is_wayland_session({}) is False
 
-    def test_warn_if_wayland_emits_message(self, capsys):
-        warned = warn_if_wayland({"XDG_SESSION_TYPE": "wayland"})
-        assert warned is True
-        assert "X11 session" in capsys.readouterr().err
+    def test_wayland_mode_is_announced(self, caplog):
+        caplog.set_level("INFO")
+        assert announce_wayland_mode({"XDG_SESSION_TYPE": "wayland"}) is True
+        assert "compositor" in caplog.text
 
-    def test_warn_if_x11_silent(self, capsys):
-        warned = warn_if_wayland({"XDG_SESSION_TYPE": "x11"})
-        assert warned is False
-        assert capsys.readouterr().err == ""
+    def test_x11_announces_nothing(self, caplog):
+        caplog.set_level("INFO")
+        assert announce_wayland_mode({"XDG_SESSION_TYPE": "x11"}) is False
+        assert caplog.text == ""
 
 
 class TestPynputHotkeyStart:
-    """PynputHotkeyListener.start() resets held state and warns under Wayland."""
+    """PynputHotkeyListener.start() resets held state."""
 
-    def test_start_resets_held_flag(self, mocker):
+    def test_start_resets_held_flag(self):
         from whispy.platform.linux import hotkey as hk
 
-        mocker.patch.object(hk, "is_wayland_session", return_value=False)
         listener = hk.PynputHotkeyListener("ctrl_r")
         listener._held = True  # simulate a missed release leaving it latched
-        # pynput import/start is irrelevant here; force the early degrade path.
-        mocker.patch.object(hk, "warn_if_wayland")
         listener.start()
         assert listener._held is False
 
-    def test_start_warns_on_wayland(self, mocker):
-        from whispy.platform.linux import hotkey as hk
 
-        mocker.patch.object(hk, "is_wayland_session", return_value=True)
-        warn = mocker.patch.object(hk, "warn_if_wayland")
-        hk.PynputHotkeyListener("ctrl_r").start()
-        warn.assert_called_once()
+class TestWaylandAdapterSelection:
+    """detect() binds the Wayland adapters on a Wayland session, X11 ones otherwise."""
 
-    def test_start_no_wayland_warning_on_x11(self, mocker):
-        from whispy.platform.linux import hotkey as hk
+    def _adapters(self, mocker, wayland: bool):
+        from whispy.platform.detect import detect
+        from whispy.platform.linux import session
 
-        mocker.patch.object(hk, "is_wayland_session", return_value=False)
-        warn = mocker.patch.object(hk, "warn_if_wayland")
-        hk.PynputHotkeyListener("ctrl_r").start()
-        warn.assert_not_called()
+        mocker.patch.object(session, "is_wayland_session", return_value=wayland)
+        mocker.patch.object(linux_injection.shutil, "which", return_value="/usr/bin/tool")
+        return detect("linux")
+
+    def test_wayland_binds_compositor_trigger_wtype_and_notification_tray(self, mocker):
+        from whispy.platform.linux import hotkey, tray
+
+        adapters = self._adapters(mocker, wayland=True)
+        listener = adapters.make_hotkey_listener("ctrl_r", None, None)
+        assert isinstance(listener, hotkey.CompositorBoundTrigger)
+        listener.start()
+        assert listener.active is False
+        assert isinstance(adapters.make_text_injector(), linux_injection.WtypeInjector)
+        assert isinstance(adapters.make_tray(mocker.Mock()), tray.NotificationOnlyTray)
+
+    def test_x11_binds_pynput_xdotool_and_pystray(self, mocker):
+        from whispy.platform.linux import hotkey, tray
+
+        adapters = self._adapters(mocker, wayland=False)
+        assert isinstance(adapters.make_hotkey_listener("ctrl_r", None, None), hotkey.PynputHotkeyListener)
+        assert isinstance(adapters.make_text_injector(), XdotoolInjector)
+        assert isinstance(adapters.make_tray(mocker.Mock()), tray.PystrayApp)
+
+
+class TestWtypeInjector:
+    def _injector(self, mocker, copy_to_clipboard, tools=("wtype", "wl-copy")):
+        mocker.patch.object(
+            linux_injection.shutil, "which", side_effect=lambda b: f"/usr/bin/{b}" if b in tools else None
+        )
+        run = mocker.patch.object(linux_injection.subprocess, "run", return_value=mocker.Mock(returncode=0))
+        return linux_injection.WtypeInjector(copy_to_clipboard=copy_to_clipboard), run
+
+    def test_keystroke_mode_types_from_stdin(self, mocker):
+        injector, run = self._injector(mocker, copy_to_clipboard=False)
+        injector.inject("-é è à ç")
+        assert _wait_until(lambda: run.call_count == 1)
+        assert run.call_args.args[0] == ["/usr/bin/wtype", "-"]
+        assert run.call_args.kwargs["input"] == "-é è à ç".encode()
+        assert run.call_args.kwargs["env"]["LC_ALL"] == "C.UTF-8"
+
+    def test_wl_copy_streams_are_not_piped(self, mocker):
+        # wl-copy's forked server inherits a piped stream and run() would block on it.
+        injector, run = self._injector(mocker, copy_to_clipboard=True)
+        injector.copy_only("x")
+        assert _wait_until(lambda: run.call_count == 1)
+        assert run.call_args.kwargs["stderr"] is linux_injection.subprocess.DEVNULL
+
+    def test_clipboard_mode_copies_then_types(self, mocker):
+        injector, run = self._injector(mocker, copy_to_clipboard=True)
+        injector.inject("bonjour")
+        assert _wait_until(lambda: run.call_count == 2)
+        assert [c.args[0] for c in run.call_args_list] == [["/usr/bin/wl-copy"], ["/usr/bin/wtype", "-"]]
+
+    def test_copy_only_never_types(self, mocker):
+        injector, run = self._injector(mocker, copy_to_clipboard=True)
+        injector.copy_only("long transcript")
+        assert _wait_until(lambda: run.call_count == 1)
+        assert run.call_args.args[0] == ["/usr/bin/wl-copy"]
+
+    def test_missing_wtype_emits_hint_and_types_nothing(self, mocker, capsys):
+        injector, run = self._injector(mocker, copy_to_clipboard=False, tools=())
+        assert "wtype not found" in capsys.readouterr().err
+        injector.inject("hello")
+        time.sleep(0.05)
+        run.assert_not_called()
+
+
+class TestNotificationOnlyTray:
+    def test_engine_errors_become_desktop_notifications(self, mocker):
+        from whispy.platform.linux import tray
+
+        popen = mocker.patch("subprocess.Popen")
+        mocker.patch("shutil.which", return_value="/usr/bin/notify-send")
+        engine = mocker.Mock()
+        tray.NotificationOnlyTray(engine)
+        on_limit = engine.on_recording_limit_reached.call_args.args[0]
+        on_limit("Recording limit reached")
+        assert popen.call_args.args[0][-1] == "Recording limit reached"
+
+    def test_run_returns_once_quit(self, mocker):
+        from whispy.platform.linux import tray
+
+        app = tray.NotificationOnlyTray(mocker.Mock())
+        runner = threading.Thread(target=app.run)
+        runner.start()
+        app.quit()
+        runner.join(timeout=2)
+        assert not runner.is_alive()
 
 
 class _FakeKey:
@@ -273,8 +352,6 @@ class TestPynputCombinationTrigger:
     def test_start_clears_held_modifiers(self, mocker):
         from whispy.platform.linux import hotkey as hk
 
-        mocker.patch.object(hk, "is_wayland_session", return_value=False)
-        mocker.patch.object(hk, "warn_if_wayland")
         listener = hk.PynputHotkeyListener("ctrl+alt+cmd+e")
         listener._held_modifiers = frozenset({"ctrl"})  # simulate a missed release
         listener.start()

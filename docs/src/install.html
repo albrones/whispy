@@ -28,14 +28,16 @@ open /Applications/Whispy.app</code></pre></div></li>
 
 <div data-os="linux">
 <ol class="checklist">
-  <li><input type="checkbox" id="step-lin-x11" data-step="lin-x11" aria-labelledby="lbl-lin-x11"><div class="step-body" id="lbl-lin-x11">Use an <strong>X11 session</strong>, not Wayland. Under Wayland, log out and pick an <em>Xorg</em> / <em>X11</em> session at the login screen.</div></li>
-  <li><input type="checkbox" id="step-lin-deps" data-step="lin-deps" aria-labelledby="lbl-lin-deps"><div class="step-body" id="lbl-lin-deps">Install <code>xdotool</code> (text injection), <code>xclip</code> or <code>xsel</code> (clipboard delivery, on by default), and the PortAudio runtime: <pre data-copy><code>sudo apt install xdotool xclip libportaudio2   # Debian/Ubuntu
-sudo dnf install xdotool xclip portaudio       # Fedora
-sudo pacman -S xdotool xclip portaudio         # Arch</code></pre></div></li>
+  <li><input type="checkbox" id="step-lin-x11" data-step="lin-x11" aria-labelledby="lbl-lin-x11"><div class="step-body" id="lbl-lin-x11">Know your session. <strong>X11</strong>: Whispy listens to the trigger key itself. <strong>Wayland</strong>: your compositor's key binding calls the API (<code>POST /start</code> on press, <code>POST /stop</code> on release); there is no tray icon and errors arrive as notifications.</div></li>
+  <li><input type="checkbox" id="step-lin-deps" data-step="lin-deps" aria-labelledby="lbl-lin-deps"><div class="step-body" id="lbl-lin-deps">Install the typing and clipboard tools for your session and the PortAudio runtime. X11: <code>xdotool</code>, <code>xclip</code> or <code>xsel</code>. Wayland: <code>wtype</code>, <code>wl-clipboard</code>. <pre data-copy><code>sudo apt install xdotool xclip libportaudio2   # Debian/Ubuntu, X11
+sudo dnf install xdotool xclip portaudio       # Fedora, X11
+sudo pacman -S xdotool xclip portaudio         # Arch, X11
+sudo pacman -S wtype wl-clipboard portaudio    # Arch / Omarchy, Wayland</code></pre></div></li>
   <li><input type="checkbox" id="step-lin-install" data-step="lin-install" aria-labelledby="lbl-lin-install"><div class="step-body" id="lbl-lin-install">Run the one-line installer above. It creates a virtualenv and a <code>systemd --user</code> service that starts at login.</div></li>
   <li><input type="checkbox" id="step-lin-status" data-step="lin-status" aria-labelledby="lbl-lin-status"><div class="step-body" id="lbl-lin-status">Check that it is running: <pre data-copy><code>systemctl --user status whispy.service</code></pre></div></li>
+  <li><input type="checkbox" id="step-lin-omarchy" data-step="lin-omarchy" aria-labelledby="lbl-lin-omarchy"><div class="step-body" id="lbl-lin-omarchy">On <strong>Omarchy</strong> (Hyprland): the installer links the <code>omarchy-dictation-whispy</code> backend into <code>~/.local/bin</code>. Select it once, then hold <kbd>F9</kbd> to dictate. If Whispy is not running, <kbd>F9</kbd> shows « Whispy ne répond pas ». <pre data-copy><code>omarchy-dictation-use whispy</code></pre></div></li>
 </ol>
-<div class="note"><p>Dictating mostly into a terminal? Terminals read <kbd>Ctrl</kbd>+<kbd>V</kbd> as a literal character, so set <a href="config.html#cfg-copy_to_clipboard"><code>copy_to_clipboard</code></a> to <code>false</code>.</p></div>
+<div class="note"><p>Dictating mostly into a terminal under X11? Terminals read <kbd>Ctrl</kbd>+<kbd>V</kbd> as a literal character, so set <a href="config.html#cfg-copy_to_clipboard"><code>copy_to_clipboard</code></a> to <code>false</code>. Under Wayland the text is always typed with <code>wtype</code> (clipboard mode also leaves it on the clipboard), so terminals work as is.</p></div>
 </div>
 
 <h2>First run: the model</h2>

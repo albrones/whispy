@@ -113,16 +113,29 @@ def test_install_branches_per_os(install: str):
 
 
 def test_install_checks_the_linux_runtime_dependencies(install: str):
-    for binary in ("xdotool", "xclip", "xsel"):
+    for binary in ("xdotool", "xclip", "xsel", "wtype", "wl-copy"):
         assert binary in install, f"install.sh must check for {binary}"
     assert "import sounddevice" in install, "install.sh must verify PortAudio is usable"
 
 
-def test_install_warns_about_wayland_before_finishing(install: str):
+def test_install_detects_the_session_before_finishing(install: str):
     assert "WAYLAND_DISPLAY" in install and "XDG_SESSION_TYPE" in install
     # The check has to precede the systemd branch, which exits 0 early when
-    # systemctl is absent -- otherwise the warning never prints on that path.
+    # systemctl is absent -- otherwise the session guidance never prints there.
     assert install.index("WAYLAND_DISPLAY") < install.index("if ! command -v systemctl")
+
+
+def test_install_links_the_omarchy_backend_when_omarchy_is_present(install: str):
+    assert "command -v omarchy-dictation" in install
+    assert "packaging/omarchy/omarchy-dictation-whispy" in install
+    assert (ROOT / "packaging" / "omarchy" / "omarchy-dictation-whispy").stat().st_mode & 0o111
+
+
+def test_unit_follows_the_graphical_session_when_it_is_active(install: str):
+    # Under Hyprland the Wayland variables reach the user manager only with
+    # graphical-session.target; started earlier, wtype has no display.
+    assert "is-active --quiet graphical-session.target" in install
+    assert "WantedBy=$START_TARGET" in install
 
 
 def test_install_hashing_works_without_shasum(install: str):

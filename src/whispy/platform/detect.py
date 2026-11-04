@@ -86,16 +86,20 @@ def _macos_adapters() -> PlatformAdapters:
     )
 
 
-def _linux_adapters() -> PlatformAdapters:
+def _linux_adapters(session_is_wayland: bool) -> PlatformAdapters:
+    """X11: pynput + xdotool + pystray. Wayland: the compositor's key binding
+    drives the HTTP API, wtype types, and errors surface as notifications."""
+
     def make_audio_recorder(state_machine):
         from ..core.audio import AudioEngine
 
         return AudioEngine(state_machine)
 
     def make_text_injector(copy_to_clipboard=False):
-        from .linux.injection import XdotoolInjector
+        from .linux import injection
 
-        return XdotoolInjector(copy_to_clipboard=copy_to_clipboard)
+        injector_class = injection.WtypeInjector if session_is_wayland else injection.XdotoolInjector
+        return injector_class(copy_to_clipboard=copy_to_clipboard)
 
     def make_notifier():
         from .linux.notifier import LinuxNotifier
@@ -103,18 +107,20 @@ def _linux_adapters() -> PlatformAdapters:
         return LinuxNotifier()
 
     def make_hotkey_listener(trigger, on_trigger_press, on_trigger_release):
-        from .linux.hotkey import PynputHotkeyListener
+        from .linux import hotkey
 
-        return PynputHotkeyListener(
+        listener_class = hotkey.CompositorBoundTrigger if session_is_wayland else hotkey.PynputHotkeyListener
+        return listener_class(
             trigger_key=trigger,
             on_trigger_press=on_trigger_press,
             on_trigger_release=on_trigger_release,
         )
 
     def make_tray(engine):
-        from .linux.tray import PystrayApp
+        from .linux import tray
 
-        return PystrayApp(engine)
+        tray_class = tray.NotificationOnlyTray if session_is_wayland else tray.PystrayApp
+        return tray_class(engine)
 
     return PlatformAdapters(
         name="linux",
@@ -138,7 +144,9 @@ def detect(platform: str | None = None) -> PlatformAdapters:
     if plat == "darwin":
         return _macos_adapters()
     if plat.startswith("linux"):
-        return _linux_adapters()
+        from .linux.session import is_wayland_session
+
+        return _linux_adapters(session_is_wayland=is_wayland_session())
     raise NotImplementedError(
         f"Whispy supports macOS ('darwin') and Linux ('linux') in v1; "
         f"got sys.platform={plat!r}. No adapter set is available for this platform."

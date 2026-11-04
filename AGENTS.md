@@ -29,7 +29,7 @@ Systematically delegate well-scoped subtasks to subagents running the cheapest m
 The main thread orchestrates and reviews; subagents execute and report.
 
 ## 🛠️ Core Tech Stack & Environment
-- **Platform:** macOS (Apple Silicon/Intel) and Linux (X11 session only).
+- **Platform:** macOS (Apple Silicon/Intel) and Linux (X11 and Wayland sessions).
 - **Language:** Python 3.
 - **Key Dependencies:** `faster-whisper`, `sounddevice`/PortAudio (audio capture). macOS: `rumps` (menu bar), `pyobjc-framework-Quartz` (Fn key detection via CGEventTap). Linux: `pynput` (global hotkey listener), `pystray` (tray UI), `Pillow` (tray icon rendering).
 - **Environment:** Uses a Python virtual environment (`.venv`).
@@ -48,7 +48,7 @@ The main thread orchestrates and reviews; subagents execute and report.
 
 ## 🏗️ Architecture & Workflow
 - **The Daemon:** The application runs as a menu-bar/tray app (macOS: signed `Whispy.app`, optionally a login item via SMAppService; Linux: `systemd --user` service). It consists of:
-  - **Trigger Listener:** macOS uses `CGEventTap` to detect the Fn key (requires **Input Monitoring**); Linux uses `pynput` to detect the trigger key (Right Ctrl by default) under an X11 session.
+  - **Trigger Listener:** macOS uses `CGEventTap` to detect the Fn key (requires **Input Monitoring**); Linux uses `pynput` to detect the trigger key (Right Ctrl by default) under an X11 session; under Wayland there is no in-process listener — the compositor binding (Omarchy: `packaging/omarchy/omarchy-dictation-whispy`) calls `POST /start` / `POST /stop`.
   - **Recording:** Uses `sounddevice`/PortAudio to capture audio in-process (both platforms).
   - **Transcription:** Uses `faster-whisper` for local inference (both platforms).
   - **Text Injection:** macOS uses `osascript` to simulate keystrokes or paste via clipboard (requires **Accessibility**); Linux uses `xdotool` to simulate keystrokes (`xclip`/`xsel` for clipboard-paste mode).
@@ -57,7 +57,7 @@ The main thread orchestrates and reviews; subagents execute and report.
   - **Microphone:** Required for recording (both platforms).
   - **Accessibility (macOS):** Required to type text into active fields via `osascript`.
   - **Input Monitoring (macOS):** Required for the Fn key listener (`CGEventTap`).
-  - **Linux:** No macOS-style permission prompts; `xdotool` and an X11 session (not Wayland) are required for hotkey and text injection to work.
+  - **Linux:** No macOS-style permission prompts; X11 needs `xdotool` (+ `xclip`/`xsel`); Wayland needs `wtype` (+ `wl-copy`) and a compositor key binding.
 
 ## 📝 Development Conventions
 - **Config:** Stored in `~/.config/whispy/config.json`.
@@ -75,8 +75,8 @@ All documentation, code comments, and user-facing messages in the codebase must 
 ## 💡 High-Signal Context for Agents
 
 ### 🛠️ Environment & Permissions
-- **Cross-platform, OS-coupled seams:** macOS uses `pyobjc`, `rumps`, `osascript`; Linux (X11) uses `pynput`, `pystray`, `xdotool` instead.
-- **Permissions are Key:** On macOS, if the Fn key doesn't trigger recording or text isn't typed, check **Input Monitoring** and **Accessibility** permissions in System Settings. On Linux, confirm `xdotool` is installed and the session is X11 (not Wayland).
+- **Cross-platform, OS-coupled seams:** macOS uses `pyobjc`, `rumps`, `osascript`; Linux X11 uses `pynput`, `pystray`, `xdotool` instead; Linux Wayland uses `wtype` and desktop notifications (no tray).
+- **Permissions are Key:** On macOS, if the Fn key doesn't trigger recording or text isn't typed, check **Input Monitoring** and **Accessibility** permissions in System Settings. On Linux, run `make doctor`: it checks `xdotool` under X11 and `wtype` under Wayland.
 - **Python Interpreter:** The daemon uses the `.venv/bin/python3` interpreter. Ensure permissions are granted to this specific executable if required (macOS).
 
 ### 🏗️ Architecture

@@ -29,14 +29,27 @@ The full guides live on the website:
 
 ## Platform support
 
-Whispy runs on **macOS** and **Linux (X11)**. The OS-coupled seams sit behind a
-ports-and-adapters layer (`src/whispy/platform/`) bound at runtime by
-`platform.detect()`.
+Whispy runs on **macOS** and **Linux (X11 and Wayland)**. The OS-coupled seams
+sit behind a ports-and-adapters layer (`src/whispy/platform/`) bound at runtime
+by `platform.detect()`.
 
-**Not supported in v1:** Wayland (global hotkey and synthetic input are
-restricted by its security model; pick an "Xorg"/"X11" session at login),
-Windows, native Linux packaging, and the floating overlay window on Linux
-(state is shown through the tray instead).
+**Wayland** (tested on Omarchy / Hyprland): a Wayland client cannot grab a
+global key, so your compositor's key binding drives the API (`POST /start` on
+press, `POST /stop` on release) and Whispy types with `wtype`. There is no tray
+icon; errors arrive as desktop notifications. On **Omarchy** the installer
+links the `omarchy-dictation-whispy` backend; select it once and hold
+<kbd>F9</kbd>:
+
+```bash
+omarchy-dictation-use whispy
+```
+
+`POST /transcribe` (raw `audio/wav`, 16 kHz mono) returns `{"text": …}` without
+typing anything, for other local clients.
+
+**Not supported in v1:** Windows, native Linux packaging, and the floating
+overlay window on Linux (state is shown through the tray, or notifications
+under Wayland).
 
 ## The model
 

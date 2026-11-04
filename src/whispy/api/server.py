@@ -3,11 +3,15 @@
 Provides RESTful endpoints for:
 - Status checks (GET /status, /config, /last-transcription)
 - Manual control (POST /start, /stop, /stop-async)
+- Transcription of an uploaded WAV (POST /transcribe)
 - Configuration management (POST /config)
 """
 
 import json
+import os
+import tempfile
 import threading
+import wave
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
@@ -23,6 +27,16 @@ PORT = 9090
 # Reject request bodies larger than this before reading them — an unauthenticated
 # (or pre-auth) client must not be able to force an unbounded allocation.
 MAX_BODY_BYTES = 64 * 1024
+
+# Cap for a POST /transcribe upload: ten minutes of 16 kHz mono 16-bit PCM
+# (32 000 bytes/s), twice the engine's 300 s recording watchdog.
+MAX_AUDIO_BODY_BYTES = 10 * 60 * 32_000 + 44
+
+# Content types accepted for a WAV upload; `audio/wav` is the contract,
+# the others are its common aliases.
+WAV_CONTENT_TYPES = frozenset({"audio/wav", "audio/x-wav", "audio/wave"})
+EXPECTED_WAV = "a 16 kHz mono 16-bit PCM WAV body with Content-Type: audio/wav"
+MODEL_NOT_LOADED = {"error": "model not loaded yet; retry once /status reports model_loaded"}
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -153,6 +167,9 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
             self._json_response(200, {"text": text})
 
+        elif self.path == "/transcribe":
+            self._transcribe_upload(engine)
+
         elif self.path == "/stream-file":
             # Deterministic streaming seam: replay a known WAV through live
             # segmentation + per-chunk transcription (no mic, no inject, no
@@ -203,6 +220,59 @@ class RequestHandler(BaseHTTPRequestHandler):
         else:
             self._json_response(404, {"error": "not found"})
 
+    def _read_wav_upload(self) -> bytes | None:
+        """Read a raw WAV body, capping its size first and checking its format.
+
+        Sends the error response and returns ``None`` when the upload is not
+        what ``POST /transcribe`` expects; callers must stop then.
+        """
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            self._json_response(400, {"error": "invalid Content-Length"})
+            return None
+        if length > MAX_AUDIO_BODY_BYTES:
+            self._json_response(413, {"error": f"audio body too large: {length} bytes, at most {MAX_AUDIO_BODY_BYTES}"})
+            return None
+        if not length:
+            self._json_response(400, {"error": f"empty body: expected {EXPECTED_WAV}"})
+            return None
+        audio = self.rfile.read(length)
+        # Checked after reading: a reply sent while the client is still
+        # uploading resets its connection instead of delivering the error.
+        content_type = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        if content_type not in WAV_CONTENT_TYPES:
+            self._json_response(400, {"error": f"expected {EXPECTED_WAV}, got Content-Type {content_type or 'none'!r}"})
+            return None
+        problem = _wav_format_problem(audio)
+        if problem:
+            self._json_response(400, {"error": f"{problem}: expected {EXPECTED_WAV}"})
+            return None
+        return audio
+
+    def _transcribe_upload(self, engine: Engine) -> None:
+        """POST /transcribe: transcribe an uploaded WAV; no injection, no file kept."""
+        audio = self._read_wav_upload()
+        if audio is None:
+            return
+        if engine.state.model is None:
+            self._json_response(503, MODEL_NOT_LOADED)
+            return
+        handle, path = tempfile.mkstemp(prefix="whispy-upload-", suffix=".wav")
+        try:
+            with os.fdopen(handle, "wb") as upload:
+                upload.write(audio)
+            text = engine.transcribe_file(path)
+        except Exception as exc:
+            self._json_response(500, {"error": f"transcription failed: {exc}"})
+            return
+        finally:
+            os.unlink(path)
+        if text is None:
+            self._json_response(503, MODEL_NOT_LOADED)
+            return
+        self._json_response(200, {"text": text})
+
     def _sync_stop_and_transcribe(self, engine: Engine) -> str | None:
         """Stop recording and wait for the background transcription worker to
         finish handling it (for the synchronous /stop endpoint).
@@ -225,6 +295,21 @@ class RequestHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         """Log HTTP requests."""
         print(f"[http] {fmt % args}")
+
+
+def _wav_format_problem(audio: bytes) -> str | None:
+    """Return why ``audio`` is not a 16 kHz mono 16-bit PCM WAV, or None if it is."""
+    import io
+
+    try:
+        with wave.open(io.BytesIO(audio), "rb") as wav:
+            got = (wav.getframerate(), wav.getnchannels(), wav.getsampwidth())
+    except (wave.Error, EOFError) as exc:
+        return f"not a WAV file ({exc or 'truncated header'})"
+    if got != (16_000, 1, 2):
+        rate, channels, width = got
+        return f"unsupported WAV format: {rate} Hz, {channels} channel(s), {width * 8}-bit"
+    return None
 
 
 def start_http_server(

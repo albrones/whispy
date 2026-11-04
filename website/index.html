@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Whispy — Private voice dictation for macOS &amp; Linux</title>
-  <meta name="description" content="Whispy is a fast, fully local voice dictation utility for macOS and Linux (X11). Hold your push-to-talk key, speak, release — your words appear in any app. Nothing ever leaves your computer." />
+  <meta name="description" content="Whispy is a fast, fully local voice dictation utility for macOS and Linux (X11 and Wayland). Hold your push-to-talk key, speak, release — your words appear in any app. Nothing ever leaves your computer." />
   <!-- swap this host when a custom domain is attached in Vercel -->
   <link rel="canonical" href="https://whispy-dun.vercel.app/" />
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
@@ -30,7 +30,7 @@
     "applicationCategory": "UtilitiesApplication",
     "operatingSystem": "macOS, Linux",
     "url": "https://whispy-dun.vercel.app/",
-    "description": "Fast, fully local voice dictation for macOS and Linux (X11). Hold a key, speak, release — your words type into any app. Nothing leaves your computer.",
+    "description": "Fast, fully local voice dictation for macOS and Linux (X11 and Wayland). Hold a key, speak, release — your words type into any app. Nothing leaves your computer.",
     "screenshot": "https://whispy-dun.vercel.app/assets/og-image.png",
     "license": "https://www.gnu.org/licenses/gpl-3.0.html",
     "offers": {
@@ -78,7 +78,7 @@
           <a class="btn btn-primary" href="#install">Install Whispy</a>
           <a class="btn btn-ghost" href="https://github.com/albrones/whispy">View source</a>
         </div>
-        <p class="hero-note">Free &amp; open source · macOS (Apple Silicon &amp; Intel) and Linux (X11)</p>
+        <p class="hero-note">Free &amp; open source · macOS (Apple Silicon &amp; Intel) and Linux (X11 &amp; Wayland)</p>
       </div>
 
       <div class="hero-visual">
@@ -200,7 +200,7 @@
         </article>
         <article class="card">
           <h3>macOS &amp; Linux</h3>
-          <p>Native on macOS and Linux (X11). OS-specific seams sit behind a ports-and-adapters layer bound at runtime.</p>
+          <p>Native on macOS and Linux (X11 and Wayland). OS-specific seams sit behind a ports-and-adapters layer bound at runtime.</p>
         </article>
         <article class="card">
           <h3>Knows what you're speaking</h3>
@@ -299,7 +299,7 @@
     <!-- Install -->
     <section id="install" class="section section-install">
       <h2>Install in one line</h2>
-      <p class="section-lede">Runs on macOS and Linux (X11). Audio capture uses
+      <p class="section-lede">Runs on macOS and Linux (X11 and Wayland). Audio capture uses
         <code>sounddevice</code>/PortAudio — no <code>sox</code> needed.</p>
 
       <div class="install-block">
@@ -311,8 +311,9 @@
         <code>Whispy.app</code> (needs the Xcode Command Line Tools). Autostart
         is the in-app "Start at login" toggle.</p>
 
-      <p class="install-alt">On Linux, install the system deps first (X11 session
-        required — Wayland users pick an "Xorg"/"X11" session at login):</p>
+      <p class="install-alt">On Linux, install the system deps first (X11 shown;
+        under Wayland install <code>wtype wl-clipboard</code> instead — on Omarchy,
+        then run <code>omarchy-dictation-use whispy</code> and hold F9):</p>
       <div class="install-block">
         <pre class="codeblock" id="install-linux"><code># Debian/Ubuntu — xdotool (text injection), xclip (clipboard delivery), PortAudio
 sudo apt install xdotool xclip libportaudio2

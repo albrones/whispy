@@ -12,14 +12,13 @@ import sys
 from collections.abc import Callable
 
 from ...hardware.event_decode import canonical_modifier, decode_key_match
-from .session import is_wayland_session, warn_if_wayland
 
 logger = logging.getLogger(__name__)
 
 _LISTEN_FAILURE_HINT = (
     "[whispy] Could not start the global key listener (pynput).\n"
-    "  Whispy v1 requires an X11 session; global hotkeys are unavailable under "
-    "Wayland.\n  Trigger-key detection is disabled for this run."
+    "  The X11 listener needs a running X server (DISPLAY).\n"
+    "  Trigger-key detection is disabled for this run."
 )
 
 # Same canonical order as event_decode._MODIFIER_ORDER, duplicated here (rather
@@ -152,11 +151,6 @@ class PynputHotkeyListener:
         self._held = False
         self._held_modifiers = frozenset()
 
-        # Under Wayland pynput typically starts but receives no events; warn up
-        # front rather than only on an exception, so the user gets guidance.
-        if is_wayland_session():
-            warn_if_wayland()
-
         try:
             from pynput import keyboard
         except Exception as exc:
@@ -186,3 +180,23 @@ class PynputHotkeyListener:
             except Exception:
                 pass
             self._listener = None
+
+
+class CompositorBoundTrigger:
+    """Wayland stand-in for the hotkey listener: Whispy listens to no key.
+
+    A Wayland client cannot grab a global key, so the compositor's own binding
+    (e.g. Omarchy's F9 -> ``omarchy-dictation-whispy``) drives ``POST /start``
+    and ``POST /stop``. ``active`` stays False: no in-process listener runs.
+    """
+
+    active = False
+
+    def __init__(self, trigger_key=None, on_trigger_press=None, on_trigger_release=None) -> None:
+        self._trigger_key = trigger_key
+
+    def start(self) -> None:
+        logger.info("[hotkey] Wayland: no in-process listener; the compositor binding calls /start and /stop")
+
+    def stop(self) -> None:
+        pass

@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .core.config import get_default_config_path
+from .platform.linux.session import is_wayland_session
 
 OK = "ok"
 WARN = "warn"
@@ -78,12 +79,12 @@ def check_display() -> CheckResult:
     """On Linux the global hotkey and text injection both need an X11 session."""
     if sys.platform != "linux":
         return CheckResult("X11 session", OK, "not required on this platform")
-    if os.environ.get("XDG_SESSION_TYPE") == "wayland" or os.environ.get("WAYLAND_DISPLAY"):
+    if is_wayland_session():
         return CheckResult(
             "X11 session",
-            FAIL,
-            "Wayland session — the trigger key and text injection do not work; "
-            "log out and pick an 'Xorg'/'X11' session",
+            OK,
+            "Wayland session — the trigger is your compositor's key binding calling /start and /stop "
+            "(Omarchy: omarchy-dictation-use whispy); text is typed with wtype",
         )
     display = os.environ.get("DISPLAY")
     if not display:
@@ -91,11 +92,20 @@ def check_display() -> CheckResult:
     return CheckResult("X11 session", OK, f"DISPLAY={display}")
 
 
+def _check_binary(binary: str, install_hint: str) -> CheckResult:
+    path = shutil.which(binary)
+    if path:
+        return CheckResult(binary, OK, path)
+    return CheckResult(binary, FAIL, f"not found — install it ({install_hint})")
+
+
 @check("xdotool", "xdotool", ("linux",))
 def check_xdotool() -> CheckResult:
     """On Linux/X11, xdotool is required for text injection."""
     if sys.platform != "linux":
         return CheckResult("xdotool", OK, "not required on this platform")
+    if is_wayland_session():
+        return _check_binary("wtype", "`pacman -S wtype` / `apt install wtype`")
     path = shutil.which("xdotool")
     if path:
         return CheckResult("xdotool", OK, path)
@@ -107,6 +117,8 @@ def check_clipboard_tool() -> CheckResult:
     """``copy_to_clipboard`` defaults to true, and on Linux that needs xclip or xsel."""
     if sys.platform != "linux":
         return CheckResult("clipboard tool", OK, "not required on this platform")
+    if is_wayland_session():
+        return _check_binary("wl-copy", "`pacman -S wl-clipboard` / `apt install wl-clipboard`")
     for binary in ("xclip", "xsel"):
         path = shutil.which(binary)
         if path:
