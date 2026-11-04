@@ -8,7 +8,8 @@
   with `wtype` (clipboard mode also copies with `wl-copy`) and errors arrive as
   desktop notifications instead of a tray. `packaging/omarchy/omarchy-dictation-whispy`
   is an Omarchy dictation backend (`omarchy-dictation-use whispy`, then hold
-  F9); it notifies « Whispy ne répond pas » when the daemon is down. The
+  F9); the installer also puts a `whispy` command in `~/.local/bin`, which
+  Omarchy requires before it binds the dictation keys; it notifies « Whispy ne répond pas » when the daemon is down. The
   `systemd --user` unit follows `graphical-session.target` when the session
   activates it.
 - **`POST /transcribe`.** Uploads a raw `audio/wav` (16 kHz mono 16-bit) and

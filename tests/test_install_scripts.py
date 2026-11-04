@@ -131,6 +131,13 @@ def test_install_links_the_omarchy_backend_when_omarchy_is_present(install: str)
     assert (ROOT / "packaging" / "omarchy" / "omarchy-dictation-whispy").stat().st_mode & 0o111
 
 
+def test_install_puts_a_whispy_command_on_path(install: str):
+    # Omarchy binds its dictation keys only when a program named like the
+    # selected backend exists: no `whispy` on PATH, no F9 after a login.
+    assert '"$HOME/.local/bin/whispy"' in install
+    assert 'exec "$PYTHON_BIN" "$DAEMON_PATH"' in install
+
+
 def test_unit_follows_the_graphical_session_when_it_is_active(install: str):
     # Under Hyprland the Wayland variables reach the user manager only with
     # graphical-session.target; started earlier, wtype has no display.

@@ -41,7 +41,7 @@ links the `omarchy-dictation-whispy` backend; select it once and hold
 <kbd>F9</kbd>:
 
 ```bash
-omarchy-dictation-use whispy
+omarchy-dictation-use whispy && hyprctl reload
 ```
 
 `POST /transcribe` (raw `audio/wav`, 16 kHz mono) returns `{"text": …}` without
