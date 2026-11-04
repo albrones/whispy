@@ -672,7 +672,7 @@ class TestPostTranscribe:
         _, port, _ = test_server
         req = urllib.request.Request(
             f"http://127.0.0.1:{port}/transcribe",
-            data=_wav_bytes(),
+            data=b"RIFF",  # tiny: the auth gate answers before reading the body
             method="POST",
             headers={"Content-Type": "audio/wav"},
         )
