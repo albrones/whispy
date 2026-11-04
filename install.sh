@@ -32,6 +32,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
             systemctl --user disable --now whispy.service 2>/dev/null || true
         fi
         rm -f "$HOME/.config/systemd/user/whispy.service"
+        rm -f "$HOME/.local/bin/whispy" "$HOME/.local/bin/omarchy-dictation-whispy"
         command -v systemctl &>/dev/null && systemctl --user daemon-reload 2>/dev/null || true
     else
         # Remove any legacy LaunchAgents (the macOS install no longer creates
@@ -174,14 +175,26 @@ if [ "$OS" = "Linux" ]; then
         echo -e "${GREEN}[OK] Typing tool, clipboard tool and PortAudio present${NC}"
     fi
 
+    # A `whispy` command on PATH (`whispy --doctor`, or the daemon in the
+    # foreground). Omarchy also requires it: its dictation keys are bound only
+    # when the selected backend's own program -- named like the backend -- is
+    # installed, so without it F9 stays unbound after the next login.
+    mkdir -p "$HOME/.local/bin"
+    cat > "$HOME/.local/bin/whispy" << WHISPYEOF
+#!/bin/sh
+exec "$PYTHON_BIN" "$DAEMON_PATH" "\$@"
+WHISPYEOF
+    chmod +x "$HOME/.local/bin/whispy"
+    echo -e "${GREEN}[OK] whispy command installed: ~/.local/bin/whispy (try: whispy --doctor)${NC}"
+
     # Omarchy picks its dictation backend by name: `omarchy-dictation` runs the
     # executable `omarchy-dictation-<backend>` found on PATH. A symlink keeps
     # the adapter current with this checkout.
     if command -v omarchy-dictation &>/dev/null; then
-        mkdir -p "$HOME/.local/bin"
         ln -sf "$SCRIPT_DIR/packaging/omarchy/omarchy-dictation-whispy" "$HOME/.local/bin/omarchy-dictation-whispy"
         echo -e "${GREEN}[OK] Omarchy dictation backend linked: ~/.local/bin/omarchy-dictation-whispy${NC}"
-        echo "    Select it (stops the previous backend): omarchy-dictation-use whispy"
+        echo "    Select it (stops the previous backend), then reload Hyprland to bind F9:"
+        echo "      omarchy-dictation-use whispy && hyprctl reload"
     fi
     echo ""
 fi
