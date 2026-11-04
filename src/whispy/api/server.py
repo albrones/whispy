@@ -226,10 +226,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         Sends the error response and returns ``None`` when the upload is not
         what ``POST /transcribe`` expects; callers must stop then.
         """
-        content_type = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
-        if content_type not in WAV_CONTENT_TYPES:
-            self._json_response(400, {"error": f"expected {EXPECTED_WAV}, got Content-Type {content_type or 'none'!r}"})
-            return None
         try:
             length = int(self.headers.get("Content-Length", 0))
         except ValueError:
@@ -242,6 +238,12 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._json_response(400, {"error": f"empty body: expected {EXPECTED_WAV}"})
             return None
         audio = self.rfile.read(length)
+        # Checked after reading: a reply sent while the client is still
+        # uploading resets its connection instead of delivering the error.
+        content_type = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        if content_type not in WAV_CONTENT_TYPES:
+            self._json_response(400, {"error": f"expected {EXPECTED_WAV}, got Content-Type {content_type or 'none'!r}"})
+            return None
         problem = _wav_format_problem(audio)
         if problem:
             self._json_response(400, {"error": f"{problem}: expected {EXPECTED_WAV}"})
