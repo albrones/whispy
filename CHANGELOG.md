@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Added
+- **Omarchy bar widget.** Whispy's icon on the right of the Omarchy bar (the
+  macOS braille waveform: ready, listening, transcribing, stopped); a panel
+  with the dictation key (Right Option, Right Ctrl or F9 held, Left Option +
+  Space toggle), Copy to clipboard, Start at login, the last dictation and a
+  way to start Whispy when it is stopped; and the waveform pill at the bottom
+  of the screen while recording, which never takes the keyboard focus. The
+  key is written by `omarchy-dictation-whispy trigger <preset>` to
+  `~/.config/whispy/shortcuts.lua` (new `omarchy_trigger` config key).
+- **`GET /level`.** The live input level (0 to 1) while recording.
 - **Linux Wayland sessions (Omarchy / Hyprland).** Under Wayland the
   compositor's key binding drives `POST /start` / `POST /stop`, Whispy types
   with `wtype` (clipboard mode also copies with `wl-copy`) and errors arrive as

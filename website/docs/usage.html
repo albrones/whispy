@@ -60,7 +60,8 @@
 
 <h3>Menu bar and tray</h3>
 <p data-os="macos">Whispy lives in the menu bar. From there you can switch the trigger, toggle <strong>Type while speaking</strong> and <strong>Start at login</strong>, restart, and quit. If it cannot type, a <strong>Can't type — fix permissions…</strong> row appears.</p>
-<p data-os="linux">Whispy shows its state in the system tray (there is no floating overlay on Linux). Set options such as <code>type_while_speaking: false</code> in the config and restart the service.</p>
+<p data-os="linux">Under X11, Whispy shows its state in the system tray. Set options such as <code>type_while_speaking: false</code> in the config and restart the service.</p>
+<p data-os="linux">On <strong>Omarchy</strong>, the installer puts a Whispy icon on the right of the bar: a still waveform when ready, a green moving one while it listens, a moving one while it transcribes, greyed when Whispy is stopped. Click it for a panel with the <strong>dictation key</strong> (Right Option, Right Ctrl or F9 held, or Left Option + Space to toggle), <strong>Copy to clipboard</strong>, <strong>Start at login</strong> and your last dictation (click to copy it); when Whispy is stopped, the panel offers to start it. Changes apply at once. While you speak, a waveform pill shows at the bottom of the screen; it never takes the keyboard focus. The chosen key is written to <code>~/.config/whispy/shortcuts.lua</code>, which Omarchy loads while Whispy is the dictation backend: a dictation key you bound by hand in <code>~/.config/hypr/bindings.lua</code> still applies on top of it.</p>
 
 <h3>Custom vocabulary</h3>
 <p>Add names, brands and jargon to <a href="config.html#cfg-custom_vocabulary"><code>custom_vocabulary</code></a>. After transcription, an output word is corrected when its spelling or pronunciation is close to one of your terms (<em>wispy</em> becomes <em>Whispy</em>). It fixes close misses only and never adds words you did not say.</p>
@@ -100,7 +101,7 @@ rm -rf ~/.config/whispy ~/.whispy.log ~/.whispy-error.log</code></pre>
 <pre data-copy><code>curl -H "Authorization: Bearer $(cat ~/.config/whispy/config.token)" http://localhost:9090/status</code></pre>
 <pre data-copy><code>curl -H "Authorization: Bearer $(cat ~/.config/whispy/config.token)" -X POST http://localhost:9090/start</code></pre>
 <pre data-copy><code>curl -H "Authorization: Bearer $(cat ~/.config/whispy/config.token)" -X POST http://localhost:9090/stop</code></pre>
-<p><code>/status</code> checks the daemon, <code>/start</code> begins recording and <code>/stop</code> stops and transcribes.</p>
+<p><code>/status</code> checks the daemon, <code>/start</code> begins recording and <code>/stop</code> stops and transcribes. <code>/level</code> returns the live input level (0 to 1) while recording, which the Omarchy pill draws.</p>
 
 <h2 id="model">The model</h2>
 <p>Whispy ships one model, <code>nvidia/parakeet-tdt-0.6b-v3</code>, int8-quantized to ONNX and run on your CPU. There is nothing to choose, so there is no model setting. The download is about 639 MB, automatic on first use, cached at <code>~/.cache/huggingface/hub/models--istupakov--parakeet-tdt-0.6b-v3-onnx</code>. It uses about 1.4 GB of memory while loaded.</p>

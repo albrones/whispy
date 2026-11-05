@@ -208,7 +208,7 @@
         </article>
         <article class="card">
           <h3>Lives in the tray</h3>
-          <p>Runs quietly as a background daemon in the menu bar (macOS) or system tray (Linux). No window to manage — flip <em>Start at login</em> on macOS, and on Linux the installer enables a user service, so it's there every boot either way.</p>
+          <p>Runs quietly as a background daemon in the menu bar (macOS), the system tray (Linux X11) or the Omarchy bar, where a panel holds its settings and picks the dictation key, and a waveform pill shows while you speak. No window to manage — flip <em>Start at login</em> on macOS, and on Linux the installer enables a user service, so it's there every boot either way.</p>
         </article>
         <article class="card">
           <h3>Fast enough to forget</h3>
@@ -313,7 +313,7 @@
 
       <p class="install-alt">On Linux, install the system deps first (X11 shown;
         under Wayland install <code>wtype wl-clipboard</code> instead — on Omarchy,
-        then run <code>omarchy-dictation-use whispy</code>, <code>hyprctl reload</code> and hold F9):</p>
+        then run <code>omarchy-dictation-use whispy</code> and <code>hyprctl reload</code>; the Whispy icon appears on the right of the bar, where you pick the dictation key):</p>
       <div class="install-block">
         <pre class="codeblock" id="install-linux"><code># Debian/Ubuntu — xdotool (text injection), xclip (clipboard delivery), PortAudio
 sudo apt install xdotool xclip libportaudio2

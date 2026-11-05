@@ -82,6 +82,7 @@
 <tr class="group-row"><th colspan="4" scope="colgroup">Trigger</th></tr>
 <tr id="cfg-trigger"><td><code>trigger</code></td><td><code>null</code></td><td>empty (platform default), a key name, a combo like cmd+shift+space, or a keycode</td><td>The key or key combination you press to dictate; leave empty to use the platform default.</td></tr>
 <tr id="cfg-trigger_mode"><td><code>trigger_mode</code></td><td><code>&quot;hold&quot;</code></td><td>hold or toggle</td><td>Hold the trigger while you speak (hold), or press it once to start and again to stop (toggle).</td></tr>
+<tr id="cfg-omarchy_trigger"><td><code>omarchy_trigger</code></td><td><code>&quot;right_option_hold&quot;</code></td><td>right_option_hold or right_ctrl_hold or f9_hold or left_option_space_toggle</td><td>On Omarchy, the key the compositor binds to dictation: Right Option, Right Ctrl or F9 held, or Left Option + Space to toggle.</td></tr>
 </tbody>
 <tbody>
 <tr class="group-row"><th colspan="4" scope="colgroup">Streaming</th></tr>
@@ -178,6 +179,24 @@
     "choices": [
       "hold",
       "toggle"
+    ],
+    "unit": null,
+    "step": null
+  },
+  "omarchy_trigger": {
+    "default": "right_option_hold",
+    "kind": "choice",
+    "description": "On Omarchy, the key the compositor binds to dictation: Right Option, Right Ctrl or F9 held, or Left Option + Space to toggle.",
+    "group": "Trigger",
+    "ge": null,
+    "gt": null,
+    "le": null,
+    "gt_key": null,
+    "choices": [
+      "right_option_hold",
+      "right_ctrl_hold",
+      "f9_hold",
+      "left_option_space_toggle"
     ],
     "unit": null,
     "step": null

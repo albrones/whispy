@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "whispy.panel",
+  "name": "Whispy",
+  "version": "1.0.0",
+  "author": "Whispy",
+  "license": "GPL-3.0-or-later",
+  "description": "Whispy dictation in the Omarchy bar: live status, settings, the dictation key, and the recording pill.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Whispy",
+    "description": "Live dictation status, Whispy's settings and dictation key, the last dictation, and the waveform pill while you speak.",
+    "category": "Status",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
