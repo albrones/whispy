@@ -7,11 +7,12 @@ import "Model.js" as Model
 // (the same one the dictation keys drive). Requests go through QML's own
 // XMLHttpRequest, so a poll costs one loopback request and no process.
 //
-// When it asks: on a nudge from the dictation backend (start, stop), when the
-// panel opens, every 500 ms while Whispy works (listening, transcribing,
-// loading), 20 times a second for the input level while the pill shows, and
-// once every 30 s at rest, the only way to notice a daemon that went away on
-// its own.
+// When it asks: once when the shell starts, on a nudge from the dictation
+// backend (start, stop, or Whispy not answering), when the panel opens, every
+// 500 ms while Whispy works (listening, transcribing, loading, starting), and
+// 20 times a second for the input level while the pill shows. At rest it asks
+// nothing: a daemon that dies unattended shows as stopped at the next key
+// press or panel open.
 Item {
   id: root
 
@@ -106,13 +107,6 @@ Item {
     interval: 500
     repeat: true
     running: root.active || root.starting
-    onTriggered: root.refresh()
-  }
-
-  Timer {
-    interval: 30000
-    repeat: true
-    running: !root.active && !root.starting
     onTriggered: root.refresh()
   }
 

@@ -181,3 +181,23 @@ def test_generated_lua_parses(tmp_path):
             assert check.returncode == 0, check.stderr
     finally:
         api.close()
+
+
+def test_shortcuts_writes_the_saved_preset_without_the_daemon(tmp_path):
+    """The installer path: no API, no reload; the saved preset, else the default."""
+    import json
+
+    config = tmp_path / ".config" / "whispy" / "config.json"
+    config.parent.mkdir(parents=True)
+    env = {"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"}
+    shortcuts = config.parent / "shortcuts.lua"
+
+    result = subprocess.run(["bash", str(ADAPTER), "shortcuts"], env=env, capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "right_option_hold"
+    assert 'o.bind_hold("ISO_Level3_Shift"' in shortcuts.read_text()
+
+    config.write_text(json.dumps({"omarchy_trigger": "f9_hold", "copy_to_clipboard": True}, indent=2))
+    result = subprocess.run(["bash", str(ADAPTER), "shortcuts"], env=env, capture_output=True, text=True, timeout=20)
+    assert result.stdout.strip() == "f9_hold"
+    assert 'o.bind_hold("F9"' in shortcuts.read_text()

@@ -150,6 +150,12 @@ _Tier: unit-mocked — `tests/test_omarchy_adapter.py` (stand-in API, fake `hypr
 
 _Tier: unit-mocked — `tests/test_omarchy_adapter.py`._
 
+#### Scenario: Install restores the saved key
+- **WHEN** `install.sh` runs on Omarchy (`omarchy-dictation-whispy shortcuts`)
+- **THEN** `~/.config/whispy/shortcuts.lua` SHALL be written for the preset saved in `config.json`, or `right_option_hold` without one, with no daemon needed
+
+_Tier: unit-mocked — `tests/test_omarchy_adapter.py`._
+
 #### Scenario: The chosen key dictates
 - **WHEN** Right Ctrl is chosen in the panel and held, then Right Option is held
 - **THEN** Right Ctrl SHALL dictate and Right Option SHALL NOT, also after logging in again
@@ -157,7 +163,7 @@ _Tier: unit-mocked — `tests/test_omarchy_adapter.py`._
 _Tier: manual-ui — Omarchy VM._
 
 ### Requirement: Omarchy bar widget
-On Omarchy, the installer SHALL link a bar widget (`whispy.panel`) and place it in the right section of the bar. Its icon SHALL show Whispy's state with the macOS braille waveform; a click SHALL open a panel with the dictation key, model and language (information only), Copy to clipboard, Start at login, the last dictation, and a way to start Whispy when it is stopped. Settings SHALL apply without a restart. At rest the widget SHALL read `/status` at most every 30 s.
+On Omarchy, the installer SHALL link a bar widget (`whispy.panel`) and place it in the right section of the bar. Its icon SHALL show Whispy's state with the macOS braille waveform; a click SHALL open a panel with the dictation key, model and language (information only), Copy to clipboard, Start at login, the last dictation, and a way to start Whispy when it is stopped. Settings SHALL apply without a restart. At rest the widget SHALL NOT poll: it reads `/status` when the shell starts, when the panel opens, when the dictation backend nudges it, and every 500 ms only while Whispy works.
 
 #### Scenario: State logic
 - **WHEN** the API is unreachable, recording, transcribing (or the backend says `/stop` is running), loading, or idle

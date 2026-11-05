@@ -208,6 +208,10 @@ WHISPYEOF
                 omarchy-bar put whispy.panel --section right --index 1 >/dev/null 2>&1 || true
             fi
             echo -e "${GREEN}[OK] Omarchy bar widget linked: $PLUGIN_DIR/whispy-panel (pick the dictation key there)${NC}"
+            # The dictation key file Omarchy loads while Whispy is the backend,
+            # for the saved preset; rewritten so a reinstall restores it.
+            KEY=$("$SCRIPT_DIR/packaging/omarchy/omarchy-dictation-whispy" shortcuts) \
+                && echo -e "${GREEN}[OK] Dictation key ($KEY) written to ~/.config/whispy/shortcuts.lua; apply with: hyprctl reload${NC}"
         fi
     fi
     echo ""
