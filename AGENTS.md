@@ -75,7 +75,7 @@ All documentation, code comments, and user-facing messages in the codebase must 
 ## 💡 High-Signal Context for Agents
 
 ### 🛠️ Environment & Permissions
-- **Cross-platform, OS-coupled seams:** macOS uses `pyobjc`, `rumps`, `osascript`; Linux X11 uses `pynput`, `pystray`, `xdotool` instead; Linux Wayland uses `wtype` and desktop notifications (no tray).
+- **Cross-platform, OS-coupled seams:** macOS uses `pyobjc`, `rumps`, `osascript`; Linux X11 uses `pynput`, `pystray`, `xdotool` instead; Linux Wayland uses `wtype` and desktop notifications (no tray); on Omarchy a Quickshell bar widget (`packaging/omarchy/whispy-panel/`) shows state, settings, the dictation key picker and the recording pill through the HTTP API.
 - **Permissions are Key:** On macOS, if the Fn key doesn't trigger recording or text isn't typed, check **Input Monitoring** and **Accessibility** permissions in System Settings. On Linux, run `make doctor`: it checks `xdotool` under X11 and `wtype` under Wayland.
 - **Python Interpreter:** The daemon uses the `.venv/bin/python3` interpreter. Ensure permissions are granted to this specific executable if required (macOS).
 

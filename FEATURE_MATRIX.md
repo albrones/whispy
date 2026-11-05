@@ -51,6 +51,14 @@ Tiers are defined in `openspec/specs/TESTING-TIERS.md`.
 | /transcribe endpoint (WAV upload) | both | unit-mocked | `tests/test_api/test_server.py::TestPostTranscribe` | 16 kHz mono WAV, 400/413/503 JSON errors, no inject, no file kept |
 | Omarchy backend never fails silently | Linux | unit-mocked | `tests/test_omarchy_adapter.py` | « Whispy ne répond pas » + non-zero exit when the API is down |
 | F9 push-to-talk → text (Omarchy/Wayland) | Linux | manual-ui | operator | hold F9 in a terminal and a web field, speak, release, accents intact |
+| /level endpoint (live input level) | both | unit-mocked | `tests/test_api/test_server.py::TestGetLevel` | clamped 0..1, 0 when idle, successful polls not logged |
+| Omarchy trigger preset → Hyprland binding | Linux | unit-mocked | `tests/test_omarchy_adapter.py`, `tests/test_config_validation.py::TestOmarchyTrigger` | saves `omarchy_trigger`, writes `~/.config/whispy/shortcuts.lua` (only the chosen key, hold keys non-consuming), `hyprctl reload`; unknown preset / Whispy down change nothing; generated Lua parses |
+| Omarchy bar widget logic (state, frames, pill bars) | Linux | unit-pure | `tests/test_omarchy_panel_model.py` | node runs Model.js: stopped/recording/transcribing hint/loading/ready, flat wave at or below the silence gate, presets match config |
+| Omarchy bar icon follows a dictation | Linux | manual-ui | operator | hold the dictation key: icon green and moving (Listening); release: Transcribing, then still (Ready) |
+| Omarchy panel settings apply live | Linux | manual-ui | operator | click the icon: key, model, language, Copy to clipboard, Start at login, last dictation; toggle Copy to clipboard, dictate, no restart |
+| Omarchy key picker (Right Ctrl / Left Option + Space) | Linux | manual-ui | operator | pick Right Ctrl (hold): Right Ctrl dictates, Right Option does not, still after re-login; pick Left Option + Space: one press starts, the next stops |
+| Omarchy recording pill | Linux | manual-ui | operator | while dictating, pill bottom centre, bars move with speech and stay flat in silence; the text lands in the focused window, which keeps focus |
+| Omarchy widget when Whispy is stopped | Linux | manual-ui | operator | `systemctl --user stop whispy`: icon greyed, tooltip « Whispy stopped », panel offers Start Whispy, which brings it back |
 | Doctor preflight report | both | unit-mocked | `tests/test_doctor.py`, `doctor` | injected checks |
 | Real mic capture → valid WAV | macOS | live-driven | `tests/test_e2e_smoke.py::TestRealAudioCapture` | 16 kHz mono; UNVERIFIED w/o device |
 | Real mic capture → valid WAV | Linux | live-driven | `tests/test_e2e_smoke_linux.py::TestRealAudioCapture` | 16 kHz mono; UNVERIFIED w/o device |

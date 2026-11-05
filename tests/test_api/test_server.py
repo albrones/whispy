@@ -128,6 +128,38 @@ class TestGetStatus:
         assert body["is_transcribing"] is False
 
 
+class TestGetLevel:
+    """GET /level: the live input level the Omarchy waveform pill polls."""
+
+    def test_idle_level_is_zero(self, test_server, mocker):
+        _, port, engine = test_server
+        mocker.patch.object(engine, "get_level", return_value=0.7)
+        status, body = _get(port, "/level")
+        assert status == 200
+        assert body == {"level": 0.0, "is_recording": False}
+
+    def test_recording_level_is_clamped_to_one(self, test_server, mocker):
+        _, port, engine = test_server
+        engine.state.is_recording = True
+        mocker.patch.object(engine, "get_level", return_value=1.8)
+        status, body = _get(port, "/level")
+        assert status == 200
+        assert body == {"level": 1.0, "is_recording": True}
+
+    def test_successful_poll_is_not_logged(self, test_server, capsys):
+        _, port, _ = test_server
+        _get(port, "/level")
+        _get(port, "/status")
+        out = capsys.readouterr().out
+        assert "/status" in out
+        assert "/level" not in out
+
+    def test_requires_token(self, test_server):
+        _, port, _ = test_server
+        status, _ = _get(port, "/level", token=None)
+        assert status == 401
+
+
 class TestGetConfig:
     """Test GET /config endpoint."""
 

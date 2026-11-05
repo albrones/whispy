@@ -36,6 +36,17 @@ TRIGGER_PRESETS: list[tuple[str, int | str | None]] = [
 ]
 
 
+# Omarchy trigger presets, in the order the bar panel lists them. Each name is
+# also the argument `omarchy-dictation-whispy trigger` accepts; the script owns
+# the Hyprland binding each one stands for.
+OMARCHY_TRIGGER_PRESETS: tuple[str, ...] = (
+    "right_option_hold",
+    "right_ctrl_hold",
+    "f9_hold",
+    "left_option_space_toggle",
+)
+
+
 @dataclass(frozen=True)
 class ConfigKey:
     """One config key: its default, what it accepts, and how to describe it to users."""
@@ -116,6 +127,18 @@ CONFIG_SCHEMA: dict[str, ConfigKey] = {
         group="Trigger",
         choices=("hold", "toggle"),
         description="Hold the trigger while you speak (hold), or press it once to start and again to stop (toggle).",
+    ),
+    # Omarchy (Hyprland) only: which preset key the compositor binds to
+    # dictation. Under Wayland the daemon never reads a key itself; this value
+    # is what the bar panel shows as chosen, and `omarchy-dictation-whispy
+    # trigger <preset>` writes the matching Hyprland binding file. The default
+    # matches Omarchy's own push-to-talk key (Right Alt, held).
+    "omarchy_trigger": ConfigKey(
+        default="right_option_hold",
+        kind="choice",
+        group="Trigger",
+        choices=OMARCHY_TRIGGER_PRESETS,
+        description="On Omarchy, the key the compositor binds to dictation: Right Option, Right Ctrl or F9 held, or Left Option + Space to toggle.",
     ),
     # --- Streaming / incremental transcription ---
     # When enabled (default), the recording is segmented on silence (and a max

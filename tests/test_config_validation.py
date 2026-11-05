@@ -290,6 +290,34 @@ class TestTriggerMode:
         assert saved["trigger_mode"] == "toggle"
 
 
+class TestOmarchyTrigger:
+    """The Omarchy trigger preset the bar panel picks and the backend binds."""
+
+    def test_default_is_right_option_hold(self):
+        assert DEFAULT_CONFIG["omarchy_trigger"] == "right_option_hold"
+
+    def test_every_preset_passes_through(self):
+        from whispy.core.config import OMARCHY_TRIGGER_PRESETS
+
+        for preset in OMARCHY_TRIGGER_PRESETS:
+            assert _validate_config({"omarchy_trigger": preset})["omarchy_trigger"] == preset
+
+    def test_unknown_preset_resets_to_default(self):
+        for bad in ("caps_lock_hold", "", None, 9):
+            assert _validate_config({"omarchy_trigger": bad})["omarchy_trigger"] == "right_option_hold"
+
+    def test_presets_match_the_omarchy_backend(self):
+        """The backend script must accept every preset the config does, and no other."""
+        import re
+
+        from whispy.core.config import OMARCHY_TRIGGER_PRESETS
+
+        script = Path(__file__).parent.parent / "packaging" / "omarchy" / "omarchy-dictation-whispy"
+        listed = re.search(r"^presets=\((.*)\)$", script.read_text(), re.MULTILINE)
+        assert listed, "omarchy-dictation-whispy must declare presets=(...)"
+        assert tuple(listed.group(1).split()) == OMARCHY_TRIGGER_PRESETS
+
+
 # ---------------------------------------------------------------------------
 # Streaming / incremental transcription config
 # ---------------------------------------------------------------------------

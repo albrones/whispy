@@ -33,6 +33,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
         fi
         rm -f "$HOME/.config/systemd/user/whispy.service"
         rm -f "$HOME/.local/bin/whispy" "$HOME/.local/bin/omarchy-dictation-whispy"
+        rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/whispy-panel"
         command -v systemctl &>/dev/null && systemctl --user daemon-reload 2>/dev/null || true
     else
         # Remove any legacy LaunchAgents (the macOS install no longer creates
@@ -195,6 +196,19 @@ WHISPYEOF
         echo -e "${GREEN}[OK] Omarchy dictation backend linked: ~/.local/bin/omarchy-dictation-whispy${NC}"
         echo "    Select it (stops the previous backend), then reload Hyprland to bind F9:"
         echo "      omarchy-dictation-use whispy && hyprctl reload"
+
+        # The bar widget: status icon, settings panel, dictation key picker
+        # and the recording pill. A symlink, like the backend, so it follows
+        # this checkout; the shell picks it up without a restart.
+        PLUGIN_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins"
+        if [ -d "$(dirname "$PLUGIN_DIR")" ]; then
+            mkdir -p "$PLUGIN_DIR"
+            ln -sfn "$SCRIPT_DIR/packaging/omarchy/whispy-panel" "$PLUGIN_DIR/whispy-panel"
+            if command -v omarchy-bar &>/dev/null && ! grep -q '"whispy.panel"' "$(dirname "$PLUGIN_DIR")/shell.json" 2>/dev/null; then
+                omarchy-bar put whispy.panel --section right --index 1 >/dev/null 2>&1 || true
+            fi
+            echo -e "${GREEN}[OK] Omarchy bar widget linked: $PLUGIN_DIR/whispy-panel (pick the dictation key there)${NC}"
+        fi
     fi
     echo ""
 fi

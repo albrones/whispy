@@ -1,7 +1,7 @@
 """HTTP API server for external control and status monitoring.
 
 Provides RESTful endpoints for:
-- Status checks (GET /status, /config, /last-transcription)
+- Status checks (GET /status, /config, /last-transcription, /level)
 - Manual control (POST /start, /stop, /stop-async)
 - Transcription of an uploaded WAV (POST /transcribe)
 - Configuration management (POST /config)
@@ -118,6 +118,12 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._json_response(200, engine.state.config)
         elif self.path == "/last-transcription":
             self._json_response(200, {"text": engine.state.last_transcription})
+        elif self.path == "/level":
+            # The Omarchy waveform pill polls this many times a second while
+            # recording, so it reads one float and nothing else.
+            recording = engine.state.is_recording
+            level = engine.get_level() if recording else 0.0
+            self._json_response(200, {"level": max(0.0, min(1.0, float(level))), "is_recording": recording})
         else:
             self._json_response(404, {"error": "not found"})
 
@@ -291,6 +297,17 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
+
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        """Log each request, except a successful waveform level poll.
+
+        The Omarchy pill polls /level about 20 times a second while recording;
+        logging those would bury the requests that matter. A refused or failed
+        /level is still logged.
+        """
+        if self.path == "/level" and code == 200:
+            return
+        super().log_request(code, size)
 
     def log_message(self, fmt: str, *args: Any) -> None:
         """Log HTTP requests."""
