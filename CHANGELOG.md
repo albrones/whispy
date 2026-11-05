@@ -10,7 +10,8 @@
   way to start Whispy when it is stopped; and the waveform pill at the bottom
   of the screen while recording, which never takes the keyboard focus. The
   key is written by `omarchy-dictation-whispy trigger <preset>` to
-  `~/.config/whispy/shortcuts.lua` (new `omarchy_trigger` config key).
+  `~/.config/whispy/shortcuts.lua` (new `omarchy_trigger` config key); `install.sh`
+  rewrites it for the saved key. The widget polls only while Whispy works.
 - **`GET /level`.** The live input level (0 to 1) while recording.
 - **Linux Wayland sessions (Omarchy / Hyprland).** Under Wayland the
   compositor's key binding drives `POST /start` / `POST /stop`, Whispy types

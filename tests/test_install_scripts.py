@@ -134,6 +134,7 @@ def test_install_links_the_omarchy_backend_when_omarchy_is_present(install: str)
 def test_install_links_the_omarchy_bar_widget_and_puts_it_on_the_bar(install: str):
     assert 'packaging/omarchy/whispy-panel" "$PLUGIN_DIR/whispy-panel"' in install
     assert "omarchy-bar put whispy.panel --section right" in install
+    assert 'packaging/omarchy/omarchy-dictation-whispy" shortcuts' in install
     assert '/omarchy/plugins/whispy-panel"' in install.split("--uninstall", 1)[1].split("exit 0", 1)[0]
     assert (ROOT / "packaging" / "omarchy" / "whispy-panel" / "manifest.json").is_file()
 
