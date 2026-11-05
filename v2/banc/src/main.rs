@@ -10,6 +10,7 @@ mod measure;
 mod memory;
 mod oracle;
 mod report;
+mod trial;
 mod v1;
 mod wer;
 
@@ -32,6 +33,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }),
         Some("--labelled") => labelled::run(&args[1..]),
+        Some("--trial") => trial::run(&args[1..]),
         Some("--transcribe") => transcribe_files(&args[1..]),
         Some("--help") | Some("-h") => {
             println!("{}", usage());
@@ -46,7 +48,8 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage: banc [--skip-v1]\n       banc --labelled [dir]   (criterion 3 on your labelled clips, default ~/.whispy/bench)\n       banc --transcribe <parakeet|whisper> <raw|gated|louder|padded> <clip.wav>...\n\n\
+    "usage: banc [--skip-v1]\n       banc --labelled [dir]   (criterion 3 on your labelled clips, default ~/.whispy/bench)\n       banc --trial [--since YYYY-MM-DD] [--journal PATH] [--v1-log-dir DIR]   (the trial report, default ~/.whispy/v2/dictations.jsonl and $HOME)
+       banc --transcribe <parakeet|whisper> <raw|gated|louder|padded> <clip.wav>...\n\n\
      Env: WHISPY_LOST_DIR (default ~/.whispy/lost), WHISPY_V1_PYTHON (default <repo>/.venv/bin/python),\n     \
      WHISPY_PARAKEET_DIR, WHISPY_WHISPER_MODEL (default: the files V1 and Jarvis already downloaded)."
 }

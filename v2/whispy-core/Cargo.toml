@@ -9,11 +9,17 @@ publish.workspace = true
 [dependencies]
 # Parakeet runs on ONNX Runtime, CPU provider only (CoreML took the machine down in V1).
 ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "download-binaries", "copy-dylibs"] }
-# whisper.cpp bindings for the whisper small engine (ggml-small.bin).
-whisper-rs = { version = "=0.16.0", features = ["metal"] }
 # The exact WebRTC VAD the V1 gates were calibrated on (aggressiveness 2, 30 ms frames).
 webrtc-vad = "=0.4.0"
 # FFT for the NeMo log-mel features Parakeet expects.
 rustfft = "=6.4.1"
 # WAV reading for clips on disk (the app hands PCM directly).
 hound = "=3.5.1"
+
+# whisper.cpp bindings for the whisper small engine (ggml-small.bin): Metal on
+# macOS, plain CPU elsewhere so the workspace builds on Linux too.
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "=0.16.0", features = ["metal"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+whisper-rs = { version = "=0.16.0" }

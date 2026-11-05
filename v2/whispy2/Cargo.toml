@@ -19,8 +19,10 @@ core-graphics = "=0.25.0"
 core-foundation = "=0.10.1"
 # The menu bar icon and menu (NSStatusItem), and main-thread hops for status updates.
 objc2 = "=0.6.5"
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSString", "NSThread", "NSObject"] }
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSImage", "NSCell", "NSButtonCell", "NSRunningApplication", "objc2-core-foundation"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSString", "NSThread", "NSObject", "NSArray", "NSEnumerator", "NSError"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSImage", "NSCell", "NSButtonCell", "NSRunningApplication", "objc2-core-foundation", "NSGraphics", "NSPanel", "NSWindow", "NSScreen", "NSEvent", "NSLevelIndicator", "NSLevelIndicatorCell", "NSTextField", "NSColor", "NSSound", "NSMenuItem"] }
+# "Start at login": SMAppService.mainApp register/unregister/status for the V2 bundle.
+objc2-service-management = { version = "=0.3.2", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
 dispatch2 = "=0.3.1"
 # V1 detection: list processes and their executable paths (proc_listallpids, proc_pidpath).
 libc = "0.2"

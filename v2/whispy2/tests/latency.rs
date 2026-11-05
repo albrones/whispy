@@ -15,6 +15,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use whispy2::controller::{Capture, Controller, Inserter, LostClips, Status, LOADING_NOTE};
+use whispy2::feedback::NoFeedback;
+use whispy2::journal::Journal;
 use whispy2::machine::{Delivery, Event, State};
 use whispy2::resample;
 use whispy_core::audio::{read_wav, SAMPLE_RATE};
@@ -103,6 +105,8 @@ fn release_to_insertion_p95_is_under_one_and_a_half_seconds() {
         Pipeline::load_default,
         RecordingInserter(inserted),
         LostClips { directory: None },
+        Journal { directory: None },
+        NoFeedback,
         move |status: &Status| {
             let _ = status_sender.send(status.clone());
         },

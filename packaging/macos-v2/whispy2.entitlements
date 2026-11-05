@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Microphone capture (cpal -> CoreAudio). -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <!-- Sending Apple events to System Events to press Command-V. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+    <!-- Dropped from V1's set, on purpose: allow-jit and
+         allow-unsigned-executable-memory existed for the CPython interpreter
+         and onnxruntime JIT under py2app; this native binary links ONNX
+         Runtime statically and runs no JIT. disable-library-validation
+         existed so the bundled interpreter could load unsigned extension
+         modules; every library here is signed by codesign deep with the same
+         identity. -->
+</dict>
+</plist>

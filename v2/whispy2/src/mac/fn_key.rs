@@ -5,7 +5,7 @@
 //! (V1's diff-based decoding of modifier triggers could). The callback only
 //! decodes and forwards: macOS disables a tap whose callback is slow.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -28,7 +28,14 @@ extern "C" {
     fn CGEventTapIsEnabled(tap: CFMachPortRef) -> bool;
     fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
     fn CGEventSourceFlagsState(state_id: i32) -> u64;
+    fn CGPreflightListenEventAccess() -> bool;
+    fn CGRequestListenEventAccess() -> bool;
 }
+
+/// A tap disabled again on every beat is logged once, then once a minute at
+/// the 1 s housekeeping beat: without Input Monitoring the tap of an installed
+/// bundle was seen disabled every second, one log line each.
+const REPEAT_REPORT_EVERY: u32 = 60;
 
 /// The installed tap. Dropping it removes the tap.
 pub struct FnKey {
@@ -43,6 +50,8 @@ pub struct TapHealth {
     /// CGEventTapEnable may be called from any thread.
     port: usize,
     is_fn_held: Arc<AtomicBool>,
+    /// Consecutive beats that found the tap disabled.
+    disabled_beats: Arc<AtomicU32>,
 }
 
 // SAFETY: `port` is only handed to CGEventTapIsEnabled/CGEventTapEnable, which
@@ -50,9 +59,22 @@ pub struct TapHealth {
 // lives until main returns).
 unsafe impl Send for TapHealth {}
 
+const NOT_GRANTED: &str = "Fn is not available: grant Input Monitoring to Whispy V2 (or to the \
+     terminal that launched whispy2) in System Settings → Privacy & Security → Input Monitoring, \
+     then quit and reopen it.";
+
 /// Installs the tap on the main run loop; `forward` receives the key events.
 /// Fails when Input Monitoring is not granted.
 pub fn install(forward: impl Fn(Event) + Send + 'static) -> Result<FnKey, String> {
+    // Without Input Monitoring a listen-only tap may still be created, then
+    // sees nothing and is disabled over and over: ask first. The request adds
+    // the app to the Input Monitoring list (and prompts once); macOS applies a
+    // grant only to a relaunched process.
+    // SAFETY: plain CoreGraphics calls without arguments (macOS 10.15+).
+    if !unsafe { CGPreflightListenEventAccess() } {
+        unsafe { CGRequestListenEventAccess() };
+        return Err(NOT_GRANTED.to_string());
+    }
     let is_fn_held = Arc::new(AtomicBool::new(false));
     let held = Arc::clone(&is_fn_held);
     let tap = CGEventTap::new(
@@ -83,11 +105,7 @@ pub fn install(forward: impl Fn(Event) + Send + 'static) -> Result<FnKey, String
             CallbackResult::Keep
         },
     )
-    .map_err(|()| {
-        "Fn is not available: grant Input Monitoring to the app that launched whispy2 \
-         (System Settings → Privacy & Security → Input Monitoring), then restart whispy2."
-            .to_string()
-    })?;
+    .map_err(|()| NOT_GRANTED.to_string())?;
     let source = tap
         .mach_port()
         .create_runloop_source(0)
@@ -98,7 +116,11 @@ pub fn install(forward: impl Fn(Event) + Send + 'static) -> Result<FnKey, String
     let port = tap.mach_port().as_concrete_TypeRef() as usize;
     Ok(FnKey {
         _tap: tap,
-        health: TapHealth { port, is_fn_held },
+        health: TapHealth {
+            port,
+            is_fn_held,
+            disabled_beats: Arc::new(AtomicU32::new(0)),
+        },
     })
 }
 
@@ -110,10 +132,17 @@ impl TapHealth {
         let port = self.port as CFMachPortRef;
         // SAFETY: `port` is the live tap's mach port (see `TapHealth`).
         if unsafe { CGEventTapIsEnabled(port) } {
+            self.disabled_beats.store(0, Ordering::SeqCst);
             return None;
         }
         unsafe { CGEventTapEnable(port, true) };
-        eprintln!("[whispy2] the Fn tap was disabled by macOS; re-enabled");
+        let beats = self.disabled_beats.fetch_add(1, Ordering::SeqCst);
+        if beats.is_multiple_of(REPEAT_REPORT_EVERY) {
+            crate::log::line(&format!(
+                "the Fn tap was disabled by macOS; re-enabled ({} time(s) in a row)",
+                beats + 1
+            ));
+        }
         let is_down_now = unsafe { CGEventSourceFlagsState(HID_SYSTEM_STATE) }
             & CGEventFlags::CGEventFlagSecondaryFn.bits()
             != 0;
