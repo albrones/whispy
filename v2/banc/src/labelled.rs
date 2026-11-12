@@ -80,7 +80,7 @@ impl Origin {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Label {
     pub kind: Kind,
     pub reference: String,
@@ -182,7 +182,7 @@ fn percent(numerator: usize, denominator: usize) -> f64 {
 }
 
 /// The three parts of criterion 3, over scored clips and V1's baseline.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Verdict {
     /// Lost chunk clips, and how many came back with text (V2, V1).
     pub lost_chunks: usize,
@@ -259,6 +259,12 @@ impl Verdict {
         self.recovery_holds() && self.no_invented_text() && self.wer_holds()
     }
 
+    /// Clips the user labelled noise that came back with text, wherever
+    /// they came from: each one would be typed into the user's window.
+    pub fn noise_with_text(&self) -> usize {
+        self.lost_noise_invented + self.drift_noise_invented
+    }
+
     pub fn lines(&self) -> Vec<String> {
         let state = |ok: bool| if ok { "holds" } else { "NOT MET" };
         vec![
@@ -306,10 +312,33 @@ pub fn default_dir() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".whispy/bench")
 }
 
-struct Clip {
-    id: String,
-    label: Label,
-    wav: PathBuf,
+/// V1's result per clip id, from `baseline.json`.
+pub type Baseline = HashMap<String, V1Result>;
+
+pub struct Clip {
+    pub id: String,
+    pub label: Label,
+    pub wav: PathBuf,
+}
+
+/// The reviewed clips and V1's baseline the full bench ranks configurations
+/// on: `WHISPY_LABELLED_DIR`, or `~/.whispy/bench`.
+pub fn bench_set() -> Result<(Vec<Clip>, Baseline), String> {
+    let dir = std::env::var_os("WHISPY_LABELLED_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(default_dir);
+    let baseline = load_baseline(&dir)?;
+    let (clips, _) = load_clips(&dir)?;
+    if clips.is_empty() {
+        return Err(format!("{}: no reviewed clip", dir.display()));
+    }
+    Ok((clips, baseline))
+}
+
+fn load_baseline(dir: &Path) -> Result<Baseline, String> {
+    let path = dir.join("baseline.json");
+    let json = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    parse_baseline(&json).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn load_clips(dir: &Path) -> Result<(Vec<Clip>, usize), String> {
@@ -345,12 +374,7 @@ fn load_clips(dir: &Path) -> Result<(Vec<Clip>, usize), String> {
 pub fn run(args: &[String]) -> Result<ExitCode, String> {
     let dir = args.first().map(PathBuf::from).unwrap_or_else(default_dir);
     let (clips, unreviewed) = load_clips(&dir)?;
-    let baseline_path = dir.join("baseline.json");
-    let baseline = parse_baseline(
-        &std::fs::read_to_string(&baseline_path)
-            .map_err(|e| format!("{}: {e}", baseline_path.display()))?,
-    )
-    .map_err(|e| format!("{}: {e}", baseline_path.display()))?;
+    let baseline = load_baseline(&dir)?;
     eprintln!(
         "banc: {} labelled clips from {} ({unreviewed} unreviewed skipped), default pipeline",
         clips.len(),

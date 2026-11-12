@@ -4,9 +4,10 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use whispy_core::pipeline::{DEFAULT_ENGINE, DEFAULT_FALLBACK, DEFAULT_STRATEGY};
-use whispy_core::{EngineKind, Strategy};
+use whispy_core::{EngineKind, Pipeline, Strategy};
 
 use crate::corpus::{Clip, Group, Kind};
+use crate::labelled::{self, Baseline, Verdict};
 use crate::oracle::{Labels, Recovery};
 use crate::wer;
 
@@ -128,15 +129,49 @@ pub fn run_engines(clips: &[Clip]) -> Result<Runs, String> {
     Ok(runs)
 }
 
+/// Criterion 3 per configuration on the user's labelled clips, each through
+/// a real [`Pipeline`]: these are whole dictations, and what the app types
+/// for one depends on how the pipeline splits it and joins the pieces, which
+/// a single engine call on the whole clip (as `run_engines` does) leaves out.
+pub fn run_labelled(
+    clips: &[labelled::Clip],
+    baseline: &Baseline,
+) -> Result<Vec<(Config, Verdict)>, String> {
+    let samples: Vec<Vec<f32>> = clips
+        .iter()
+        .map(|clip| whispy_core::audio::read_wav(&clip.wav).map_err(|error| error.to_string()))
+        .collect::<Result<_, _>>()?;
+    let mut verdicts = Vec::new();
+    for config in Config::all() {
+        eprintln!("banc: labelled clips, {}", config.label());
+        let load = |kind: EngineKind| kind.load().map_err(|error| error.to_string());
+        let mut pipeline = Pipeline::new(
+            load(config.primary)?,
+            config.fallback.map(load).transpose()?,
+            config.strategy,
+        );
+        let mut scored = Vec::with_capacity(clips.len());
+        for (clip, samples) in clips.iter().zip(&samples) {
+            let transcript = pipeline
+                .transcribe(samples)
+                .map_err(|error| format!("{}: {error}", clip.id))?;
+            scored.push(labelled::score(&clip.id, &clip.label, &transcript.text));
+        }
+        verdicts.push((config, Verdict::build(&scored, baseline)));
+    }
+    Ok(verdicts)
+}
+
 /// The outcome of `config` on clip `index`, derived from the per-engine runs:
 /// the fallback answers (and its time adds up) only when the primary is empty.
+/// As in the pipeline, an answer without a letter or a digit ("...") is empty.
 pub fn outcome(runs: &Runs, config: &Config, index: usize) -> Measured {
     let primary = &runs[&(config.primary, config.strategy)][index];
     match config.fallback {
-        Some(fallback) if primary.text.is_empty() => {
+        Some(fallback) if !is_worded(&primary.text) => {
             let second = &runs[&(fallback, config.strategy)][index];
             Measured {
-                text: second.text.clone(),
+                text: worded(&second.text),
                 seconds: primary
                     .seconds
                     .iter()
@@ -145,7 +180,22 @@ pub fn outcome(runs: &Runs, config: &Config, index: usize) -> Measured {
                     .collect(),
             }
         }
-        _ => primary.clone(),
+        _ => Measured {
+            text: worded(&primary.text),
+            seconds: primary.seconds.clone(),
+        },
+    }
+}
+
+fn is_worded(text: &str) -> bool {
+    text.chars().any(char::is_alphanumeric)
+}
+
+fn worded(text: &str) -> String {
+    if is_worded(text) {
+        text.to_string()
+    } else {
+        String::new()
     }
 }
 
@@ -161,6 +211,9 @@ pub struct Metrics {
     /// The lost clips that hold speech, per the oracle and the user's ear
     /// (criterion 3); zero clips when the oracle was not run.
     pub lost_speech: Recovery,
+    /// Criterion 3 on the user's labelled clips, against V1's baseline; none
+    /// when the labelled clips are not on this machine.
+    pub labelled: Option<Verdict>,
 }
 
 impl Metrics {

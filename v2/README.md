@@ -289,6 +289,8 @@ The thresholds are V1's, measured on real dictation (see the comments in
   `say` (FR and EN, short, ~5 s and long), plus V1's two validation fixtures;
 - the same references turned down to the level of real lost dictation;
 - silence and noise, where any text is invented;
+- your own labelled clips, when they are on this machine (`~/.whispy/bench`,
+  or `WHISPY_LABELLED_DIR`; see « Criterion 3 on your own labelled clips »);
 
 through both engines and every strategy, alone and with the other engine as
 fallback, and runs V1 on the same clips through `bench/v1_replay.py` with V1's
@@ -298,6 +300,15 @@ dictation, two reprises and 30 s of quiet (normal peak, reprise peak, the
 latency the first whisper load adds, whether whisper was freed). It writes
 `bench/REPORT.md`, and exits with code 2 when its pick differs from the
 library's default.
+
+The pick is ranked on your labelled clips first, each configuration replaying
+them as a whole pipeline (split and joined as the app does): a configuration that returns
+text on a clip you labelled noise is out, then come the ones that hold
+criterion 3, the most lost speech back, the fewest word errors. The clips of
+`~/.whispy/lost/` have no label and V1 keeps rotating that folder, so they
+rank only when there are no labelled clips: text there may be invented, and a
+pick resting on it changed from one day to the next. Only counts from the
+labelled clips reach `bench/REPORT.md`.
 
 ### Which lost clips hold speech (criterion 3)
 
