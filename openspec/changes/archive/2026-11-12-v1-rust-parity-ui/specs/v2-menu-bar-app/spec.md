@@ -103,7 +103,7 @@ The app SHALL show no Dock icon. Its menu SHALL follow V1's structure, top to bo
 - Restart;
 - Quit (⌘Q).
 
-The status line SHALL be V1's, with a leading brand-green « ● »: « Listening… » while the trigger is down before recording, then « Loading model… », « ⚠ Model not loaded », « Recording », « Transcribing… » and « Ready ». While V2 yields to V1, it SHALL read « Whispy V1 is running — Fn is left to it ».
+The status line SHALL be V1's, with a leading brand-green « ● »: « Listening… » while the trigger is down before recording, then « Loading model… », « ⚠ Model not loaded », « Recording », « Transcribing… » and « Ready ». While V2 yields to V1, it SHALL read « Whispy V1 is running — the trigger key is left to it », whichever key the trigger is.
 
 Theming SHALL follow V1:
 - toggles show a trailing green ✓ when on;
