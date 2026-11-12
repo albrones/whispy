@@ -12,4 +12,4 @@
 
 ## 3. Delivery (Ernesto)
 
-- [ ] 3.1 Gate, criteria proven, archive
+- [x] 3.1 Gate, criteria proven, archive
