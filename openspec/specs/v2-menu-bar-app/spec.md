@@ -6,7 +6,7 @@ Whispy V2's macOS app around the transcription core: V1's trigger key, held or t
 ## Requirements
 
 ### Requirement: The app cannot stay stuck recording
-Repeated presses and releases without a matching edge SHALL be ignored; a tap disabled by macOS SHALL be re-enabled within a second and a release missed meanwhile replayed; a recording SHALL be stopped after 5 minutes with its text left on the clipboard instead of pasted; Fn pressed together with another key SHALL cancel the dictation it started; a microphone that cannot be opened SHALL return the app to idle and say why in the menu.
+Repeated presses and releases without a matching edge SHALL be ignored; a tap disabled by macOS SHALL be re-enabled within a second and a release missed meanwhile replayed; a recording SHALL be stopped after 5 minutes with its text left on the clipboard instead of pasted; the trigger key pressed together with another key SHALL cancel the dictation it started; a microphone that cannot be opened SHALL return the app to idle and say why in the menu.
 
 #### Scenario: The watchdog stops a forgotten toggle
 - **WHEN** a toggled recording reaches 5 minutes
@@ -14,9 +14,9 @@ Repeated presses and releases without a matching edge SHALL be ignored; a tap di
 
 _Tier: unit — `whispy2` `machine`._
 
-#### Scenario: Fn as a modifier
-- **WHEN** another key goes down while Fn is held for a dictation
-- **THEN** the recording SHALL be discarded and the following Fn release SHALL not latch a toggle
+#### Scenario: The trigger key as a modifier
+- **WHEN** another key goes down while the trigger key is held for a dictation
+- **THEN** the recording SHALL be discarded and the following release SHALL start nothing
 
 _Tier: unit — `whispy2` `machine`._
 
@@ -66,23 +66,23 @@ _Tier: unit — colour by appearance; manual._
 
 _Tier: script._
 
-### Requirement: V1 and V2 never both answer Fn
-The app SHALL consider V1 running when 127.0.0.1:9090 accepts a connection or a process runs a `Whispy.app/Contents/MacOS/Whispy` executable, check it before listening to Fn and every 2 s after, and while V1 runs it SHALL ignore Fn and say « Whispy V1 is running — Fn is left to it » in its menu. A dictation under way when V1 appears SHALL finish first. V1 SHALL NOT be stopped or modified.
+### Requirement: V1 and V2 never both answer the trigger
+The app SHALL consider V1 running when 127.0.0.1:9090 accepts a connection or a process runs a `Whispy.app/Contents/MacOS/Whispy` executable, check it before listening to the trigger key and every 2 s after, and while V1 runs it SHALL ignore the trigger key and say « Whispy V1 is running — the trigger key is left to it » in its menu. A dictation under way when V1 appears SHALL finish first. V1 SHALL NOT be stopped or modified.
 
 #### Scenario: Started while V1 runs
 - **WHEN** whispy2 is launched while `/Applications/Whispy.app` runs
-- **THEN** its menu SHALL read « Whispy V1 is running — Fn is left to it » and Fn presses SHALL do nothing
+- **THEN** its menu SHALL read « Whispy V1 is running — the trigger key is left to it » and trigger presses SHALL do nothing
 
 _Tier: unit — `whispy2` `machine`, `v1`; manual — menu read through the Accessibility API (2026-10-17)._
 
 #### Scenario: V1 quits
 - **WHEN** V1 stops running while V2 is yielded
-- **THEN** V2 SHALL become ready and the next Fn press SHALL start a recording
+- **THEN** V2 SHALL become ready and the next trigger press SHALL start a recording
 
 _Tier: unit — `whispy2` `machine`._
 
-### Requirement: Fn release to inserted text stays under 1.5 s
-For a dictation of at least 5 s of speech, the time from Fn release to the text handed to the inserter SHALL have a p95 under 1.5 s with the default pipeline.
+### Requirement: Trigger release to inserted text stays under 1.5 s
+For a dictation of at least 5 s of speech, the time from the trigger release to the text handed to the inserter SHALL have a p95 under 1.5 s with the default pipeline.
 
 #### Scenario: Latency end to end
 - **WHEN** `cargo test --release -p whispy2 --test latency -- --ignored` replays 6.5–6.8 s reference dictations through the app path, resampled from 48 kHz, with the real models
