@@ -21,7 +21,9 @@ use whispy_core::{Pipeline, Strategy};
 use crate::feedback::{phase_of, Feedback, Phase};
 use crate::journal::{Entry, Journal, Outcome};
 use crate::log;
-use crate::machine::{Action, Delivery, Event, Machine, Mode, State};
+use crate::machine::{Action, Delivery, Event, Machine, Mode, State, RECORDING_LIMIT};
+use crate::menu_model::{Alert, Pane};
+use crate::settings::TriggerMode;
 
 /// Where the audio-level updates of a recording go (see [`Capture::set_level_sink`]).
 pub type LevelSink = Arc<dyn Fn(f32) + Send + Sync>;
@@ -45,7 +47,7 @@ pub trait Inserter: Send {
     fn deliver(&mut self, text: &str, delivery: Delivery) -> Result<(), String>;
 }
 
-/// What triggered an edge: the Fn key or the control socket. Only the
+/// What triggered an edge: the trigger key (Fn by default) or the control socket. Only the
 /// controller looks at it (for the journal); the machine never does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
@@ -69,21 +71,29 @@ pub struct Status {
     /// The last thing worth telling the user (loading, an error), if any.
     pub note: Option<String>,
     pub models_loaded: bool,
+    /// How the trigger key works right now (a change applies at the next rest).
+    pub trigger_mode: TriggerMode,
+    /// The System Settings pane of the last permission alert, if any: the menu
+    /// shows « Missing permission… » and opens it.
+    pub permission_pane: Option<Pane>,
 }
 
 impl Status {
     pub fn headline(&self) -> &'static str {
         match self.state {
-            State::Idle => "Ready — hold Fn to dictate, tap it to toggle",
+            State::Idle => match self.trigger_mode {
+                TriggerMode::Hold => "Ready — hold the trigger key to dictate",
+                TriggerMode::Toggle => "Ready — press the trigger key to start dictating",
+            },
             State::Recording {
                 mode: Mode::Hold, ..
-            } => "Recording — release Fn to insert",
+            } => "Recording — release the trigger key to insert",
             State::Recording {
                 mode: Mode::Toggle, ..
-            } => "Recording — press Fn to stop",
+            } => "Recording — press the trigger key to stop",
             State::Transcribing { .. } => "Transcribing…",
             State::Inserting => "Inserting…",
-            State::Yielded => "Whispy V1 is running — Fn is left to it",
+            State::Yielded => "Whispy V1 is running — the trigger key is left to it",
         }
     }
 
@@ -110,8 +120,8 @@ pub enum Input {
     ModelsLoaded(Result<(), String>),
     /// Something to tell the user that is not a state change (an insertion failure).
     Note(String),
-    /// A [`Note`](Input::Note) that also plays the alert sound: the microphone heard nothing.
-    Alert(String),
+    /// A [`Note`](Input::Note) that is also one of V1's notifications (see [`Alert`]).
+    Alert(Alert),
     /// The input level of the recording, from the capture's level sink.
     Level(f32),
     /// The current status, for the control socket's `status`.
@@ -219,7 +229,11 @@ fn run(
         state: machine.state(),
         note: Some(LOADING_NOTE.into()),
         models_loaded: false,
+        trigger_mode: machine.trigger_mode(),
+        permission_pane: None,
     };
+    let mut is_load_failed = false;
+    let mut permission_pane: Option<Pane> = None;
     let mut trigger = Source::Fn;
     let mut phase = Phase::Hidden;
     show(&status);
@@ -233,9 +247,17 @@ fn run(
                 models_loaded = true;
                 (status.note.as_deref() == Some(LOADING_NOTE)).then_some(None)
             }
-            Input::ModelsLoaded(Err(error)) | Input::Note(error) => Some(Some(error)),
-            Input::Alert(note) => {
-                feedback.alert();
+            Input::ModelsLoaded(Err(error)) => {
+                is_load_failed = true;
+                let alert = Alert::model_failed(&error);
+                let note = alert.message.clone();
+                raise(&mut feedback, &mut permission_pane, alert);
+                Some(Some(note))
+            }
+            Input::Note(error) => Some(Some(error)),
+            Input::Alert(alert) => {
+                let note = alert.message.clone();
+                raise(&mut feedback, &mut permission_pane, alert);
                 Some(Some(note))
             }
             Input::Level(level) => {
@@ -248,13 +270,24 @@ fn run(
             }
             Input::Event(event, source) => {
                 let note = note_for(&event);
+                let is_tick = matches!(event, Event::Tick(_));
                 if let Some(action) = machine.handle(event) {
                     if action == Action::StartCapture {
                         trigger = source;
                     }
+                    let alert = alert_for(&action, is_tick, models_loaded, is_load_failed);
                     if let Err(error) = perform(action, &mut capture, &jobs, trigger) {
                         machine.handle(Event::CaptureFailed);
+                        raise(
+                            &mut feedback,
+                            &mut permission_pane,
+                            Alert::no_microphone(&error),
+                        );
                         Some(Some(error))
+                    } else if let Some(alert) = alert {
+                        let note = alert.message.clone();
+                        raise(&mut feedback, &mut permission_pane, alert);
+                        Some(Some(note))
                     } else {
                         note
                     }
@@ -272,6 +305,8 @@ fn run(
             state: machine.state(),
             note: note.unwrap_or_else(|| status.note.clone()),
             models_loaded,
+            trigger_mode: machine.trigger_mode(),
+            permission_pane,
         };
         if next != status {
             status = next;
@@ -280,10 +315,47 @@ fn run(
     }
 }
 
+/// Sends `alert` to the user and remembers its permission pane for the menu.
+fn raise(feedback: &mut impl Feedback, permission_pane: &mut Option<Pane>, alert: Alert) {
+    if alert.pane.is_some() {
+        *permission_pane = alert.pane;
+    }
+    feedback.alert(alert);
+}
+
+/// The V1 alert an action carries, if any: a watchdog stop (the Tick that
+/// ended the recording), or a dictation that ended while the models were
+/// still loading (V1's `_on_recording_stop`).
+fn alert_for(
+    action: &Action,
+    is_tick: bool,
+    models_loaded: bool,
+    is_load_failed: bool,
+) -> Option<Alert> {
+    if *action != Action::StopCaptureAndTranscribe {
+        return None;
+    }
+    if is_tick {
+        return Some(Alert::dictation_stopped(&format!(
+            "Dictation stopped after {} minutes. Any transcribed text was copied to the clipboard.",
+            RECORDING_LIMIT.as_secs() / 60
+        )));
+    }
+    (!models_loaded && !is_load_failed).then(Alert::model_still_loading)
+}
+
+/// The alert an insertion failure is, if it is V1's « Can't type into apps »:
+/// the inserter's message names Accessibility when macOS refused the keystrokes.
+pub fn insertion_alert(error: &str) -> Option<Alert> {
+    error
+        .contains("Accessibility")
+        .then(|| Alert::cannot_type(error))
+}
+
 /// `Some(new note)` when the event changes what the menu should say beyond the state.
 fn note_for(event: &Event) -> Option<Option<String>> {
     match event {
-        Event::FnDown(_) => Some(None),
+        Event::TriggerDown(_) => Some(None),
         Event::TranscriptionFailed => Some(Some(
             "The last dictation could not be transcribed; its audio is kept in ~/.whispy/v2-lost/."
                 .into(),
@@ -363,7 +435,8 @@ fn spawn_worker<I: Inserter + 'static>(
                     Job::Transcribe(dictation) => {
                         let done = transcribe(pipeline.as_mut(), &dictation, &lost_clips);
                         if let Some(note) = done.alert {
-                            let _ = controller.send(Input::Alert(note));
+                            let _ = controller
+                                .send(Input::Alert(Alert::microphone_heard_nothing(&note)));
                         }
                         let duration_s = dictation.samples.len() as f32 / SAMPLE_RATE;
                         if matches!(&done.event, Event::Transcribed(text) if !text.trim().is_empty())
@@ -397,7 +470,10 @@ fn spawn_worker<I: Inserter + 'static>(
                         };
                         if let Err(error) = delivered {
                             log::line(&format!("insertion failed: {error}"));
-                            let _ = controller.send(Input::Note(error));
+                            let _ = controller.send(match insertion_alert(&error) {
+                                Some(alert) => Input::Alert(alert),
+                                None => Input::Note(error),
+                            });
                         }
                         if let Some(done) = pending.take() {
                             journal.record(&Entry {
@@ -613,7 +689,7 @@ mod tests {
     #[derive(Debug, Clone, PartialEq)]
     enum Cue {
         Show(Phase),
-        Alert,
+        Alert(Alert),
     }
 
     /// Records what the user would see and hear.
@@ -623,8 +699,8 @@ mod tests {
             self.0.lock().unwrap().push(Cue::Show(phase));
         }
         fn level(&mut self, _level: f32) {}
-        fn alert(&mut self) {
-            self.0.lock().unwrap().push(Cue::Alert);
+        fn alert(&mut self, alert: Alert) {
+            self.0.lock().unwrap().push(Cue::Alert(alert));
         }
     }
 
@@ -647,8 +723,8 @@ mod tests {
     /// Holds Fn for `seconds` of fake time and waits for the machine to finish.
     fn dictate(controller: &Controller, seconds: u64) {
         let start = Instant::now();
-        controller.send(Event::FnDown(start));
-        controller.send(Event::FnUp(start + Duration::from_secs(seconds)));
+        controller.send(Event::TriggerDown(start));
+        controller.send(Event::TriggerUp(start + Duration::from_secs(seconds)));
     }
 
     fn journal_lines(directory: &std::path::Path) -> Vec<String> {
@@ -738,7 +814,7 @@ mod tests {
                 let _ = statuses.send(status.clone());
             },
         );
-        controller.send(Event::FnDown(Instant::now()));
+        controller.send(Event::TriggerDown(Instant::now()));
         let failure = shown
             .iter()
             .find(|status: &Status| {
@@ -793,7 +869,9 @@ mod tests {
         assert_eq!(std::fs::read_dir(&lost).unwrap().count(), 0, "no lost clip");
         // The panel went up and down, and the alert sounded.
         let cues = cues.lock().unwrap();
-        assert!(cues.contains(&Cue::Alert));
+        assert!(cues.contains(&Cue::Alert(Alert::microphone_heard_nothing(
+            "Microphone heard nothing (MacBook Pro Microphone)"
+        ))));
     }
 
     #[test]
@@ -822,14 +900,17 @@ mod tests {
         );
         dictate(&controller, 1);
         controller.stop();
-        assert!(!cues.lock().unwrap().contains(&Cue::Alert));
+        // (The models may still be loading: that alert is not the deaf-take one.)
+        assert!(!cues.lock().unwrap().iter().any(
+            |cue| matches!(cue, Cue::Alert(alert) if alert.subtitle == "Microphone heard nothing")
+        ));
         assert!(shown
             .try_iter()
             .all(|status| !status.note.unwrap_or_default().contains("heard nothing")));
     }
 
     #[test]
-    fn the_indicator_follows_the_dictation_and_alerts_on_heard_nothing() {
+    fn the_pill_follows_the_recording_and_alerts_on_heard_nothing() {
         let (delivered, inserted) = mpsc::channel();
         let cues = Arc::new(Mutex::new(Vec::new()));
         let seen = Arc::clone(&cues);
@@ -844,17 +925,20 @@ mod tests {
         );
         dictate(&controller, 1);
         inserted.recv_timeout(Duration::from_secs(5)).unwrap();
-        wait_for("the panel never hid", || {
+        wait_for("the pill never hid", || {
             cues.lock().unwrap().last() == Some(&Cue::Show(Phase::Hidden))
         });
         controller.stop();
+        let shown: Vec<Cue> = cues
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|cue| matches!(cue, Cue::Show(_)))
+            .cloned()
+            .collect();
         assert_eq!(
-            *cues.lock().unwrap(),
-            vec![
-                Cue::Show(Phase::Recording),
-                Cue::Show(Phase::Transcribing),
-                Cue::Show(Phase::Hidden)
-            ]
+            shown,
+            vec![Cue::Show(Phase::Recording), Cue::Show(Phase::Hidden)]
         );
 
         let heard_cues = Arc::new(Mutex::new(Vec::new()));
@@ -870,7 +954,11 @@ mod tests {
         );
         dictate(&controller, 2);
         wait_for("no alert", || {
-            heard_cues.lock().unwrap().contains(&Cue::Alert)
+            heard_cues
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|cue| matches!(cue, Cue::Alert(_)))
         });
         controller.stop();
     }
@@ -895,9 +983,9 @@ mod tests {
             crate::feedback::NoFeedback,
             |_: &Status| {},
         );
-        controller.send_from(Event::FnDown(Instant::now()), Source::Socket);
+        controller.send_from(Event::TriggerDown(Instant::now()), Source::Socket);
         controller.send_from(
-            Event::FnUp(Instant::now() + Duration::from_secs(4)),
+            Event::TriggerUp(Instant::now() + Duration::from_secs(4)),
             Source::Socket,
         );
         inserted.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1028,5 +1116,132 @@ mod tests {
         }
         assert!(dispatch(&controller.inputs, Request::Status).contains("\"state\":\"yielded\""));
         controller.stop();
+    }
+
+    /// Runs `inputs` through a controller and returns the alerts raised and the last status.
+    fn raised(inputs: Vec<Input>) -> (Vec<Alert>, Status) {
+        let (delivered, _inserted) = mpsc::channel();
+        let cues = Arc::new(Mutex::new(Vec::new()));
+        let (statuses, shown) = mpsc::channel();
+        let controller = Controller::start(
+            || Clip(Vec::new()),
+            || pipeline(Echo),
+            Recorder(delivered),
+            LostClips { directory: None },
+            no_journal(),
+            Cues(Arc::clone(&cues)),
+            move |status: &Status| {
+                let _ = statuses.send(status.clone());
+            },
+        );
+        for input in inputs {
+            controller.inputs.send(input).unwrap();
+        }
+        controller.stop();
+        let alerts = cues
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|cue| match cue {
+                Cue::Alert(alert) => Some(alert.clone()),
+                Cue::Show(_) => None,
+            })
+            .collect();
+        (alerts, shown.try_iter().last().unwrap())
+    }
+
+    #[test]
+    fn a_failed_model_load_raises_v1s_alert() {
+        let (alerts, status) = raised(vec![Input::ModelsLoaded(Err("offline".into()))]);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].subtitle, "Model failed to load");
+        assert_eq!(
+            alerts[0].message,
+            "offline \u{2014} check your internet connection, then use Restart from the Whispy menu."
+        );
+        assert_eq!(status.permission_pane, None);
+        assert_eq!(status.note.as_deref(), Some(alerts[0].message.as_str()));
+    }
+
+    #[test]
+    fn a_permission_alert_carries_its_pane_to_the_status() {
+        let (alerts, status) = raised(vec![Input::Alert(Alert::missing_permission(
+            "input_monitoring",
+            "no tap",
+        ))]);
+        assert_eq!(alerts[0].subtitle, "Missing permission");
+        assert_eq!(status.permission_pane, Some(Pane::InputMonitoring));
+        assert_eq!(status.note.as_deref(), Some("no tap"));
+
+        let denied = insertion_alert("macOS refused the paste: grant Accessibility to Whispy V2")
+            .expect("an Accessibility refusal is an alert");
+        assert_eq!(denied.subtitle, "Can't type into apps");
+        assert_eq!(denied.pane, Some(Pane::Accessibility));
+        assert_eq!(insertion_alert("the clipboard is busy"), None);
+        let (_, status) = raised(vec![Input::Alert(denied)]);
+        assert_eq!(status.permission_pane, Some(Pane::Accessibility));
+    }
+
+    #[test]
+    fn an_unopenable_microphone_raises_no_microphone() {
+        struct Broken;
+        impl Capture for Broken {
+            fn start(&mut self) -> Result<(), String> {
+                Err("no input device".into())
+            }
+            fn stop(&mut self) -> Vec<f32> {
+                Vec::new()
+            }
+        }
+        let (delivered, _inserted) = mpsc::channel();
+        let cues = Arc::new(Mutex::new(Vec::new()));
+        let controller = Controller::start(
+            || Broken,
+            || pipeline(Echo),
+            Recorder(delivered),
+            LostClips { directory: None },
+            no_journal(),
+            Cues(Arc::clone(&cues)),
+            |_: &Status| {},
+        );
+        controller.send(Event::TriggerDown(Instant::now()));
+        controller.stop();
+        let cues = cues.lock().unwrap();
+        let alert = cues
+            .iter()
+            .find_map(|cue| match cue {
+                Cue::Alert(alert) => Some(alert),
+                Cue::Show(_) => None,
+            })
+            .expect("an alert");
+        assert_eq!(alert.subtitle, "No microphone available");
+        assert!(alert.message.contains("no input device"));
+        assert!(alert
+            .message
+            .ends_with("check your input device, then try again."));
+    }
+
+    #[test]
+    fn the_watchdog_stop_and_a_dictation_over_loading_models_have_v1s_texts() {
+        let stop = Action::StopCaptureAndTranscribe;
+        let watchdog = alert_for(&stop, true, true, false).unwrap();
+        assert_eq!(watchdog.subtitle, "Dictation stopped");
+        assert_eq!(
+            watchdog.message,
+            "Dictation stopped after 5 minutes. Any transcribed text was copied to the clipboard."
+        );
+        let loading = alert_for(&stop, false, false, false).unwrap();
+        assert_eq!(loading.subtitle, "Model still loading");
+        assert_eq!(
+            loading.message,
+            "Whispy is still loading the transcription model \u{2014} try again in a moment."
+        );
+        // Loaded, or failed (that has its own alert): nothing more to say.
+        assert_eq!(alert_for(&stop, false, true, false), None);
+        assert_eq!(alert_for(&stop, false, false, true), None);
+        assert_eq!(
+            alert_for(&Action::DiscardCapture, false, false, false),
+            None
+        );
     }
 }

@@ -110,10 +110,10 @@ network port. One request per line, one reply line:
 
 ```bash
 printf 'status\n' | nc -U ~/.whispy/v2/control.sock
-# {"state":"idle","models_loaded":true,"yielded":false,"last_problem":null}
+# {"state":"idle","models_loaded":true,"yielded":false,"last_problem":null,"trigger_mode":"hold"}
 printf 'start\n'  | nc -U ~/.whispy/v2/control.sock   # like pressing Fn down
 printf 'stop\n'   | nc -U ~/.whispy/v2/control.sock   # like releasing it (always a hold)
-printf 'toggle\n' | nc -U ~/.whispy/v2/control.sock   # like a short tap
+printf 'toggle\n' | nc -U ~/.whispy/v2/control.sock   # like one Toggle-mode press
 ```
 
 Requests go through the same state machine as Fn: a `stop` with nothing

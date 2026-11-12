@@ -1,7 +1,7 @@
 //! What the user sees and hears while dictating, behind a port.
 //!
-//! The controller drives it from the machine's state; the macOS adapter is a
-//! floating panel, a Linux one can be a tray icon or a notification. The trait
+//! The controller drives it from the machine's state; the macOS adapter is V1's
+//! floating pill plus a notification, a Linux one can be a tray icon or a notification. The trait
 //! is `Send` and takes `&mut self` so the controller thread owns it: an
 //! adapter that touches the UI hops to its main thread inside each call (as
 //! `menu_bar::show` does) instead of the controller knowing about threads.
@@ -9,11 +9,13 @@
 use std::time::{Duration, Instant};
 
 use crate::machine::State;
+use crate::menu_model::Alert;
 
+/// V1's pill is up while the key is down and the microphone records, and away
+/// as soon as the recording stops: transcribing does not keep it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
     Recording,
-    Transcribing,
     Hidden,
 }
 
@@ -22,8 +24,9 @@ pub trait Feedback: Send {
     fn show(&mut self, phase: Phase);
     /// The input level of the current recording, 0.0 to 1.0, about 20 times a second.
     fn level(&mut self, level: f32);
-    /// Something went wrong that the menu bar icon alone would not get noticed: a sound.
-    fn alert(&mut self);
+    /// Something went wrong that the menu bar icon alone would not get noticed: V1's
+    /// notification (title "Whispy", the alert's subtitle and message).
+    fn alert(&mut self, alert: Alert);
 }
 
 /// Shows nothing: the default until an adapter exists, and the Linux stub.
@@ -32,15 +35,18 @@ pub struct NoFeedback;
 impl Feedback for NoFeedback {
     fn show(&mut self, _phase: Phase) {}
     fn level(&mut self, _level: f32) {}
-    fn alert(&mut self) {}
+    fn alert(&mut self, _alert: Alert) {}
 }
 
-/// Inserting is the tail of transcribing for the user: the panel stays until the text is in.
+/// The pill belongs to the recording (V1 hides it on recording stop). A press
+/// is the recording for the machine: it starts capturing at once, so "Listening"
+/// and "Recording" are one phase here.
 pub fn phase_of(state: State) -> Phase {
     match state {
         State::Recording { .. } => Phase::Recording,
-        State::Transcribing { .. } | State::Inserting => Phase::Transcribing,
-        State::Idle | State::Yielded => Phase::Hidden,
+        State::Transcribing { .. } | State::Inserting | State::Idle | State::Yielded => {
+            Phase::Hidden
+        }
     }
 }
 
@@ -94,7 +100,7 @@ mod tests {
     use crate::machine::{Delivery, Mode};
 
     #[test]
-    fn the_panel_stays_up_from_recording_until_the_text_is_inserted() {
+    fn the_pill_is_up_only_while_recording() {
         let now = Instant::now();
         let recording = State::Recording {
             mode: Mode::Hold,
@@ -105,8 +111,8 @@ mod tests {
         let transcribing = State::Transcribing {
             delivery: Delivery::Paste,
         };
-        assert_eq!(phase_of(transcribing), Phase::Transcribing);
-        assert_eq!(phase_of(State::Inserting), Phase::Transcribing);
+        assert_eq!(phase_of(transcribing), Phase::Hidden);
+        assert_eq!(phase_of(State::Inserting), Phase::Hidden);
         assert_eq!(phase_of(State::Idle), Phase::Hidden);
         assert_eq!(phase_of(State::Yielded), Phase::Hidden);
     }
