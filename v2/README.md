@@ -155,8 +155,8 @@ answering and exits; a socket left by a crash is replaced. It replaces V1's
 
 **V1 and V2 never both answer the trigger.** When V1 runs (its API port 9090
 answers, or a `Whispy.app/Contents/MacOS/Whispy` process exists) V2's status
-line reads « Whispy V1 is running — Fn is left to it » (V1's wording, whatever
-the key) and V2 ignores the trigger. It looks again every 2 s: quit V1 and V2
+line reads « Whispy V1 is running — the trigger key is left to it » and V2
+ignores the trigger. It looks again every 2 s: quit V1 and V2
 takes the key within 2 s; start V1 and V2 lets go as soon as its current
 dictation, if any, is inserted. V1 itself is not touched.
 

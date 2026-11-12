@@ -133,7 +133,7 @@ pub struct StatusFacts {
 /// nothing, so every other line would be misleading.
 pub fn status_text(f: &StatusFacts) -> &'static str {
     if f.yielded {
-        "Whispy V1 is running \u{2014} Fn is left to it"
+        "Whispy V1 is running \u{2014} the trigger key is left to it"
     } else if f.trigger_down && !f.recording {
         "Listening\u{2026}"
     } else if f.model_loading {
@@ -669,7 +669,7 @@ mod tests {
                 recording: true,
                 ..base
             }),
-            "Whispy V1 is running \u{2014} Fn is left to it"
+            "Whispy V1 is running \u{2014} the trigger key is left to it"
         );
     }
 
