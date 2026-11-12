@@ -72,8 +72,11 @@ scrolls while V2 records or transcribes. Then, in any app, with the trigger key
 - **Type while speaking** (toggle mode only, V1's `type_while_speaking`, on by
   default): while you dictate, the recording is cut at each pause (0.6 s of
   silence after at least 0.7 s of speech, V1's values; a run-on stretch is cut
-  before 20 s, in its longest pause), and each piece is transcribed and typed
-  as soon as it is cut, in order, a space between pieces. The stopping press
+  by 8 s, V1's `max_chunk_s`, in its longest pause), and each piece is
+  transcribed and typed as soon as it is cut, in order, a space between pieces.
+  A piece cut by the 8 s limit keeps back its final period and the next one
+  follows with « , » and a lowercase letter (V1's `join_chunk`), so one spoken
+  sentence is not typed as two. The stopping press
   types the last piece. Pieces go through the same paste (or typing) as a
   whole dictation, so the clipboard is put back after each one. If the 5-minute
   watchdog stops the dictation, the whole text goes to the clipboard; if a
@@ -326,7 +329,8 @@ fed to `split::LiveSplitter` 50 ms at a time, as the app drains the
 microphone; each piece goes through the default pipeline, and the joined text's
 word error rate is compared with the same audio transcribed in one block. Then
 a 180 s dictation goes the same way in a fresh process, and its peak memory
-must stay under 1.5 GB. Exits 1 when fewer than two pieces carry text, when
+must stay under 1.5 GB. It also prints, for information, the longest French
+reference cut by the 8 s limit and joined as typed. Exits 1 when fewer than two pieces carry text, when
 the joined WER is worse than one block, or over the memory bound.
 
 ### Criterion 3 on your own labelled clips

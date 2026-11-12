@@ -24,7 +24,8 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use whispy_core::split::LiveSplitter;
+use whispy_core::join::PieceJoiner;
+use whispy_core::split::{LiveSplitter, Piece};
 use whispy_core::{Pipeline, Strategy};
 
 use crate::feedback::{phase_of, Feedback, Phase};
@@ -162,7 +163,7 @@ struct Dictation {
 enum Job {
     Transcribe(Dictation),
     /// A piece cut at a pause while the dictation records: transcribe and type it now.
-    TypePiece(Vec<f32>),
+    TypePiece(Piece),
     /// The end of a dictation typed while spoken: its text goes back through the machine.
     TranscribeLastPiece {
         dictation: Dictation,
@@ -530,13 +531,9 @@ fn spawn_worker<I: Inserter + 'static>(
             let mut live = LiveDictation::default();
             for job in receiver {
                 let (done, dictation, duration_s) = match job {
-                    Job::TypePiece(samples) => {
-                        let failure = live.type_piece(
-                            pipeline.as_mut(),
-                            &samples,
-                            &mut inserter,
-                            &lost_clips,
-                        );
+                    Job::TypePiece(piece) => {
+                        let failure =
+                            live.type_piece(pipeline.as_mut(), &piece, &mut inserter, &lost_clips);
                         if let Some(error) = failure {
                             let _ = controller.send(insertion_input(error));
                         }
@@ -751,9 +748,10 @@ fn transcribe_samples(
 /// A dictation typed while spoken, between its first piece and its stop.
 #[derive(Default)]
 struct LiveDictation {
-    /// The text handed to the inserter so far, pieces joined by a space (the
+    /// The text handed to the inserter so far, pieces joined by `joiner` (the
     /// text of a piece whose insertion failed included).
     typed: String,
+    joiner: PieceJoiner,
     /// The audio of the pieces so far, for the journal and the deaf-take check.
     seconds: f32,
     peak_level: f32,
@@ -767,10 +765,11 @@ impl LiveDictation {
     fn type_piece(
         &mut self,
         pipeline: Option<&mut Pipeline>,
-        samples: &[f32],
+        piece: &Piece,
         inserter: &mut impl Inserter,
         lost_clips: &LostClips,
     ) -> Option<String> {
+        let samples = &piece.samples;
         self.seconds += samples.len() as f32 / SAMPLE_RATE;
         self.peak_level = self.peak_level.max(peak_level(samples));
         if is_deaf_take(samples) {
@@ -783,23 +782,14 @@ impl LiveDictation {
         if text.trim().is_empty() {
             return None;
         }
-        let piece = self.next_piece(&text);
-        self.typed.push_str(&piece);
+        let joined = self.joiner.next(&text, piece.is_cut_mid_speech);
+        self.typed.push_str(&joined);
         self.engine = self.engine.or(done.engine);
-        let error = inserter.deliver(&piece, Delivery::Paste).err()?;
+        let error = inserter.deliver(&joined, Delivery::Paste).err()?;
         log::line(&format!("insertion of a piece failed: {error}"));
         let is_first_failure = !self.has_insertion_failed;
         self.has_insertion_failed = true;
         is_first_failure.then_some(error)
-    }
-
-    /// `text` as it follows what was typed: a space between pieces, none before the first.
-    fn next_piece(&self, text: &str) -> String {
-        if self.typed.is_empty() {
-            text.trim().to_string()
-        } else {
-            format!(" {}", text.trim())
-        }
     }
 
     /// The last piece, at the stop. Its event carries what the machine inserts:
@@ -807,7 +797,7 @@ impl LiveDictation {
     /// (the watchdog), or when a piece could not be typed, so nothing is lost
     /// (some text may then appear twice).
     fn finish(
-        self,
+        mut self,
         pipeline: Option<&mut Pipeline>,
         dictation: &Dictation,
         delivery: Delivery,
@@ -826,10 +816,12 @@ impl LiveDictation {
         let Event::Transcribed(tail_text) = &done.event else {
             return done;
         };
+        // The stop ends a sentence: the last piece keeps its period, and one
+        // kept back by the piece before comes back when the last has no text.
         let last_piece = if tail_text.trim().is_empty() {
-            String::new()
+            self.joiner.end().to_string()
         } else {
-            self.next_piece(tail_text)
+            self.joiner.next(tail_text, false)
         };
         let whole = format!("{}{last_piece}", self.typed);
         let outcome = match (self.typed.is_empty(), self.has_insertion_failed) {

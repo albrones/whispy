@@ -12,7 +12,8 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use whispy_core::audio::{self, SAMPLE_RATE};
-use whispy_core::split::LiveSplitter;
+use whispy_core::join::PieceJoiner;
+use whispy_core::split::{LiveSplitter, Piece};
 use whispy_core::Pipeline;
 
 use crate::{corpus, memory, wer};
@@ -25,6 +26,10 @@ const SECOND: (&str, &str) = (
     "fr-sentence-courses.wav",
     "pense à acheter du pain et des tomates en rentrant ce soir",
 );
+const RUN_ON: (&str, &str) = (
+    "fr-long-projet.wav",
+    "nous avons terminé la première version du projet la semaine dernière, mais il reste plusieurs problèmes à corriger avant de la présenter aux utilisateurs, notamment la vitesse et la fiabilité de la transcription",
+);
 const PAUSE_S: f32 = 1.0;
 /// 50 ms at 16 kHz: the beat at which the app drains the microphone.
 const BLOCK: usize = 800;
@@ -36,26 +41,7 @@ pub fn run() -> Result<ExitCode, String> {
     let expected = format!("{} {}", FIRST.1, SECOND.1);
     let mut pipeline = Pipeline::load_default().map_err(|error| error.to_string())?;
 
-    let pieces = split_as_recorded(&clip);
-    let mut texts = Vec::new();
-    let mut offset_s = 0.0;
-    for (index, piece) in pieces.iter().enumerate() {
-        let text = pipeline
-            .transcribe(piece)
-            .map_err(|error| error.to_string())?
-            .text;
-        let seconds = audio::seconds(piece);
-        println!(
-            "piece {}: {offset_s:.2}–{:.2} s  {text:?}",
-            index + 1,
-            offset_s + seconds
-        );
-        offset_s += seconds;
-        if !text.trim().is_empty() {
-            texts.push(text.trim().to_string());
-        }
-    }
-    let joined = texts.join(" ");
+    let (joined, pieces_with_text) = typed_while_spoken(&mut pipeline, &clip)?;
     let block = pipeline
         .transcribe(&clip)
         .map_err(|error| error.to_string())?
@@ -65,13 +51,13 @@ pub fn run() -> Result<ExitCode, String> {
     println!("expected: {expected:?}");
     println!("joined:   {joined:?}  WER {:.1} %", joined_wer * 100.0);
     println!("block:    {block:?}  WER {:.1} %", block_wer * 100.0);
+    run_on_sentence(&mut pipeline)?;
 
-    let has_two_pieces = texts.len() >= 2;
+    let has_two_pieces = pieces_with_text >= 2;
     let is_no_worse = joined_wer <= block_wer;
     println!(
-        "criterion 2 (≥ 2 pieces with text, in order): {} ({} pieces with text)",
-        verdict(has_two_pieces),
-        texts.len()
+        "criterion 2 (≥ 2 pieces with text, in order): {} ({pieces_with_text} pieces with text)",
+        verdict(has_two_pieces)
     );
     println!(
         "criterion 3 (joined WER ≤ one-block WER): {}",
@@ -105,7 +91,7 @@ pub fn memory_probe() -> Result<ExitCode, String> {
     let pieces = split_as_recorded(&dictation);
     for piece in &pieces {
         pipeline
-            .transcribe(piece)
+            .transcribe(&piece.samples)
             .map_err(|error| error.to_string())?;
     }
     println!(
@@ -143,14 +129,71 @@ fn memory_in_fresh_process() -> Result<(u64, u64, usize, f64), String> {
     }
 }
 
-/// The pieces the app would queue: closed while recording, then the rest at the stop.
-fn split_as_recorded(samples: &[f32]) -> Vec<Vec<f32>> {
+/// The text the app types for `samples`: each piece transcribed, then joined
+/// as typed; also the number of pieces that carried text. Prints each piece.
+fn typed_while_spoken(pipeline: &mut Pipeline, samples: &[f32]) -> Result<(String, usize), String> {
+    let mut joiner = PieceJoiner::default();
+    let mut typed = String::new();
+    let mut pieces_with_text = 0;
+    let mut offset_s = 0.0;
+    for (index, piece) in split_as_recorded(samples).iter().enumerate() {
+        let text = pipeline
+            .transcribe(&piece.samples)
+            .map_err(|error| error.to_string())?
+            .text;
+        let seconds = audio::seconds(&piece.samples);
+        let cut = if piece.is_cut_mid_speech {
+            "length"
+        } else {
+            "pause"
+        };
+        println!(
+            "piece {}: {offset_s:.2}–{:.2} s ({cut})  {text:?}",
+            index + 1,
+            offset_s + seconds
+        );
+        offset_s += seconds;
+        if !text.trim().is_empty() {
+            typed.push_str(&joiner.next(&text, piece.is_cut_mid_speech));
+            pieces_with_text += 1;
+        }
+    }
+    typed.push_str(joiner.end());
+    Ok((typed, pieces_with_text))
+}
+
+/// Informative: the longest French reference, said without a pause long
+/// enough to close a piece, so the length limit cuts it mid-sentence.
+fn run_on_sentence(pipeline: &mut Pipeline) -> Result<(), String> {
+    let (file, expected) = RUN_ON;
+    let clip = audio::read_wav(&corpus::bench_dir().join("reference").join(file))
+        .map_err(|error| error.to_string())?;
+    let (joined, _) = typed_while_spoken(pipeline, &clip)?;
+    let block = pipeline
+        .transcribe(&clip)
+        .map_err(|error| error.to_string())?
+        .text;
+    println!(
+        "run-on {file} ({:.1} s): joined WER {:.1} %, block WER {:.1} %\n  joined: {joined:?}",
+        audio::seconds(&clip),
+        word_error_rate(expected, &joined) * 100.0,
+        word_error_rate(expected, &block) * 100.0
+    );
+    Ok(())
+}
+
+/// The pieces the app would queue: closed while recording, then the rest at
+/// the stop (which always ends a sentence).
+fn split_as_recorded(samples: &[f32]) -> Vec<Piece> {
     let mut splitter = LiveSplitter::new();
     let mut pieces = Vec::new();
     for block in samples.chunks(BLOCK) {
         pieces.extend(splitter.push(block));
     }
-    pieces.push(splitter.finish());
+    pieces.push(Piece {
+        samples: splitter.finish(),
+        is_cut_mid_speech: false,
+    });
     pieces
 }
 
