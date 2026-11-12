@@ -127,9 +127,9 @@ fn release_to_insertion_p95_is_under_one_and_a_half_seconds() {
         *next_clip.lock().unwrap() = as_device_audio(&speech);
         for _ in 0..=REPEATS {
             let pressed = Instant::now() - Duration::from_secs_f64(seconds);
-            controller.send(Event::FnDown(pressed));
+            controller.send(Event::TriggerDown(pressed));
             let released = Instant::now();
-            controller.send(Event::FnUp(released));
+            controller.send(Event::TriggerUp(released));
             let (text, at) = insertions
                 .recv_timeout(Duration::from_secs(60))
                 .expect("no text was inserted");

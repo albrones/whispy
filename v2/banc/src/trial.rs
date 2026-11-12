@@ -13,8 +13,8 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use crate::labelled::{parse_json, Json};
 use crate::measure::percentile;
+use whispy_core::json::{parse_json, Json};
 
 /// The outcomes the app writes, in report order.
 const OUTCOMES: [&str; 6] = [
@@ -46,6 +46,7 @@ pub fn parse_entry(line: &str) -> Result<Entry, String> {
             .ok_or_else(|| format!("missing number {key:?}"))
     };
     let time = match json.get("time") {
+        Some(Json::Int(seconds)) => *seconds,
         Some(Json::Number(seconds)) => *seconds as i64,
         Some(Json::Text(text)) => parse_rfc3339(text)?,
         _ => return Err("missing time".to_string()),

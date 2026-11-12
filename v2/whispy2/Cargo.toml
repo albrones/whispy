@@ -19,10 +19,16 @@ core-graphics = "=0.25.0"
 core-foundation = "=0.10.1"
 # The menu bar icon and menu (NSStatusItem), and main-thread hops for status updates.
 objc2 = "=0.6.5"
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSString", "NSThread", "NSObject", "NSArray", "NSEnumerator", "NSError"] }
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSImage", "NSCell", "NSButtonCell", "NSRunningApplication", "objc2-core-foundation", "NSGraphics", "NSPanel", "NSWindow", "NSScreen", "NSEvent", "NSLevelIndicator", "NSLevelIndicatorCell", "NSTextField", "NSColor", "NSSound", "NSMenuItem"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSString", "NSThread", "NSObject", "NSArray", "NSEnumerator", "NSError", "NSTimer", "NSAttributedString", "NSRange", "NSValue", "NSRunLoop", "NSBundle", "NSDictionary"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSImage", "NSCell", "NSButtonCell", "NSRunningApplication", "objc2-core-foundation", "NSGraphics", "NSPanel", "NSWindow", "NSScreen", "NSEvent", "NSLevelIndicator", "NSLevelIndicatorCell", "NSTextField", "NSColor", "NSSound", "NSMenuItem", "NSBezierPath", "NSAttributedString", "NSAppearance"] }
 # "Start at login": SMAppService.mainApp register/unregister/status for the V2 bundle.
 objc2-service-management = { version = "=0.3.2", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
+# Alerts as notifications (UNUserNotificationCenter), the V1 alert surface. 0.3.2 is the
+# release of the objc2 0.6 / objc2-foundation 0.3.2 family; features trimmed to the center,
+# the content and the request, plus `block2` for the completion handlers.
+objc2-user-notifications = { version = "=0.3.2", default-features = false, features = ["std", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationTrigger", "block2"] }
+# The completion-handler blocks of the notification center (same family as objc2 0.6).
+block2 = "=0.6.2"
 dispatch2 = "=0.3.1"
 # V1 detection: list processes and their executable paths (proc_listallpids, proc_pidpath).
 libc = "0.2"

@@ -12,6 +12,7 @@
 //! ```
 
 pub mod audio;
+pub mod json;
 pub mod lazy;
 pub mod mel;
 pub mod models;

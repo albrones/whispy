@@ -7,7 +7,7 @@
 //! Line protocol, one request and one reply line per connection: `start`,
 //! `stop`, `toggle`, `status`.
 //!
-//! The socket produces the events the Fn key produces and the machine never
+//! The socket produces the events the trigger key produces and the machine never
 //! learns where an edge came from: that is why a `stop` while idle, or a
 //! `start` while recording, is ignored for free.
 //!
@@ -28,13 +28,11 @@ use std::time::{Duration, Instant};
 use crate::controller::{Input, Source, Status};
 use crate::journal::json_string;
 use crate::log;
-use crate::machine::{Event, Mode, State, TAP_MAX};
+use crate::machine::{Event, Mode, State, MIN_HOLD};
+use crate::settings::TriggerMode;
 
 pub const SOCKET_ENV: &str = "WHISPY_V2_SOCKET";
 
-/// `toggle` is a tap: press and release this far apart, under the machine's
-/// [`TAP_MAX`] (300 ms) so it latches the recording instead of stopping it.
-const TOGGLE_TAP: Duration = Duration::from_millis(50);
 /// A client that connects and says nothing must not hold a thread forever.
 const READ_TIMEOUT: Duration = Duration::from_secs(2);
 /// The controller answers a status query at once unless it is gone.
@@ -192,16 +190,26 @@ pub fn dispatch(inputs: &Sender<Input>, request: Request) -> String {
         Request::Start | Request::Toggle if status.state == State::Yielded => {
             "refused: Whispy V1 is running and holds the trigger".into()
         }
-        Request::Start => reply(send(Event::FnDown(Instant::now()))),
-        Request::Stop => reply(send(Event::FnUp(release_stamp(
+        Request::Start => reply(send(Event::TriggerDown(Instant::now()))),
+        Request::Stop => reply(send(Event::TriggerUp(release_stamp(
             status.state,
             Instant::now(),
         )))),
-        Request::Toggle => {
-            let pressed = send(Event::FnDown(Instant::now()));
-            thread::sleep(TOGGLE_TAP);
-            reply(pressed && send(Event::FnUp(Instant::now())))
+        Request::Toggle => reply(send_toggle(&status, &send)),
+    }
+}
+
+/// One Toggle-mode press. In Toggle mode that is a single trigger press. In
+/// Hold mode it starts when idle and stops when recording, as a hold would: a
+/// press and release pair would be a short press, which Hold discards.
+fn send_toggle(status: &Status, send: &dyn Fn(Event) -> bool) -> bool {
+    let now = Instant::now();
+    match (status.trigger_mode, status.state) {
+        (TriggerMode::Toggle, _) => send(Event::TriggerDown(now)),
+        (TriggerMode::Hold, State::Recording { .. }) => {
+            send(Event::TriggerUp(release_stamp(status.state, now)))
         }
+        (TriggerMode::Hold, _) => send(Event::TriggerDown(now)),
     }
 }
 
@@ -216,7 +224,7 @@ fn reply(is_sent: bool) -> String {
 /// When a socket `stop` counts as released. It must be a hold: a `stop` sent
 /// right after a `start` (a script, a fast client) would otherwise look like a
 /// tap, latch the recording into toggle mode and leave it running. So the
-/// release is stamped no sooner than [`TAP_MAX`] after the press. The machine
+/// release is stamped no sooner than [`MIN_HOLD`] after the press. The machine
 /// only compares event times, so a stamp slightly in the future is harmless,
 /// and the recording ends right away: the recording stops when the event is
 /// handled, not when its stamp comes due.
@@ -226,7 +234,7 @@ pub fn release_stamp(state: State, now: Instant) -> Instant {
             mode: Mode::Hold,
             pressed_at,
             ..
-        } => now.max(pressed_at + TAP_MAX),
+        } => now.max(pressed_at + MIN_HOLD),
         _ => now,
     }
 }
@@ -244,10 +252,14 @@ pub fn status_json(status: &Status) -> String {
         None => "null".to_string(),
     };
     format!(
-        "{{\"state\":{},\"models_loaded\":{},\"yielded\":{},\"last_problem\":{problem}}}",
+        "{{\"state\":{},\"models_loaded\":{},\"yielded\":{},\"last_problem\":{problem},\"trigger_mode\":\"{}\"}}",
         json_string(status.state_name()),
         status.models_loaded,
-        status.state == State::Yielded
+        status.state == State::Yielded,
+        match status.trigger_mode {
+            TriggerMode::Hold => "hold",
+            TriggerMode::Toggle => "toggle",
+        }
     )
 }
 
@@ -333,11 +345,58 @@ mod tests {
             started_at: now,
         };
         let stamp = release_stamp(state, now + Duration::from_millis(20));
-        assert!(stamp.saturating_duration_since(now) >= TAP_MAX);
+        assert!(stamp.saturating_duration_since(now) >= MIN_HOLD);
         // A long hold keeps its own time; other states are untouched.
         let late = now + Duration::from_secs(2);
         assert_eq!(release_stamp(state, late), late);
         assert_eq!(release_stamp(State::Idle, now), now);
+    }
+
+    fn toggle_sent(mode: TriggerMode, state: State) -> Vec<Event> {
+        let status = Status {
+            state,
+            note: None,
+            models_loaded: true,
+            trigger_mode: mode,
+            permission_pane: None,
+        };
+        let sent = std::cell::RefCell::new(Vec::new());
+        assert!(send_toggle(&status, &|event| {
+            sent.borrow_mut().push(event);
+            true
+        }));
+        sent.into_inner()
+    }
+
+    #[test]
+    fn toggle_is_one_press_in_toggle_mode() {
+        let sent = toggle_sent(TriggerMode::Toggle, State::Idle);
+        assert!(matches!(sent.as_slice(), [Event::TriggerDown(_)]));
+        let now = Instant::now();
+        let recording = State::Recording {
+            mode: Mode::Toggle,
+            pressed_at: now,
+            started_at: now,
+        };
+        let sent = toggle_sent(TriggerMode::Toggle, recording);
+        assert!(matches!(sent.as_slice(), [Event::TriggerDown(_)]));
+    }
+
+    #[test]
+    fn toggle_in_hold_mode_starts_when_idle_and_stops_as_a_hold_when_recording() {
+        let sent = toggle_sent(TriggerMode::Hold, State::Idle);
+        assert!(matches!(sent.as_slice(), [Event::TriggerDown(_)]));
+        let now = Instant::now();
+        let recording = State::Recording {
+            mode: Mode::Hold,
+            pressed_at: now,
+            started_at: now,
+        };
+        let sent = toggle_sent(TriggerMode::Hold, recording);
+        let [Event::TriggerUp(at)] = sent.as_slice() else {
+            panic!("expected one release, got {sent:?}");
+        };
+        assert!(at.saturating_duration_since(now) >= MIN_HOLD);
     }
 
     #[test]
@@ -346,17 +405,22 @@ mod tests {
             state: State::Idle,
             note: Some("Microphone heard nothing (\"Mic\")".into()),
             models_loaded: true,
+            trigger_mode: TriggerMode::Hold,
+            permission_pane: None,
         };
         assert_eq!(
             status_json(&status),
-            "{\"state\":\"idle\",\"models_loaded\":true,\"yielded\":false,\"last_problem\":\"Microphone heard nothing (\\\"Mic\\\")\"}"
+            "{\"state\":\"idle\",\"models_loaded\":true,\"yielded\":false,\"last_problem\":\"Microphone heard nothing (\\\"Mic\\\")\",\"trigger_mode\":\"hold\"}"
         );
         let loading = Status {
             state: State::Yielded,
             note: Some(crate::controller::LOADING_NOTE.into()),
             models_loaded: false,
+            trigger_mode: TriggerMode::Toggle,
+            permission_pane: None,
         };
         let json = status_json(&loading);
         assert!(json.contains("\"yielded\":true") && json.contains("\"last_problem\":null"));
+        assert!(json.contains("\"trigger_mode\":\"toggle\""));
     }
 }
