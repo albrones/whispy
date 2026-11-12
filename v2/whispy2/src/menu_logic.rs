@@ -38,6 +38,7 @@ pub enum Change {
     Copy(bool),
     Mode(TriggerMode),
     Trigger(Trigger),
+    TypeWhileSpeaking(bool),
 }
 
 impl Change {
@@ -47,6 +48,7 @@ impl Change {
             Change::Copy(_) => "copy_to_clipboard",
             Change::Mode(_) => "trigger_mode",
             Change::Trigger(_) => "trigger",
+            Change::TypeWhileSpeaking(_) => "type_while_speaking",
         }
     }
 
@@ -56,6 +58,7 @@ impl Change {
             Change::Copy(copy) => Json::Bool(*copy),
             Change::Mode(mode) => Json::Text(mode.as_config().to_string()),
             Change::Trigger(trigger) => trigger.as_config(),
+            Change::TypeWhileSpeaking(is_on) => Json::Bool(*is_on),
         }
     }
 
@@ -64,6 +67,7 @@ impl Change {
             Change::Copy(copy) => settings.copy_to_clipboard = *copy,
             Change::Mode(mode) => settings.trigger_mode = *mode,
             Change::Trigger(trigger) => settings.trigger = trigger.clone(),
+            Change::TypeWhileSpeaking(is_on) => settings.type_while_speaking = *is_on,
         }
     }
 }
@@ -77,6 +81,9 @@ pub fn change_for(action: MenuAction, current: &Settings) -> Option<Change> {
             TriggerMode::Hold => TriggerMode::Toggle,
             TriggerMode::Toggle => TriggerMode::Hold,
         })),
+        MenuAction::ToggleTypeWhileSpeaking => {
+            Some(Change::TypeWhileSpeaking(!current.type_while_speaking))
+        }
         MenuAction::SelectTrigger(value) => {
             let keycode = value.unwrap_or(crate::settings::FN_KEYCODE);
             trigger_presets()
@@ -98,6 +105,7 @@ pub fn action_tag(action: MenuAction) -> isize {
         MenuAction::OpenPermissionSettings => 4,
         MenuAction::Restart => 5,
         MenuAction::Quit => 6,
+        MenuAction::ToggleTypeWhileSpeaking => 7,
         MenuAction::SelectTrigger(None) => 100,
         MenuAction::SelectTrigger(Some(keycode)) => 1000 + keycode as isize,
     }
@@ -111,6 +119,7 @@ pub fn tag_action(tag: isize) -> Option<MenuAction> {
         4 => MenuAction::OpenPermissionSettings,
         5 => MenuAction::Restart,
         6 => MenuAction::Quit,
+        7 => MenuAction::ToggleTypeWhileSpeaking,
         100 => MenuAction::SelectTrigger(None),
         tag if tag >= 1000 => MenuAction::SelectTrigger(Some((tag - 1000) as i64)),
         _ => return None,
@@ -224,6 +233,11 @@ mod tests {
         );
         let fn_key = change_for(MenuAction::SelectTrigger(None), &settings).unwrap();
         assert_eq!(fn_key.value(), Json::Null);
+        let live_typing = change_for(MenuAction::ToggleTypeWhileSpeaking, &settings).unwrap();
+        assert_eq!(
+            (live_typing.key(), live_typing.value()),
+            ("type_while_speaking", Json::Bool(false))
+        );
         assert!(change_for(MenuAction::Quit, &settings).is_none());
         assert!(change_for(MenuAction::SelectTrigger(Some(7)), &settings).is_none());
     }
@@ -247,6 +261,26 @@ mod tests {
     }
 
     #[test]
+    fn type_while_speaking_toggles_only_its_own_setting() {
+        let before = Settings::default();
+        let mut after = before.clone();
+        let change = change_for(MenuAction::ToggleTypeWhileSpeaking, &before).unwrap();
+        change.apply(&mut after);
+        assert_eq!(
+            after,
+            Settings {
+                type_while_speaking: false,
+                ..before.clone()
+            }
+        );
+        // Toggling again turns it back on.
+        assert_eq!(
+            change_for(MenuAction::ToggleTypeWhileSpeaking, &after),
+            Some(Change::TypeWhileSpeaking(true))
+        );
+    }
+
+    #[test]
     fn tags_round_trip() {
         for action in [
             MenuAction::ToggleCopy,
@@ -255,6 +289,7 @@ mod tests {
             MenuAction::OpenPermissionSettings,
             MenuAction::Restart,
             MenuAction::Quit,
+            MenuAction::ToggleTypeWhileSpeaking,
             MenuAction::SelectTrigger(None),
             MenuAction::SelectTrigger(Some(54)),
             MenuAction::SelectTrigger(Some(105)),

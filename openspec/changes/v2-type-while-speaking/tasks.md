@@ -8,7 +8,7 @@
 
 ## 2. Menu (Paloma)
 
-- [ ] 2.1 « Type while speaking » row under SETTINGS with V1's ✓, bound to the setting
+- [x] 2.1 « Type while speaking » row under SETTINGS with V1's ✓, bound to the setting
 
 ## 3. Delivery (Ernesto)
 

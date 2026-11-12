@@ -6,9 +6,6 @@
 //! The module also holds V1's status-line precedence, trigger labels, System
 //! Settings URLs and alert texts, all ported verbatim from
 //! `src/whispy/ui/menu_bar.py`.
-//!
-//! Deliberately left out of V1's menu: « Type while speaking » (streaming is a
-//! non-goal of the parity change).
 
 use crate::theme::{check_title, section_title, status_title, toggle_title, Title};
 
@@ -29,6 +26,7 @@ pub const FN_KEYCODE: i64 = 63;
 pub enum MenuAction {
     ToggleCopy,
     ToggleMode,
+    ToggleTypeWhileSpeaking,
     /// `None` selects Fn (the default, stored as unset).
     SelectTrigger(Option<i64>),
     ToggleLogin,
@@ -106,6 +104,9 @@ pub struct MenuInput {
     pub status_text: String,
     pub copy_to_clipboard: bool,
     pub toggle_mode: bool,
+    /// V1's `type_while_speaking`. Like V1, the row shows the setting alone:
+    /// it only acts in toggle mode, and V1 does not flag it in hold mode.
+    pub type_while_speaking: bool,
     /// The configured trigger's keycode ([`FN_KEYCODE`] for Fn).
     pub trigger_keycode: i64,
     /// The label shown in « Trigger: <label> » (see [`trigger_label`]).
@@ -198,6 +199,11 @@ pub fn build(input: &MenuInput) -> Vec<MenuRow> {
             MenuAction::ToggleCopy,
         ),
         toggle("Toggle mode", input.toggle_mode, MenuAction::ToggleMode),
+        toggle(
+            "Type while speaking",
+            input.type_while_speaking,
+            MenuAction::ToggleTypeWhileSpeaking,
+        ),
     ];
 
     let items = TRIGGER_PRESETS
@@ -488,6 +494,7 @@ mod tests {
             status_text: "Ready".into(),
             copy_to_clipboard: true,
             toggle_mode: false,
+            type_while_speaking: true,
             trigger_keycode: FN_KEYCODE,
             trigger_label: trigger_label(FN_KEYCODE),
             login: LoginRow::Hidden,
@@ -510,6 +517,7 @@ mod tests {
                 "SETTINGS",
                 "Copy to clipboard   ✓",
                 "Toggle mode",
+                "Type while speaking   ✓",
                 "Trigger: Fn",
                 "",
                 "Restart",
@@ -519,7 +527,14 @@ mod tests {
         assert_eq!(rows[2].kind, RowKind::PermissionWarning { visible: false });
         assert!(!rows[0].enabled && !rows[1].enabled && !rows[4].enabled);
         assert_eq!(
-            rows[10].kind,
+            rows[7].kind,
+            RowKind::Toggle {
+                action: MenuAction::ToggleTypeWhileSpeaking,
+                checked: true
+            }
+        );
+        assert_eq!(
+            rows[11].kind,
             RowKind::Action {
                 action: MenuAction::Quit,
                 key_equivalent: Some("q")
@@ -529,7 +544,7 @@ mod tests {
 
     #[test]
     fn trigger_submenu_checks_the_active_preset() {
-        let RowKind::Submenu { items } = &build(&idle_input())[7].kind else {
+        let RowKind::Submenu { items } = &build(&idle_input())[8].kind else {
             panic!("not a submenu")
         };
         let titles: Vec<&str> = items.iter().map(|r| r.title.text.as_str()).collect();
@@ -571,14 +586,29 @@ mod tests {
         i.login = LoginRow::Unavailable;
         let rows = build(&i);
         assert_eq!(
-            rows[8].title.text,
+            rows[9].title.text,
             "Start at login (needs the installed app)"
         );
-        assert!(!rows[8].enabled);
+        assert!(!rows[9].enabled);
         i.login = LoginRow::On;
-        assert_eq!(build(&i)[8].title.text, "Start at login   ✓");
+        assert_eq!(build(&i)[9].title.text, "Start at login   ✓");
         i.login = LoginRow::Off;
-        assert_eq!(build(&i)[8].title.text, "Start at login");
+        assert_eq!(build(&i)[9].title.text, "Start at login");
+    }
+
+    #[test]
+    fn type_while_speaking_row_follows_the_setting() {
+        let mut i = idle_input();
+        i.type_while_speaking = false;
+        let row = &build(&i)[7];
+        assert_eq!(row.title.text, "Type while speaking");
+        assert_eq!(
+            row.kind,
+            RowKind::Toggle {
+                action: MenuAction::ToggleTypeWhileSpeaking,
+                checked: false
+            }
+        );
     }
 
     #[test]

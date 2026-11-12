@@ -101,6 +101,9 @@ permission alert; it opens the right Privacy pane), then under **SETTINGS**:
   and the previous clipboard is put back; off: the text is typed by System
   Events `keystroke` and the clipboard is not touched;
 - **Toggle mode** — the mode above;
+- **Type while speaking** — in toggle mode, each piece cut at a pause is typed
+  as soon as it is transcribed instead of all at once at the stop (on by
+  default, V1's setting); it does nothing in hold mode;
 - **Trigger: <key>** — V1's presets: Fn, Right Command, Right Option, F13
   (a key set by hand in V1's file shows its name);
 - **Start at login** — registers the installed app as a login item (disabled
