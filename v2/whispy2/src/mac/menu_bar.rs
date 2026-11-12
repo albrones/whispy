@@ -291,6 +291,7 @@ impl MenuBar {
                 status_text: menu_model::status_text(&facts).to_string(),
                 copy_to_clipboard: settings.copy_to_clipboard,
                 toggle_mode: settings.trigger_mode == settings::TriggerMode::Toggle,
+                type_while_speaking: settings.type_while_speaking,
                 trigger_keycode: settings.trigger.keycode,
                 trigger_label: menu_model::trigger_label(settings.trigger.keycode),
                 login: self.login_row(),
@@ -396,7 +397,10 @@ impl MenuBar {
 
     fn perform(&self, action: MenuAction) {
         match action {
-            MenuAction::ToggleCopy | MenuAction::ToggleMode | MenuAction::SelectTrigger(_) => {
+            MenuAction::ToggleCopy
+            | MenuAction::ToggleMode
+            | MenuAction::ToggleTypeWhileSpeaking
+            | MenuAction::SelectTrigger(_) => {
                 self.change_setting(action);
             }
             MenuAction::ToggleLogin => {
@@ -454,6 +458,9 @@ impl MenuBar {
                 if let Some(key) = &self.handles.trigger_key {
                     key.set(trigger.keycode);
                 }
+            }
+            menu_logic::Change::TypeWhileSpeaking(is_on) => {
+                let _ = self.handles.inputs.send(Input::TypeWhileSpeaking(*is_on));
             }
         }
         self.inner.borrow_mut().note = None;

@@ -4,11 +4,15 @@
 //! peak RSS at 1268 MB for 8 s, 1476 MB for 30 s and 3503 MB for 180 s, and
 //! the 180 s clip under CoreML took the machine down. A bounded piece bounds
 //! memory whatever the dictation's length.
+//!
+//! [`pieces`] splits a finished recording; [`LiveSplitter`] splits one while it
+//! is recorded, at the speaker's pauses, so each piece can be typed before the
+//! dictation ends (V1's « Type while speaking », `core/segmentation.py`).
 
 use std::ops::Range;
 
 use crate::audio::SAMPLE_RATE;
-use crate::vad;
+use crate::vad::{self, VoiceDetector, FRAME_SAMPLES};
 
 /// Longest piece handed to an engine in one call.
 pub const MAX_PIECE_S: f32 = 20.0;
@@ -47,6 +51,122 @@ pub fn pieces(samples: &[f32], max_piece_s: f32) -> Vec<Range<usize>> {
     ranges
 }
 
+/// Silence that closes a piece once it holds enough speech (V1's `pause_ms`, 600).
+pub const PAUSE_S: f32 = 0.6;
+/// Voiced seconds a piece needs before a pause may close it (V1's `min_speech_s`):
+/// each piece is one model call, and V1 measured an isolated « oui » (0.39 s
+/// voiced) come back in English 5 times out of 5, against 0 at 0.72 s. A short
+/// word therefore rides along with the speech after it.
+pub const MIN_SPEECH_S: f32 = 0.7;
+/// Past this much silence the speaker has stopped: a short word goes alone
+/// rather than wait for speech that may never come (V1's `LONE_WORD_PAUSE_S`).
+pub const LONE_WORD_PAUSE_S: f32 = 2.0;
+/// Longest piece cut while recording (V1's `max_chunk_s`): the time run-on
+/// speech waits before it is typed. Shorter than [`MAX_PIECE_S`], which only
+/// bounds memory: V1 measured pieces past 12 s come back in the wrong language
+/// far more often (median 12.03 s against 7.0 s overall).
+pub const LIVE_MAX_PIECE_S: f32 = 8.0;
+
+/// A piece cut while recording.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Piece {
+    pub samples: Vec<f32>,
+    /// Cut by [`LIVE_MAX_PIECE_S`] rather than a pause: the sentence may go on
+    /// in the next piece (V1's `CONTINUATION`), see [`crate::join`].
+    pub is_cut_mid_speech: bool,
+}
+
+/// Splits a recording while it is recorded. Feed it the samples as they come
+/// ([`push`](LiveSplitter::push)); it hands back each piece a pause closed, in
+/// order; [`finish`](LiveSplitter::finish) gives the rest at the stop. The
+/// pieces and the rest, put end to end, are exactly the samples pushed: audio
+/// is never dropped, only cut.
+///
+/// A piece closes when [`PAUSE_S`] of silence follows at least [`MIN_SPEECH_S`]
+/// of voiced audio (or [`LONE_WORD_PAUSE_S`] follows any), and in any case
+/// before [`LIVE_MAX_PIECE_S`], in the longest pause of the piece. Not `Send` (it holds a [`VoiceDetector`]).
+pub struct LiveSplitter {
+    /// Samples since the last cut.
+    pending: Vec<f32>,
+    /// One voiced flag per complete frame of `pending`.
+    voiced: Vec<bool>,
+    detector: VoiceDetector,
+}
+
+impl Default for LiveSplitter {
+    fn default() -> Self {
+        LiveSplitter::new()
+    }
+}
+
+impl LiveSplitter {
+    pub fn new() -> Self {
+        LiveSplitter {
+            pending: Vec::new(),
+            voiced: Vec::new(),
+            detector: VoiceDetector::new(),
+        }
+    }
+
+    /// Appends `samples` (16 kHz mono) and returns the pieces now closed, in order.
+    pub fn push(&mut self, samples: &[f32]) -> Vec<Piece> {
+        self.pending.extend_from_slice(samples);
+        let mut closed = Vec::new();
+        loop {
+            let start = self.voiced.len() * FRAME_SAMPLES;
+            let Some(frame) = self.pending.get(start..start + FRAME_SAMPLES) else {
+                return closed;
+            };
+            let frame: &[f32; FRAME_SAMPLES] = frame.try_into().expect("a frame-long slice");
+            let is_voiced = self.detector.is_voiced(frame);
+            self.voiced.push(is_voiced);
+            if let Some((cut, is_cut_mid_speech)) = self.cut_frame() {
+                let samples: Vec<f32> = self.pending.drain(..cut * FRAME_SAMPLES).collect();
+                self.voiced.drain(..cut);
+                closed.push(Piece {
+                    samples,
+                    is_cut_mid_speech,
+                });
+            }
+        }
+    }
+
+    /// The samples after the last piece: the end of the dictation.
+    pub fn finish(self) -> Vec<f32> {
+        self.pending
+    }
+
+    /// The frame to cut before, and whether the cut is mid-speech, if the
+    /// frames classified so far close a piece.
+    // ponytail: recounts the piece's frames at each new frame; a piece is at
+    // most LIVE_MAX_PIECE_S (267 frames), so this stays well under a millisecond.
+    fn cut_frame(&self) -> Option<(usize, bool)> {
+        let frames = self.voiced.len();
+        let frame_s = vad::frame_seconds();
+        let voiced_s = self.voiced.iter().filter(|&&voiced| voiced).count() as f32 * frame_s;
+        let silence_s = self
+            .voiced
+            .iter()
+            .rev()
+            .take_while(|&&voiced| !voiced)
+            .count() as f32
+            * frame_s;
+        let is_pause_closing = voiced_s > 0.0
+            && silence_s >= PAUSE_S
+            && (voiced_s >= MIN_SPEECH_S || silence_s >= LONE_WORD_PAUSE_S);
+        if is_pause_closing {
+            return Some((frames, false));
+        }
+        let max_frames = (LIVE_MAX_PIECE_S * SAMPLE_RATE as f32) as usize / FRAME_SAMPLES;
+        if frames < max_frames {
+            return None;
+        }
+        // Anywhere in the piece but its first frame, so a piece is never empty.
+        let cut = longest_pause_middle(&self.voiced, 1, frames).unwrap_or(frames);
+        Some((cut, true))
+    }
+}
+
 /// Middle frame of the longest unvoiced run within `first..end`.
 fn longest_pause_middle(voiced: &[bool], first: usize, end: usize) -> Option<usize> {
     let end = end.min(voiced.len());
@@ -83,6 +203,104 @@ mod tests {
         for pair in ranges.windows(2) {
             assert_eq!(pair[0].end, pair[1].start);
         }
+    }
+
+    /// Harmonic stack: reads as voiced to WebRTC VAD (see `vad` tests).
+    fn voiced(seconds: f32) -> Vec<f32> {
+        let count = (seconds * SAMPLE_RATE as f32) as usize;
+        (0..count)
+            .map(|i| {
+                let t = i as f32 / SAMPLE_RATE as f32;
+                (1..=10)
+                    .map(|h| 0.03 * (2.0 * std::f32::consts::PI * 150.0 * h as f32 * t).sin())
+                    .sum::<f32>()
+            })
+            .collect()
+    }
+
+    fn silence(seconds: f32) -> Vec<f32> {
+        vec![0.0; (seconds * SAMPLE_RATE as f32) as usize]
+    }
+
+    /// Pushes `samples` in 50 ms blocks, as the microphone delivers them.
+    fn split_live(samples: &[f32]) -> (Vec<Vec<f32>>, Vec<f32>) {
+        let (closed, rest) = split_live_pieces(samples);
+        (
+            closed.into_iter().map(|piece| piece.samples).collect(),
+            rest,
+        )
+    }
+
+    fn split_live_pieces(samples: &[f32]) -> (Vec<Piece>, Vec<f32>) {
+        let mut splitter = LiveSplitter::new();
+        let mut closed = Vec::new();
+        for block in samples.chunks(800) {
+            closed.extend(splitter.push(block));
+        }
+        (closed, splitter.finish())
+    }
+
+    fn joined(closed: &[Vec<f32>], rest: &[f32]) -> Vec<f32> {
+        closed.iter().flatten().chain(rest).copied().collect()
+    }
+
+    #[test]
+    fn a_one_second_pause_closes_a_piece_while_recording() {
+        let clip = [voiced(1.5), silence(1.0), voiced(1.5), silence(0.2)].concat();
+        let (closed, rest) = split_live(&clip);
+        assert_eq!(
+            closed.len(),
+            1,
+            "{:?}",
+            closed.iter().map(Vec::len).collect::<Vec<_>>()
+        );
+        // Closed once the pause reached PAUSE_S, give or take the VAD's own
+        // hangover (a few frames still read as voiced after the voice stops).
+        let first_s = closed[0].len() as f32 / SAMPLE_RATE as f32;
+        assert!(
+            (1.5 + PAUSE_S..1.5 + PAUSE_S + 0.3).contains(&first_s),
+            "{first_s}"
+        );
+        assert_eq!(joined(&closed, &rest), clip, "every sample kept, in order");
+    }
+
+    #[test]
+    fn a_short_word_rides_along_with_what_follows() {
+        let clip = [voiced(0.4), silence(0.8), voiced(1.5), silence(0.2)].concat();
+        let (closed, rest) = split_live(&clip);
+        assert!(closed.is_empty(), "{} pieces", closed.len());
+        assert_eq!(rest, clip);
+        // But after LONE_WORD_PAUSE_S the speaker has stopped: the word goes alone.
+        let clip = [voiced(0.4), silence(2.2), voiced(1.0)].concat();
+        let (closed, rest) = split_live(&clip);
+        assert_eq!(closed.len(), 1);
+        assert_eq!(joined(&closed, &rest), clip);
+    }
+
+    #[test]
+    fn twelve_seconds_without_a_pause_are_cut_by_eight() {
+        let clip = voiced(12.0);
+        let (closed, rest) = split_live_pieces(&clip);
+        assert_eq!(closed.len(), 1);
+        let first_s = closed[0].samples.len() as f32 / SAMPLE_RATE as f32;
+        assert!(first_s <= LIVE_MAX_PIECE_S, "first cut at {first_s} s");
+        assert!(closed[0].is_cut_mid_speech);
+        let samples: Vec<Vec<f32>> = closed.into_iter().map(|piece| piece.samples).collect();
+        assert_eq!(joined(&samples, &rest), clip);
+    }
+
+    #[test]
+    fn run_on_speech_is_cut_in_its_longest_pause() {
+        // A 0.3 s breath at 5 s: under PAUSE_S, so only the length limit cuts, there.
+        let clip = [voiced(5.0), silence(0.3), voiced(6.0)].concat();
+        let (closed, _) = split_live_pieces(&clip);
+        assert_eq!(closed.len(), 1);
+        let cut_s = closed[0].samples.len() as f32 / SAMPLE_RATE as f32;
+        assert!((5.0..5.4).contains(&cut_s), "cut at {cut_s} s");
+        assert!(closed[0].is_cut_mid_speech);
+        // A pause cut is not mid-speech.
+        let (closed, _) = split_live_pieces(&[voiced(1.5), silence(1.0), voiced(0.5)].concat());
+        assert!(!closed[0].is_cut_mid_speech);
     }
 
     #[test]

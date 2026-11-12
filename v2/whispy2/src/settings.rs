@@ -1,7 +1,8 @@
 //! V1's settings file, read and written by V2: the same `~/.config/whispy/config.json`,
 //! the same keys, the same defaults, so a choice made in one app carries to the other.
 //!
-//! V2 owns three keys (`copy_to_clipboard`, `trigger_mode`, `trigger`). The file
+//! V2 owns four keys (`copy_to_clipboard`, `trigger_mode`, `trigger`,
+//! `type_while_speaking`). The file
 //! holds many more (V1's `max_chunk_s`, `vocabulary`, `start_at_login`, ...):
 //! [`save_key`] therefore never writes a model of the file, it re-reads the file,
 //! changes the one key and writes everything else back as it found it.
@@ -82,6 +83,9 @@ pub struct Settings {
     pub copy_to_clipboard: bool,
     pub trigger_mode: TriggerMode,
     pub trigger: Trigger,
+    /// Toggle mode only: type each piece of the dictation as soon as it is
+    /// transcribed, instead of the whole text at the stop.
+    pub type_while_speaking: bool,
 }
 
 impl Default for Settings {
@@ -91,6 +95,8 @@ impl Default for Settings {
             copy_to_clipboard: true,
             trigger_mode: TriggerMode::Hold,
             trigger: Trigger::fn_key(),
+            // V1's `type_while_speaking` default (`core/config.py`).
+            type_while_speaking: true,
         }
     }
 }
@@ -139,6 +145,12 @@ pub fn load(path: &Path) -> (Settings, Vec<String>) {
         match value.bool() {
             Some(copy) => settings.copy_to_clipboard = copy,
             None => notes.push("copy_to_clipboard is not true or false; using true".to_string()),
+        }
+    }
+    if let Some(value) = root.get("type_while_speaking") {
+        match value.bool() {
+            Some(is_on) => settings.type_while_speaking = is_on,
+            None => notes.push("type_while_speaking is not true or false; using true".to_string()),
         }
     }
     if let Some(value) = root.get("trigger_mode") {
@@ -390,6 +402,39 @@ mod tests {
         assert_eq!(defaults.trigger_mode, TriggerMode::Hold);
         assert_eq!(defaults.trigger, Trigger::fn_key());
         assert_eq!(defaults.trigger.keycode, 63);
+        assert!(defaults.type_while_speaking);
+    }
+
+    #[test]
+    fn type_while_speaking_is_read_and_saved_like_v1() {
+        let path = scratch();
+        fs::write(&path, V1_FILE).unwrap();
+        // Absent from the file: V1's default, without a note.
+        let (settings, notes) = load(&path);
+        assert!(settings.type_while_speaking);
+        assert!(notes.is_empty(), "{notes:?}");
+        save_key(&path, "type_while_speaking", Json::Bool(false)).unwrap();
+        let (settings, notes) = load(&path);
+        assert!(!settings.type_while_speaking);
+        assert!(notes.is_empty(), "{notes:?}");
+        let saved = parse_json(&fs::read_to_string(&path).unwrap()).unwrap();
+        let before = parse_json(V1_FILE).unwrap();
+        for key in [
+            "copy_to_clipboard",
+            "trigger_mode",
+            "trigger",
+            "max_chunk_s",
+            "vocabulary",
+        ] {
+            assert_eq!(saved.get(key), before.get(key), "{key}");
+        }
+        fs::write(&path, r#"{"type_while_speaking": "no"}"#).unwrap();
+        let (settings, notes) = load(&path);
+        assert!(settings.type_while_speaking);
+        assert_eq!(
+            notes,
+            ["type_while_speaking is not true or false; using true"]
+        );
     }
 
     #[test]

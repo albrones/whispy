@@ -6,7 +6,6 @@ use webrtc_vad::{SampleRate, Vad, VadMode};
 use crate::audio::{to_i16, SAMPLE_RATE};
 
 const FRAME_MS: usize = 30;
-const FRAME_SAMPLES: usize = SAMPLE_RATE as usize * FRAME_MS / 1000;
 const FRAME_S: f32 = FRAME_MS as f32 / 1000.0;
 
 /// Below this many seconds of voiced frames a clip is non-speech. V1 measured
@@ -35,19 +34,44 @@ impl SpeechSpan {
     }
 }
 
+/// Samples per VAD frame (30 ms at 16 kHz).
+pub const FRAME_SAMPLES: usize = SAMPLE_RATE as usize * FRAME_MS / 1000;
+
+/// One WebRTC VAD, kept across frames: the detector adapts to the stream, so a
+/// recording classified frame by frame as it arrives reads as it would in one call.
+/// A Vad holds a raw C pointer and is not `Send`: create it on the thread that uses it.
+pub struct VoiceDetector {
+    vad: Vad,
+}
+
+impl Default for VoiceDetector {
+    fn default() -> Self {
+        VoiceDetector::new()
+    }
+}
+
+impl VoiceDetector {
+    pub fn new() -> Self {
+        VoiceDetector {
+            vad: Vad::new_with_rate_and_mode(SampleRate::Rate16kHz, VadMode::Aggressive),
+        }
+    }
+
+    pub fn is_voiced(&mut self, frame: &[f32; FRAME_SAMPLES]) -> bool {
+        let pcm: Vec<i16> = frame.iter().map(|&s| to_i16(s)).collect();
+        // A 30 ms frame at 16 kHz is always a valid length; treat a refusal as non-speech.
+        self.vad.is_voice_segment(&pcm).unwrap_or(false)
+    }
+}
+
 /// Per-frame voiced flags (30 ms frames; a trailing partial frame is ignored).
 pub fn voiced_frames(samples: &[f32]) -> Vec<bool> {
-    // A Vad holds a raw C pointer and is not Send: one per call, it is cheap.
-    let mut vad = Vad::new_with_rate_and_mode(SampleRate::Rate16kHz, VadMode::Aggressive);
+    let mut detector = VoiceDetector::new();
     samples
         .as_chunks::<FRAME_SAMPLES>()
         .0
         .iter()
-        .map(|frame| {
-            let pcm: Vec<i16> = frame.iter().map(|&s| to_i16(s)).collect();
-            // A 30 ms frame at 16 kHz is always a valid length; treat a refusal as non-speech.
-            vad.is_voice_segment(&pcm).unwrap_or(false)
-        })
+        .map(|frame| detector.is_voiced(frame))
         .collect()
 }
 

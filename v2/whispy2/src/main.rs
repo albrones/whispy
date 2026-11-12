@@ -72,17 +72,19 @@ fn main() {
     // Settings are read once, here: the menu keeps them current after that.
     let settings_path = whispy2::settings::default_path();
     let (settings, notes) = whispy2::settings::load(&settings_path.clone().unwrap_or_default());
-    // Only the three keys V2 owns are ever logged: the file holds other things.
+    // Only the keys V2 owns are ever logged: the file holds other things.
     log::line(&format!(
-        "settings: copy_to_clipboard={}, trigger_mode={}, trigger={}",
+        "settings: copy_to_clipboard={}, trigger_mode={}, trigger={}, type_while_speaking={}",
         settings.copy_to_clipboard,
         settings.trigger_mode.as_config(),
         whispy2::menu_model::trigger_label(settings.trigger.keycode),
+        settings.type_while_speaking,
     ));
     for note in &notes {
         log::line(note);
     }
     let initial_mode = settings.trigger_mode;
+    let initial_type_while_speaking = settings.type_while_speaking;
     let initial_keycode = settings.trigger.keycode;
     let settings = Rc::new(RefCell::new(settings));
     // Typed delivery is "copy to clipboard" off; shared so the menu can flip it live.
@@ -120,6 +122,7 @@ fn main() {
     controller.send(Event::V1Running(is_v1_running));
     // The configured trigger mode, also before the first trigger event.
     controller.send(Event::Settings(initial_mode));
+    let _ = inputs.send(Input::TypeWhileSpeaking(initial_type_while_speaking));
     *running.borrow_mut() = Some(controller);
 
     let forward = inputs.clone();
