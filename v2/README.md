@@ -69,6 +69,16 @@ scrolls while V2 records or transcribes. Then, in any app, with the trigger key
   text is inserted where the cursor is. A press under 0.3 s is discarded.
 - **Toggle mode**: one press starts a dictation, the next press stops it and
   inserts the text; releases are ignored.
+- **Type while speaking** (toggle mode only, V1's `type_while_speaking`, on by
+  default): while you dictate, the recording is cut at each pause (0.6 s of
+  silence after at least 0.7 s of speech, V1's values; a run-on stretch is cut
+  before 20 s, in its longest pause), and each piece is transcribed and typed
+  as soon as it is cut, in order, a space between pieces. The stopping press
+  types the last piece. Pieces go through the same paste (or typing) as a
+  whole dictation, so the clipboard is put back after each one. If the 5-minute
+  watchdog stops the dictation, the whole text goes to the clipboard; if a
+  piece could not be typed, the stop inserts the whole text again rather than
+  lose it. Hold mode is never typed live: the key is held meanwhile.
 
 While you record, V1's pill sits at the bottom centre of the screen with 11
 bars that follow your voice; it hides when the recording stops, never takes
@@ -98,8 +108,9 @@ socket) and **Quit** (frees the models and exits). Toggles show a trailing
 green ✓, presets a leading one; the green follows the menu's appearance.
 
 **Settings are V1's file.** V2 reads `~/.config/whispy/config.json` at start
-and writes only its three keys there: `copy_to_clipboard`, `trigger_mode`
-(`"hold"` or `"toggle"`) and `trigger` (`null` for Fn, else a keycode). Each
+and writes only its four keys there: `copy_to_clipboard`, `trigger_mode`
+(`"hold"` or `"toggle"`), `trigger` (`null` for Fn, else a keycode) and
+`type_while_speaking` (`true` by default, as in V1). Each
 save re-reads the file, changes one key and writes every other key back as it
 found it (temporary file + rename, mode 0600), so a choice made in V1 or V2
 holds in the other at its next start. A menu change applies to the next
@@ -303,6 +314,20 @@ every clip, doubtful first; the verdicts it copies override the oracle. The
 bench reads `bench/oracle/` and adds the "lost speech" columns; without it,
 criterion 3 is reported as not measured. Everything in `bench/oracle/` is the
 user's voice or words: it is gitignored and never committed.
+
+### Type while speaking
+
+```bash
+cargo run --release --bin banc -- --streaming
+```
+
+Two French reference sentences with one second of silence between them are
+fed to `split::LiveSplitter` 50 ms at a time, as the app drains the
+microphone; each piece goes through the default pipeline, and the joined text's
+word error rate is compared with the same audio transcribed in one block. Then
+a 180 s dictation goes the same way in a fresh process, and its peak memory
+must stay under 1.5 GB. Exits 1 when fewer than two pieces carry text, when
+the joined WER is worse than one block, or over the memory bound.
 
 ### Criterion 3 on your own labelled clips
 

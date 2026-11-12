@@ -11,15 +11,16 @@ use cpal::{SampleFormat, Stream};
 use crate::controller::{Capture, LevelSink};
 use crate::feedback::{block_rms, LevelThrottle};
 use crate::log;
-use crate::resample;
+use crate::resample::StreamResampler;
 
 #[derive(Default)]
 pub struct Microphone {
     stream: Option<Stream>,
-    /// Interleaved samples at the device's rate, filled by the audio thread.
+    /// Interleaved samples at the device's rate, filled by the audio thread
+    /// and emptied by each take.
     recorded: Arc<Mutex<Vec<f32>>>,
-    channels: usize,
-    rate: u32,
+    /// The recording's conversion to 16 kHz mono, fed at each take.
+    resampler: Option<StreamResampler>,
     /// The device of the last recording; kept after `stop` for the heard-nothing note.
     device_name: Option<String>,
     level_sink: Option<LevelSink>,
@@ -40,8 +41,10 @@ impl Capture for Microphone {
             .default_input_config()
             .map_err(|error| format!("input configuration: {error}"))?;
         self.device_name = device.name().ok();
-        self.channels = config.channels() as usize;
-        self.rate = config.sample_rate().0;
+        self.resampler = Some(StreamResampler::new(
+            config.channels() as usize,
+            config.sample_rate().0,
+        ));
         self.recorded.lock().expect("audio buffer poisoned").clear();
         let sink = Arc::clone(&self.recorded);
         let on_error = |error| log::line(&format!("microphone: {error}"));
@@ -86,11 +89,22 @@ impl Capture for Microphone {
         Ok(())
     }
 
+    fn take_recorded(&mut self) -> Vec<f32> {
+        let recorded = std::mem::take(&mut *self.recorded.lock().expect("audio buffer poisoned"));
+        match self.resampler.as_mut() {
+            Some(resampler) => resampler.push(&recorded),
+            None => Vec::new(),
+        }
+    }
+
     fn stop(&mut self) -> Vec<f32> {
         // Dropping the stream stops it; the buffer is complete afterwards.
         drop(self.stream.take());
-        let recorded = std::mem::take(&mut *self.recorded.lock().expect("audio buffer poisoned"));
-        resample::to_16k_mono(&recorded, self.channels, self.rate)
+        let mut rest = self.take_recorded();
+        if let Some(mut resampler) = self.resampler.take() {
+            rest.extend(resampler.finish());
+        }
+        rest
     }
 
     fn device_name(&self) -> Option<String> {

@@ -9,6 +9,14 @@
 //!
 //! The worker also writes the journal: it is the one that knows the outcome and
 //! the moment the text was delivered.
+//!
+//! « Type while speaking » (toggle mode, V1's `type_while_speaking`): while the
+//! dictation records, the controller drains the microphone at each level beat,
+//! cuts the audio at the speaker's pauses ([`LiveSplitter`]) and queues each
+//! piece; the worker transcribes and types it at once. The stopping press
+//! queues the last piece, whose text goes back through the machine like any
+//! dictation's. One queue, one worker: pieces are typed in recording order and
+//! never two at once.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -16,6 +24,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use whispy_core::split::LiveSplitter;
 use whispy_core::{Pipeline, Strategy};
 
 use crate::feedback::{phase_of, Feedback, Phase};
@@ -31,8 +40,16 @@ pub type LevelSink = Arc<dyn Fn(f32) + Send + Sync>;
 /// The microphone, as the controller sees it: 16 kHz mono out.
 pub trait Capture {
     fn start(&mut self) -> Result<(), String>;
-    /// Stops the recording and returns it, 16 kHz mono `f32`.
+    /// Stops the recording and returns what was recorded since the last
+    /// [`take_recorded`](Capture::take_recorded) (all of it when there was none),
+    /// 16 kHz mono `f32`.
     fn stop(&mut self) -> Vec<f32>;
+    /// What was recorded since the last take, 16 kHz mono `f32`; the recording
+    /// goes on. A capture that cannot hand out a recording in progress returns
+    /// nothing, and everything comes at the stop.
+    fn take_recorded(&mut self) -> Vec<f32> {
+        Vec::new()
+    }
     /// The name of the device the last recording used, once started.
     fn device_name(&self) -> Option<String> {
         None
@@ -122,8 +139,12 @@ pub enum Input {
     Note(String),
     /// A [`Note`](Input::Note) that is also one of V1's notifications (see [`Alert`]).
     Alert(Alert),
-    /// The input level of the recording, from the capture's level sink.
+    /// The input level of the recording, from the capture's level sink. Also the
+    /// beat at which a dictation typed while spoken is drained and cut.
     Level(f32),
+    /// V1's `type_while_speaking`: in toggle mode, type each piece as soon as it
+    /// is transcribed. Applies from the next dictation.
+    TypeWhileSpeaking(bool),
     /// The current status, for the control socket's `status`.
     Query(Sender<Status>),
     Quit,
@@ -140,7 +161,17 @@ struct Dictation {
 
 enum Job {
     Transcribe(Dictation),
-    Insert { text: String, delivery: Delivery },
+    /// A piece cut at a pause while the dictation records: transcribe and type it now.
+    TypePiece(Vec<f32>),
+    /// The end of a dictation typed while spoken: its text goes back through the machine.
+    TranscribeLastPiece {
+        dictation: Dictation,
+        delivery: Delivery,
+    },
+    Insert {
+        text: String,
+        delivery: Delivery,
+    },
 }
 
 /// Where a dictation that produced no text, or failed, is kept, so a lost
@@ -225,6 +256,12 @@ fn run(
         let _ = own_inputs.send(Input::Level(level));
     }));
     let mut machine = Machine::new();
+    let mut recorder = Recorder {
+        capture,
+        splitter: None,
+        trigger: Source::Fn,
+        is_typing_while_speaking: crate::settings::Settings::default().type_while_speaking,
+    };
     let mut status = Status {
         state: machine.state(),
         note: Some(LOADING_NOTE.into()),
@@ -234,7 +271,6 @@ fn run(
     };
     let mut is_load_failed = false;
     let mut permission_pane: Option<Pane> = None;
-    let mut trigger = Source::Fn;
     let mut phase = Phase::Hidden;
     show(&status);
     while let Ok(input) = receiver.recv() {
@@ -262,6 +298,11 @@ fn run(
             }
             Input::Level(level) => {
                 feedback.level(level);
+                recorder.send_closed_pieces(&jobs);
+                None
+            }
+            Input::TypeWhileSpeaking(is_on) => {
+                recorder.is_typing_while_speaking = is_on;
                 None
             }
             Input::Query(reply) => {
@@ -273,10 +314,10 @@ fn run(
                 let is_tick = matches!(event, Event::Tick(_));
                 if let Some(action) = machine.handle(event) {
                     if action == Action::StartCapture {
-                        trigger = source;
+                        recorder.trigger = source;
                     }
                     let alert = alert_for(&action, is_tick, models_loaded, is_load_failed);
-                    if let Err(error) = perform(action, &mut capture, &jobs, trigger) {
+                    if let Err(error) = recorder.perform(action, machine.state(), &jobs) {
                         machine.handle(Event::CaptureFailed);
                         raise(
                             &mut feedback,
@@ -364,34 +405,89 @@ fn note_for(event: &Event) -> Option<Option<String>> {
     }
 }
 
-fn perform(
-    action: Action,
-    capture: &mut impl Capture,
-    jobs: &Sender<Job>,
+/// The controller's side of a recording: the microphone and, while a toggle
+/// dictation is typed as it is spoken, the splitter that cuts it at pauses.
+struct Recorder<C: Capture> {
+    capture: C,
+    splitter: Option<LiveSplitter>,
+    /// What started the current recording, for the journal.
     trigger: Source,
-) -> Result<(), String> {
-    match action {
-        Action::StartCapture => capture
-            .start()
-            .map_err(|error| format!("The microphone could not be opened: {error}")),
-        Action::StopCaptureAndTranscribe => {
-            let released_at = Instant::now();
-            let samples = capture.stop();
-            let _ = jobs.send(Job::Transcribe(Dictation {
-                samples,
-                device: capture.device_name(),
-                released_at,
-                trigger,
-            }));
-            Ok(())
+    is_typing_while_speaking: bool,
+}
+
+impl<C: Capture> Recorder<C> {
+    /// Runs `action`; `state` is the machine's state right after deciding it.
+    fn perform(&mut self, action: Action, state: State, jobs: &Sender<Job>) -> Result<(), String> {
+        match action {
+            Action::StartCapture => {
+                self.splitter = None;
+                self.capture
+                    .start()
+                    .map_err(|error| format!("The microphone could not be opened: {error}"))?;
+                // Decided once, at the start: a setting flipped mid-dictation
+                // must not leave half of it typed live and the rest at the stop.
+                // Hold mode never types live: the trigger is held down meanwhile.
+                let is_toggle = matches!(
+                    state,
+                    State::Recording {
+                        mode: Mode::Toggle,
+                        ..
+                    }
+                );
+                if is_toggle && self.is_typing_while_speaking {
+                    self.splitter = Some(LiveSplitter::new());
+                }
+                Ok(())
+            }
+            Action::StopCaptureAndTranscribe => {
+                let released_at = Instant::now();
+                let rest = self.capture.stop();
+                let delivery = match state {
+                    State::Transcribing { delivery } => delivery,
+                    _ => Delivery::Paste,
+                };
+                let mut dictation = Dictation {
+                    samples: rest,
+                    device: self.capture.device_name(),
+                    released_at,
+                    trigger: self.trigger,
+                };
+                let job = match self.splitter.take() {
+                    None => Job::Transcribe(dictation),
+                    Some(mut splitter) => {
+                        for piece in splitter.push(&dictation.samples) {
+                            let _ = jobs.send(Job::TypePiece(piece));
+                        }
+                        dictation.samples = splitter.finish();
+                        Job::TranscribeLastPiece {
+                            dictation,
+                            delivery,
+                        }
+                    }
+                };
+                let _ = jobs.send(job);
+                Ok(())
+            }
+            Action::DiscardCapture => {
+                self.splitter = None;
+                self.capture.stop();
+                Ok(())
+            }
+            Action::Insert { text, delivery } => {
+                let _ = jobs.send(Job::Insert { text, delivery });
+                Ok(())
+            }
         }
-        Action::DiscardCapture => {
-            capture.stop();
-            Ok(())
-        }
-        Action::Insert { text, delivery } => {
-            let _ = jobs.send(Job::Insert { text, delivery });
-            Ok(())
+    }
+
+    /// While a dictation is typed as it is spoken: drains the microphone and
+    /// queues each piece a pause closed.
+    fn send_closed_pieces(&mut self, jobs: &Sender<Job>) {
+        let Some(splitter) = self.splitter.as_mut() else {
+            return;
+        };
+        for piece in splitter.push(&self.capture.take_recorded()) {
+            let _ = jobs.send(Job::TypePiece(piece));
         }
     }
 }
@@ -430,36 +526,37 @@ fn spawn_worker<I: Inserter + 'static>(
             };
             // One dictation at a time: a Transcribe with text is always followed by its Insert.
             let mut pending: Option<Pending> = None;
+            // The dictation being typed while spoken, between its pieces.
+            let mut live = LiveDictation::default();
             for job in receiver {
-                let event = match job {
+                let (done, dictation, duration_s) = match job {
+                    Job::TypePiece(samples) => {
+                        let failure = live.type_piece(
+                            pipeline.as_mut(),
+                            &samples,
+                            &mut inserter,
+                            &lost_clips,
+                        );
+                        if let Some(error) = failure {
+                            let _ = controller.send(insertion_input(error));
+                        }
+                        continue;
+                    }
                     Job::Transcribe(dictation) => {
                         let done = transcribe(pipeline.as_mut(), &dictation, &lost_clips);
-                        if let Some(note) = done.alert {
-                            let _ = controller
-                                .send(Input::Alert(Alert::microphone_heard_nothing(&note)));
-                        }
                         let duration_s = dictation.samples.len() as f32 / SAMPLE_RATE;
-                        if matches!(&done.event, Event::Transcribed(text) if !text.trim().is_empty())
-                        {
-                            pending = Some(Pending {
-                                duration_s,
-                                released_at: dictation.released_at,
-                                trigger: dictation.trigger,
-                                engine: done.engine,
-                                length: done.length,
-                            });
-                        } else {
-                            journal.record(&Entry {
-                                time: log::unix_now(),
-                                duration_s,
-                                latency_s: dictation.released_at.elapsed().as_secs_f32(),
-                                trigger: dictation.trigger,
-                                outcome: done.outcome,
-                                engine: done.engine.map(str::to_string),
-                                length: done.length,
-                            });
-                        }
-                        done.event
+                        (done, dictation, duration_s)
+                    }
+                    Job::TranscribeLastPiece {
+                        dictation,
+                        delivery,
+                    } => {
+                        let finished = std::mem::take(&mut live);
+                        let duration_s =
+                            finished.seconds + dictation.samples.len() as f32 / SAMPLE_RATE;
+                        let done =
+                            finished.finish(pipeline.as_mut(), &dictation, delivery, &lost_clips);
+                        (done, dictation, duration_s)
                     }
                     Job::Insert { text, delivery } => {
                         let delivered = inserter.deliver(&text, delivery);
@@ -470,10 +567,7 @@ fn spawn_worker<I: Inserter + 'static>(
                         };
                         if let Err(error) = delivered {
                             log::line(&format!("insertion failed: {error}"));
-                            let _ = controller.send(match insertion_alert(&error) {
-                                Some(alert) => Input::Alert(alert),
-                                None => Input::Note(error),
-                            });
+                            let _ = controller.send(insertion_input(error));
                         }
                         if let Some(done) = pending.take() {
                             journal.record(&Entry {
@@ -486,11 +580,34 @@ fn spawn_worker<I: Inserter + 'static>(
                                 length: done.length,
                             });
                         }
-                        Event::Inserted
+                        // After Quit nobody listens; keep draining until the queue closes.
+                        let _ = controller.send(Input::Event(Event::Inserted, Source::Fn));
+                        continue;
                     }
                 };
-                // After Quit nobody listens; keep draining until the queue closes.
-                let _ = controller.send(Input::Event(event, Source::Fn));
+                if let Some(note) = done.alert {
+                    let _ = controller.send(Input::Alert(Alert::microphone_heard_nothing(&note)));
+                }
+                if matches!(&done.event, Event::Transcribed(text) if !text.trim().is_empty()) {
+                    pending = Some(Pending {
+                        duration_s,
+                        released_at: dictation.released_at,
+                        trigger: dictation.trigger,
+                        engine: done.engine,
+                        length: done.length,
+                    });
+                } else {
+                    journal.record(&Entry {
+                        time: log::unix_now(),
+                        duration_s,
+                        latency_s: dictation.released_at.elapsed().as_secs_f32(),
+                        trigger: dictation.trigger,
+                        outcome: done.outcome,
+                        engine: done.engine.map(str::to_string),
+                        length: done.length,
+                    });
+                }
+                let _ = controller.send(Input::Event(done.event, Source::Fn));
             }
         })
         .expect("the worker thread could not be started");
@@ -514,19 +631,34 @@ const LEVEL_SCALE: f32 = 10.0;
 /// blocks, so a short word reads at least as loud as it did in V1.
 const LEVEL_WINDOW: usize = 480;
 
+/// What an insertion failure tells the controller: V1's alert when it is one, else a note.
+fn insertion_input(error: String) -> Input {
+    match insertion_alert(&error) {
+        Some(alert) => Input::Alert(alert),
+        None => Input::Note(error),
+    }
+}
+
 /// Whether the microphone delivered nothing usable: long enough to be a
 /// dictation, yet no 30 ms window ever reached the noise floor.
 pub fn is_deaf_take(samples: &[f32]) -> bool {
-    let seconds = samples.len() as f32 / SAMPLE_RATE;
-    let peak_level = samples
+    is_deaf(samples.len() as f32 / SAMPLE_RATE, peak_level(samples))
+}
+
+fn is_deaf(seconds: f32, peak_level: f32) -> bool {
+    seconds >= HEARD_NOTHING_MIN_SECONDS && peak_level < NOISE_FLOOR
+}
+
+/// The loudest 30 ms window, on V1's level scale.
+fn peak_level(samples: &[f32]) -> f32 {
+    samples
         .chunks(LEVEL_WINDOW)
         .map(|window| {
             let mean_square =
                 window.iter().map(|sample| sample * sample).sum::<f32>() / window.len() as f32;
             mean_square.sqrt() * LEVEL_SCALE
         })
-        .fold(0.0f32, f32::max);
-    seconds >= HEARD_NOTHING_MIN_SECONDS && peak_level < NOISE_FLOOR
+        .fold(0.0f32, f32::max)
 }
 
 pub fn heard_nothing_note(device: Option<&str>) -> String {
@@ -563,15 +695,27 @@ fn transcribe(
     dictation: &Dictation,
     lost_clips: &LostClips,
 ) -> Transcribed {
-    let samples = &dictation.samples;
     // Before any engine: a deaf microphone is not lost speech, and running a
     // model on silence is the false-text risk the gates exist to avoid.
-    if is_deaf_take(samples) {
-        let mut done =
-            Transcribed::without_text(Event::Transcribed(String::new()), Outcome::HeardNothing);
-        done.alert = Some(heard_nothing_note(dictation.device.as_deref()));
-        return done;
+    if is_deaf_take(&dictation.samples) {
+        return heard_nothing(dictation);
     }
+    transcribe_samples(pipeline, &dictation.samples, lost_clips)
+}
+
+fn heard_nothing(dictation: &Dictation) -> Transcribed {
+    let mut done =
+        Transcribed::without_text(Event::Transcribed(String::new()), Outcome::HeardNothing);
+    done.alert = Some(heard_nothing_note(dictation.device.as_deref()));
+    done
+}
+
+/// The engines on `samples`, with no deaf-take check; a lost text keeps its clip.
+fn transcribe_samples(
+    pipeline: Option<&mut Pipeline>,
+    samples: &[f32],
+    lost_clips: &LostClips,
+) -> Transcribed {
     let Some(pipeline) = pipeline else {
         keep_lost_clip(samples, lost_clips);
         return Transcribed::without_text(Event::TranscriptionFailed, Outcome::Failed);
@@ -600,6 +744,110 @@ fn transcribe(
             log::line(&format!("transcription failed: {error}"));
             keep_lost_clip(samples, lost_clips);
             Transcribed::without_text(Event::TranscriptionFailed, Outcome::Failed)
+        }
+    }
+}
+
+/// A dictation typed while spoken, between its first piece and its stop.
+#[derive(Default)]
+struct LiveDictation {
+    /// The text handed to the inserter so far, pieces joined by a space (the
+    /// text of a piece whose insertion failed included).
+    typed: String,
+    /// The audio of the pieces so far, for the journal and the deaf-take check.
+    seconds: f32,
+    peak_level: f32,
+    engine: Option<&'static str>,
+    has_insertion_failed: bool,
+}
+
+impl LiveDictation {
+    /// Transcribes a piece and types it after the text before it. Returns the
+    /// insertion error the user must hear about: the first of the dictation only.
+    fn type_piece(
+        &mut self,
+        pipeline: Option<&mut Pipeline>,
+        samples: &[f32],
+        inserter: &mut impl Inserter,
+        lost_clips: &LostClips,
+    ) -> Option<String> {
+        self.seconds += samples.len() as f32 / SAMPLE_RATE;
+        self.peak_level = self.peak_level.max(peak_level(samples));
+        if is_deaf_take(samples) {
+            return None;
+        }
+        let done = transcribe_samples(pipeline, samples, lost_clips);
+        let Event::Transcribed(text) = done.event else {
+            return None;
+        };
+        if text.trim().is_empty() {
+            return None;
+        }
+        let piece = self.next_piece(&text);
+        self.typed.push_str(&piece);
+        self.engine = self.engine.or(done.engine);
+        let error = inserter.deliver(&piece, Delivery::Paste).err()?;
+        log::line(&format!("insertion of a piece failed: {error}"));
+        let is_first_failure = !self.has_insertion_failed;
+        self.has_insertion_failed = true;
+        is_first_failure.then_some(error)
+    }
+
+    /// `text` as it follows what was typed: a space between pieces, none before the first.
+    fn next_piece(&self, text: &str) -> String {
+        if self.typed.is_empty() {
+            text.trim().to_string()
+        } else {
+            format!(" {}", text.trim())
+        }
+    }
+
+    /// The last piece, at the stop. Its event carries what the machine inserts:
+    /// the last piece's text; the whole dictation when it goes to the clipboard
+    /// (the watchdog), or when a piece could not be typed, so nothing is lost
+    /// (some text may then appear twice).
+    fn finish(
+        self,
+        pipeline: Option<&mut Pipeline>,
+        dictation: &Dictation,
+        delivery: Delivery,
+        lost_clips: &LostClips,
+    ) -> Transcribed {
+        let tail = &dictation.samples;
+        let seconds = self.seconds + tail.len() as f32 / SAMPLE_RATE;
+        if is_deaf(seconds, self.peak_level.max(peak_level(tail))) {
+            return heard_nothing(dictation);
+        }
+        let done = if is_deaf_take(tail) {
+            Transcribed::without_text(Event::Transcribed(String::new()), Outcome::Empty)
+        } else {
+            transcribe_samples(pipeline, tail, lost_clips)
+        };
+        let Event::Transcribed(tail_text) = &done.event else {
+            return done;
+        };
+        let last_piece = if tail_text.trim().is_empty() {
+            String::new()
+        } else {
+            self.next_piece(tail_text)
+        };
+        let whole = format!("{}{last_piece}", self.typed);
+        let outcome = match (self.typed.is_empty(), self.has_insertion_failed) {
+            (true, _) => done.outcome,
+            (false, true) => Outcome::Failed,
+            (false, false) => Outcome::Inserted,
+        };
+        let text = if delivery == Delivery::Clipboard || self.has_insertion_failed {
+            whole.clone()
+        } else {
+            last_piece
+        };
+        Transcribed {
+            event: Event::Transcribed(text),
+            outcome,
+            engine: self.engine.or(done.engine),
+            length: whole.chars().count(),
+            alert: None,
         }
     }
 }
@@ -1243,5 +1491,203 @@ mod tests {
             alert_for(&Action::DiscardCapture, false, false, false),
             None
         );
+    }
+
+    /// Harmonic stack: reads as voiced to WebRTC VAD.
+    fn voiced(seconds: f32) -> Vec<f32> {
+        (0..(seconds * 16_000.0) as usize)
+            .map(|i| {
+                let t = i as f32 / 16_000.0;
+                (1..=10)
+                    .map(|h| 0.03 * (2.0 * std::f32::consts::PI * 150.0 * h as f32 * t).sin())
+                    .sum::<f32>()
+            })
+            .collect()
+    }
+
+    /// Two sentences with a one-second pause between them.
+    fn two_sentences() -> Vec<f32> {
+        [
+            voiced(1.5),
+            vec![0.0; 16_000],
+            voiced(1.5),
+            vec![0.0; 3_200],
+        ]
+        .concat()
+    }
+
+    /// A microphone that hands out its clip 50 ms per take, the rest at the stop.
+    struct Streamed {
+        clip: Vec<f32>,
+        taken: usize,
+    }
+    impl Capture for Streamed {
+        fn start(&mut self) -> Result<(), String> {
+            self.taken = 0;
+            Ok(())
+        }
+        fn take_recorded(&mut self) -> Vec<f32> {
+            let end = (self.taken + 800).min(self.clip.len());
+            let block = self.clip[self.taken..end].to_vec();
+            self.taken = end;
+            block
+        }
+        fn stop(&mut self) -> Vec<f32> {
+            let rest = self.clip[self.taken..].to_vec();
+            self.taken = self.clip.len();
+            rest
+        }
+    }
+
+    /// Says « pieceN » for its Nth call.
+    struct Numbered(AtomicUsize);
+    impl Transcriber for Numbered {
+        fn name(&self) -> &'static str {
+            "numbered"
+        }
+        fn transcribe(&mut self, _samples: &[f32]) -> Result<String, whispy_core::Error> {
+            Ok(format!(
+                "piece{}",
+                self.0.fetch_add(1, Ordering::SeqCst) + 1
+            ))
+        }
+    }
+
+    /// A controller over [`two_sentences`], in `mode`, with type while speaking `is_on`.
+    fn live_controller(
+        mode: crate::settings::TriggerMode,
+        is_on: bool,
+        inserter: impl Inserter + 'static,
+    ) -> Controller {
+        let controller = Controller::start(
+            || Streamed {
+                clip: two_sentences(),
+                taken: 0,
+            },
+            || pipeline(Numbered(AtomicUsize::new(0))),
+            inserter,
+            LostClips { directory: None },
+            no_journal(),
+            crate::feedback::NoFeedback,
+            |_: &Status| {},
+        );
+        controller
+            .inputs
+            .send(Input::TypeWhileSpeaking(is_on))
+            .unwrap();
+        controller.send(Event::Settings(mode));
+        controller
+    }
+
+    /// The microphone's level beats for the whole clip: each drains 50 ms.
+    fn play_the_clip(controller: &Controller) {
+        for _ in 0..two_sentences().len() / 800 {
+            controller.inputs.send(Input::Level(0.5)).unwrap();
+        }
+    }
+
+    fn press(controller: &Controller, at: Instant) {
+        controller.send(Event::TriggerDown(at));
+        controller.send(Event::TriggerUp(at + Duration::from_millis(100)));
+    }
+
+    #[test]
+    fn toggle_types_the_first_sentence_before_the_stop_then_the_rest() {
+        use crate::settings::TriggerMode;
+        let (delivered, inserted) = mpsc::channel();
+        let controller = live_controller(TriggerMode::Toggle, true, Recorder(delivered));
+        let start = Instant::now();
+        press(&controller, start);
+        play_the_clip(&controller);
+        let first = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(first, ("piece1".to_string(), Delivery::Paste));
+        assert!(
+            inserted.try_recv().is_err(),
+            "only the first sentence before the stop"
+        );
+        press(&controller, start + Duration::from_secs(5));
+        let last = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(last, (" piece2".to_string(), Delivery::Paste));
+        controller.stop();
+        assert!(inserted.try_recv().is_err(), "nothing typed twice");
+    }
+
+    #[test]
+    fn hold_mode_and_the_setting_off_insert_once_at_the_end() {
+        use crate::settings::TriggerMode;
+        for (mode, is_on) in [(TriggerMode::Hold, true), (TriggerMode::Toggle, false)] {
+            let (delivered, inserted) = mpsc::channel();
+            let controller = live_controller(mode, is_on, Recorder(delivered));
+            let start = Instant::now();
+            controller.send(Event::TriggerDown(start));
+            play_the_clip(&controller);
+            thread::sleep(Duration::from_millis(200));
+            assert!(
+                inserted.try_recv().is_err(),
+                "{mode:?}: nothing before the stop"
+            );
+            match mode {
+                TriggerMode::Hold => {
+                    controller.send(Event::TriggerUp(start + Duration::from_secs(5)))
+                }
+                TriggerMode::Toggle => {
+                    controller.send(Event::TriggerUp(start + Duration::from_millis(100)));
+                    press(&controller, start + Duration::from_secs(5));
+                }
+            }
+            let (text, delivery) = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(
+                (text.as_str(), delivery),
+                ("piece1", Delivery::Paste),
+                "{mode:?}"
+            );
+            controller.stop();
+            assert!(inserted.try_recv().is_err(), "{mode:?}: one insertion");
+        }
+    }
+
+    #[test]
+    fn the_watchdog_stop_puts_the_whole_dictation_on_the_clipboard() {
+        use crate::settings::TriggerMode;
+        let (delivered, inserted) = mpsc::channel();
+        let controller = live_controller(TriggerMode::Toggle, true, Recorder(delivered));
+        let start = Instant::now();
+        press(&controller, start);
+        play_the_clip(&controller);
+        assert_eq!(
+            inserted.recv_timeout(Duration::from_secs(5)).unwrap().0,
+            "piece1"
+        );
+        controller.send(Event::Tick(start + RECORDING_LIMIT));
+        let last = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(last, ("piece1 piece2".to_string(), Delivery::Clipboard));
+        controller.stop();
+    }
+
+    #[test]
+    fn a_piece_that_could_not_be_typed_is_not_lost() {
+        use crate::settings::TriggerMode;
+        /// Refuses its first insertion, like a paste macOS refused once.
+        struct RefusesFirst(Sender<(String, Delivery)>, bool);
+        impl Inserter for RefusesFirst {
+            fn deliver(&mut self, text: &str, delivery: Delivery) -> Result<(), String> {
+                if !self.1 {
+                    self.1 = true;
+                    return Err("the clipboard is busy".into());
+                }
+                let _ = self.0.send((text.to_string(), delivery));
+                Ok(())
+            }
+        }
+        let (delivered, inserted) = mpsc::channel();
+        let controller = live_controller(TriggerMode::Toggle, true, RefusesFirst(delivered, false));
+        let start = Instant::now();
+        press(&controller, start);
+        play_the_clip(&controller);
+        thread::sleep(Duration::from_millis(200));
+        press(&controller, start + Duration::from_secs(5));
+        let last = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(last, ("piece1 piece2".to_string(), Delivery::Paste));
+        controller.stop();
     }
 }
