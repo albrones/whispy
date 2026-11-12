@@ -10,7 +10,7 @@ the bench (`banc`), and the macOS app built on them (`whispy2`).
 ```
 v2/
 ├── whispy-core/   library: engines, gates, splitting, PCM → text pipeline
-├── whispy2/       the app: menu bar icon, Fn to dictate, text inserted
+├── whispy2/       the app: V1's menu, a trigger key to dictate, text inserted
 ├── banc/          the bench binary
 ├── TRIAL.md       how the V1 → V2 trial runs and what decides it
 └── bench/
@@ -61,25 +61,56 @@ For development, `cargo build --release && ./target/release/whispy2` still
 works; it then logs to the terminal as well, and macOS attributes its
 permissions to that terminal.
 
-A microphone icon appears in the menu bar (no Dock icon, no window). Then, in
-any app:
+V1's braille waveform appears in the menu bar (no Dock icon, no window); it
+scrolls while V2 records or transcribes. Then, in any app, with the trigger key
+(Fn by default):
 
-- **hold Fn** while you speak; on release the text is pasted where the cursor is;
-- **tap Fn** (under 0.3 s) to start a dictation hands-free; **press Fn again** to
-  stop it and paste.
+- **Hold mode** (V1's default): hold the key while you speak; on release the
+  text is inserted where the cursor is. A press under 0.3 s is discarded.
+- **Toggle mode**: one press starts a dictation, the next press stops it and
+  inserts the text; releases are ignored.
 
-While you speak, a small panel at the bottom of the screen shows « Recording »
-and the input level, then « Transcribing… »; it never takes the focus and shows
-over full-screen apps too. A dictation of half a second or more in which the
-microphone heard nothing (no 30 ms window above RMS 0.01, V1's noise floor) inserts
-nothing, plays the Basso sound and says « Microphone heard nothing » with the
-input device's name. Each dictation opens the current default input device, so
-a change in System Settings applies to the next one.
+While you record, V1's pill sits at the bottom centre of the screen with 11
+bars that follow your voice; it hides when the recording stops, never takes
+the focus and shows over full-screen apps too. A dictation of half a second or
+more in which the microphone heard nothing (no 30 ms window above RMS 0.01,
+V1's noise floor) inserts nothing, plays the Basso sound and posts
+« Microphone heard nothing » with the input device's name. Each dictation opens
+the current default input device, so a change in System Settings applies to
+the next one.
 
-The menu says what V2 is doing (ready, recording, transcribing) and the last
-problem, if any; **Start at login** registers the installed app as a login
-item (disabled outside the installed bundle; if macOS asks for approval, the
-menu says so); **Quit Whispy V2** frees the models and exits.
+**The menu is V1's**, top to bottom: « Whispy · voice dictation », the status
+line (« ●  Ready », « Recording », « Transcribing… », or the last problem), the
+« ⚠ Missing permission — fix in System Settings… » item (shown only after a
+permission alert; it opens the right Privacy pane), then under **SETTINGS**:
+
+- **Copy to clipboard** — on: the text is pasted through the clipboard (⌘V)
+  and the previous clipboard is put back; off: the text is typed by System
+  Events `keystroke` and the clipboard is not touched;
+- **Toggle mode** — the mode above;
+- **Trigger: <key>** — V1's presets: Fn, Right Command, Right Option, F13
+  (a key set by hand in V1's file shows its name);
+- **Start at login** — registers the installed app as a login item (disabled
+  outside the installed bundle; if macOS asks for approval, the menu says so);
+
+then **Restart** (the new instance starts once this one has freed its control
+socket) and **Quit** (frees the models and exits). Toggles show a trailing
+green ✓, presets a leading one; the green follows the menu's appearance.
+
+**Settings are V1's file.** V2 reads `~/.config/whispy/config.json` at start
+and writes only its three keys there: `copy_to_clipboard`, `trigger_mode`
+(`"hold"` or `"toggle"`) and `trigger` (`null` for Fn, else a keycode). Each
+save re-reads the file, changes one key and writes every other key back as it
+found it (temporary file + rename, mode 0600), so a choice made in V1 or V2
+holds in the other at its next start. A menu change applies to the next
+dictation without a restart. A broken or unreadable value falls back to V1's
+default with a note in the log; an unreadable file is never replaced.
+**Start at login** stays per app: V1's `start_at_login` key is not V2's.
+
+**Alerts are notifications**, as in V1: title « Whispy », the alert as subtitle
+and body, through the Notification Center. Allow them for **Whispy V2** in
+System Settings → Notifications; outside the installed bundle they are skipped
+(the log and the menu still show the problem).
 
 **Permissions, once.** Grant them to **Whispy V2** (System Settings → Privacy &
 Security); they stay granted across `make v2-reinstall`, because the signing
@@ -87,13 +118,13 @@ identity does not change:
 
 | permission | for | if missing |
 |---|---|---|
-| Input Monitoring | reading Fn (a listen-only event tap) | the menu says « Fn is not available… » |
+| Input Monitoring | reading the trigger key (a listen-only event tap) | the menu says « The trigger key is not available… » |
 | Microphone | recording | macOS asks at the first dictation |
-| Accessibility | pasting (System Events presses ⌘V) | the menu says « macOS refused the paste… »; the text stays on the clipboard |
+| Accessibility | pasting (System Events presses ⌘V) or typing (`keystroke`) | the menu says « macOS refused the paste… »; a pasted text stays on the clipboard |
 
-Set **Keyboard → « Press 🌐 key to » → Do Nothing**: otherwise every Fn tap
-also opens the emoji picker or switches the input source (the tap only listens,
-it cannot swallow the key).
+With Fn as the trigger, set **Keyboard → « Press 🌐 key to » → Do Nothing**:
+otherwise every Fn tap also opens the emoji picker or switches the input
+source (the tap only listens, it cannot swallow the key).
 
 **Files.** Everything is local and readable only by you:
 
@@ -111,36 +142,41 @@ network port. One request per line, one reply line:
 ```bash
 printf 'status\n' | nc -U ~/.whispy/v2/control.sock
 # {"state":"idle","models_loaded":true,"yielded":false,"last_problem":null,"trigger_mode":"hold"}
-printf 'start\n'  | nc -U ~/.whispy/v2/control.sock   # like pressing Fn down
+printf 'start\n'  | nc -U ~/.whispy/v2/control.sock   # like pressing the trigger down
 printf 'stop\n'   | nc -U ~/.whispy/v2/control.sock   # like releasing it (always a hold)
 printf 'toggle\n' | nc -U ~/.whispy/v2/control.sock   # like one Toggle-mode press
 ```
 
-Requests go through the same state machine as Fn: a `stop` with nothing
+Requests go through the same state machine as the trigger key: a `stop` with nothing
 recording is ignored, and `start`/`toggle` are refused while V1 runs. The
 socket is also the single-instance lock: a second V2 finds the first one
 answering and exits; a socket left by a crash is replaced. It replaces V1's
 `:9090` API, and it is what a Linux compositor key binding will call.
 
-**V1 and V2 never both answer Fn.** When V1 runs (its API port 9090 answers, or
-a `Whispy.app/Contents/MacOS/Whispy` process exists) V2 shows « Whispy V1 is
-running — Fn is left to it » with a crossed-out microphone and ignores Fn. It
-looks again every 2 s: quit V1 and V2 takes Fn within 2 s; start V1 and V2 lets
-go as soon as its current dictation, if any, is inserted. V1 itself is not
-touched.
+**V1 and V2 never both answer the trigger.** When V1 runs (its API port 9090
+answers, or a `Whispy.app/Contents/MacOS/Whispy` process exists) V2's status
+line reads « Whispy V1 is running — Fn is left to it » (V1's wording, whatever
+the key) and V2 ignores the trigger. It looks again every 2 s: quit V1 and V2
+takes the key within 2 s; start V1 and V2 lets go as soon as its current
+dictation, if any, is inserted. V1 itself is not touched.
 
 **What V1 taught, kept here.**
 
 - One explicit state machine (`whispy2/src/machine.rs`: idle, recording,
-  transcribing, inserting, yielded to V1), pure and unit-tested. Fn is decoded
-  from the secondary-Fn flag on each event, never from a diff with the
-  previous one; if macOS disables the tap, it is re-enabled within a second
-  and a release missed meanwhile is replayed, so the app cannot freeze in
-  recording. A watchdog stops a recording after 5 minutes and leaves its text
-  on the clipboard instead of pasting it into whatever is focused by then.
-- Fn used as a modifier (Fn+Delete, Fn+arrow) cancels the dictation it started.
-- Insertion is V1's: text on the clipboard through `pbcopy` with a UTF-8
-  locale, ⌘V by System Events, previous clipboard restored after 150 ms.
+  transcribing, inserting, yielded to V1), pure and unit-tested. A modifier
+  trigger (Fn, Right Command, Right Option) is decoded from its device flag
+  bits on each event, never from a diff with the previous one; another key
+  (F13) from key down/up, its autorepeat ignored. If macOS disables the tap,
+  it is re-enabled within a second and a release missed meanwhile is
+  replayed, so the app cannot freeze in recording. A watchdog stops a
+  recording after 5 minutes and leaves its text on the clipboard instead of
+  inserting it into whatever is focused by then.
+- In hold mode, the trigger used as a modifier (Fn+Delete, Fn+arrow) cancels
+  the dictation it started; in toggle mode, typing never cancels one.
+- Insertion is V1's: with Copy to clipboard on, text on the clipboard through
+  `pbcopy` with a UTF-8 locale, ⌘V by System Events, previous clipboard
+  restored after 150 ms; off, the text is the argument of a fixed
+  `keystroke` script, never part of it.
 - A dictation whose speech came back empty, or failed, is kept as a WAV in
   `~/.whispy/v2-lost/`, ready for the bench.
 
