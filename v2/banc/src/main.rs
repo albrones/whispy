@@ -54,7 +54,7 @@ fn usage() -> &'static str {
     "usage: banc [--skip-v1]\n       banc --labelled [dir]   (criterion 3 on your labelled clips, default ~/.whispy/bench)\n       banc --trial [--since YYYY-MM-DD] [--journal PATH] [--v1-log-dir DIR]   (the trial report, default ~/.whispy/v2/dictations.jsonl and $HOME)
        banc --transcribe <parakeet|whisper> <raw|gated|louder|padded> <clip.wav>...
        banc --streaming   (type while speaking: French + 1 s + French cut at pauses vs one block, and 180 s memory)\n\n\
-     Env: WHISPY_LOST_DIR (default ~/.whispy/lost), WHISPY_V1_PYTHON (default <repo>/.venv/bin/python),\n     \
+     Env: WHISPY_LOST_DIR (default ~/.whispy/lost), WHISPY_LABELLED_DIR (default ~/.whispy/bench), WHISPY_V1_PYTHON (default <repo>/.venv/bin/python),\n     \
      WHISPY_PARAKEET_DIR, WHISPY_WHISPER_MODEL (default: the files V1 and Jarvis already downloaded)."
 }
 
@@ -130,7 +130,18 @@ fn run_in(work_dir: &std::path::Path, skip_v1: bool) -> Result<ExitCode, String>
     let lazy = spawn_lazy_probe();
     let oracle = oracle::load();
 
-    let report = report::Report::build(&clips, &runs, v1, memory, lazy, oracle);
+    // The user's labelled clips, when they are on this machine: the pick is
+    // ranked on them. V1's side comes from their baseline.json.
+    let labelled = labelled::bench_set().and_then(|(labelled_clips, baseline)| {
+        eprintln!("banc: {} labelled clips", labelled_clips.len());
+        let verdicts = measure::run_labelled(&labelled_clips, &baseline)?;
+        Ok(report::Labelled {
+            clips: labelled_clips.len(),
+            verdicts,
+        })
+    });
+
+    let report = report::Report::build(&clips, &runs, v1, memory, lazy, oracle, labelled);
     let path = corpus::bench_dir().join("REPORT.md");
     std::fs::write(&path, report.markdown())
         .map_err(|error| format!("{}: {error}", path.display()))?;

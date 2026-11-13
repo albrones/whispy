@@ -96,13 +96,25 @@ The core SHALL use the model files already on the Mac — Parakeet from the Hugg
 _Tier: review — `whispy-core/src/models.rs`._
 
 ### Requirement: The bench compares V2 with V1 and picks the default
-`cargo run --release --bin banc` SHALL replay the lost clips of `~/.whispy/lost/`, the reference clips with a known text, their quiet copies and non-speech clips through every engine and strategy, alone and with the other engine as fallback, and through V1's own engine; it SHALL report per configuration the share of clips with text, the word error rate, latency p50 and p95 and the ~5 s sentence p95, write `v2/bench/REPORT.md` naming the pick, and exit non-zero when the pick differs from the core's default.
+`cargo run --release --bin banc` SHALL replay the lost clips of `~/.whispy/lost/`, the reference clips with a known text, their quiet copies and non-speech clips through every engine and strategy, alone and with the other engine as fallback, and through V1's own engine; it SHALL report per configuration the share of clips with text, the word error rate, latency p50 and p95 and the ~5 s sentence p95, write `v2/bench/REPORT.md` naming the pick, and exit non-zero when the pick differs from the core's default. When the user's labelled clips are on the machine (`~/.whispy/bench`), the bench SHALL also replay them through every configuration, each as a whole pipeline (split and joined as the app does), and rank the pick on them before any unlabelled clip: a configuration that returns text on a clip labelled noise SHALL be out; then one that holds criterion 3 on those clips, the most lost speech clips with text and the fewest word errors SHALL come first. The unlabelled lost clips SHALL rank only when there are no labelled clips. Only counts from the labelled clips SHALL reach the report.
 
 #### Scenario: The report names the default the core uses
 - **WHEN** the bench runs on a Mac holding both models and V1's venv
 - **THEN** `v2/bench/REPORT.md` SHALL name the picked configuration with its numbers, and the core's default configuration SHALL be that pick
 
 _Tier: bench — `v2/bench/REPORT.md`, « Default engine and strategy »._
+
+#### Scenario: Text on unlabelled lost clips does not move the pick
+- **WHEN** one configuration returns text on more unlabelled lost clips and another recovers more of the lost speech the user labelled, with fewer word errors
+- **THEN** the pick SHALL be the second
+
+_Tier: unit — `banc` `report`._
+
+#### Scenario: Text on a clip labelled noise rules a configuration out
+- **WHEN** a configuration returns text on a clip the user labelled noise
+- **THEN** it SHALL NOT be the pick while another configuration returns none
+
+_Tier: unit — `banc` `report`._
 
 #### Scenario: Replaying V1 leaves V1 untouched
 - **WHEN** the bench runs V1 on the same clips
@@ -139,3 +151,24 @@ The Parakeet engine SHALL put 0.25 s of digital silence before and after every i
 - **THEN** at least 70 % of the lost chunk clips SHALL come back with text, no lost noise clip SHALL, and V2's WER SHALL not be above V1's
 
 _Tier: bench — `banc --labelled`._
+
+### Requirement: The bench scores V2 on the user's labelled clips
+`banc --labelled [dir]` SHALL replay every reviewed clip of the directory (`<id>.wav` with `<id>.json` holding `ref`, `kind` of chunk, noise or dictation) through the default pipeline and report, next to V1's `baseline.json`: the lost chunk clips that came back with text, the noise clips that got text, and the word error rate over chunk and dictation clips. The word error rate SHALL use V1's text normalization so both sides compare. It SHALL read the clips and write nothing, and exit non-zero when any part fails.
+
+#### Scenario: Lost speech is counted against the 70 % target
+- **WHEN** at least 70 % of the lost chunk clips come back non-empty
+- **THEN** part (a) reports "holds", otherwise "NOT MET" with the counts
+
+_Tier: unit — `banc` `labelled`._
+
+#### Scenario: Invented text on noise is reported
+- **WHEN** a noise clip comes back with text
+- **THEN** part (b) reports it as NOT MET, with V1's count beside it
+
+_Tier: unit — `banc` `labelled`._
+
+#### Scenario: Words are compared the way V1 compares them
+- **WHEN** a reference holds an apostrophe, a hyphen or an accent
+- **THEN** it is split into words by V1's rule (`a-z`, digits and `à-ÿ` kept, the rest a space)
+
+_Tier: unit — `banc` `labelled`._

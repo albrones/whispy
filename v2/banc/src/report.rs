@@ -7,6 +7,7 @@ use whispy_core::audio;
 use whispy_core::vad;
 
 use crate::corpus::{Clip, Group};
+use crate::labelled::Verdict;
 use crate::measure::{outcome, percentile, Config, Measured, Metrics, Runs};
 use crate::memory::LazyUse;
 use crate::oracle::{Class, Labels, Recovery};
@@ -38,6 +39,14 @@ pub struct Report<'a> {
     memory: Vec<MemoryProbe>,
     lazy: Result<LazyUse, String>,
     oracle: Result<Labels, String>,
+    /// How many labelled clips were replayed, or why none was.
+    labelled: Result<usize, String>,
+}
+
+/// The user's labelled clips through every configuration.
+pub struct Labelled {
+    pub clips: usize,
+    pub verdicts: Vec<(Config, Verdict)>,
 }
 
 impl<'a> Report<'a> {
@@ -48,15 +57,21 @@ impl<'a> Report<'a> {
         memory: Vec<MemoryProbe>,
         lazy: Result<LazyUse, String>,
         oracle: Result<Labels, String>,
+        labelled: Result<Labelled, String>,
     ) -> Self {
         let labels = oracle.as_ref().ok();
+        let verdict_of = |config: &Config| {
+            let verdicts = &labelled.as_ref().ok()?.verdicts;
+            let (_, verdict) = verdicts.iter().find(|(candidate, _)| candidate == config)?;
+            Some(verdict.clone())
+        };
         let rows: Vec<(Config, Metrics)> = Config::all()
             .into_iter()
             .map(|config| {
-                (
-                    config,
-                    Metrics::from_outcomes(clips, labels, |index| outcome(runs, &config, index)),
-                )
+                let mut metrics =
+                    Metrics::from_outcomes(clips, labels, |index| outcome(runs, &config, index));
+                metrics.labelled = verdict_of(&config);
+                (config, metrics)
             })
             .collect();
         let v1 = v1.map(|results| {
@@ -79,6 +94,7 @@ impl<'a> Report<'a> {
             memory,
             lazy,
             oracle,
+            labelled: labelled.map(|labelled| labelled.clips),
         }
     }
 
@@ -120,6 +136,7 @@ impl<'a> Report<'a> {
         self.write_corpus(&mut md);
         self.write_oracle(&mut md);
         self.write_table(&mut md);
+        self.write_labelled(&mut md);
         self.write_pick(&mut md);
         self.write_criteria(&mut md);
         self.write_lost_clips(&mut md);
@@ -138,7 +155,8 @@ impl<'a> Report<'a> {
             count(Group::Reference)
         );
         let _ = writeln!(md, "| quiet | {} | the short and ~5 s references turned down to RMS 0.012, the level V1's real lost dictations were measured at |", count(Group::Quiet));
-        let _ = writeln!(md, "| non-speech | {} | silence, white/brown noise, 50 Hz hum (seeded): any text here is invented |\n", count(Group::NonSpeech));
+        let _ = writeln!(md, "| non-speech | {} | silence, white/brown noise, 50 Hz hum (seeded): any text here is invented |", count(Group::NonSpeech));
+        let _ = writeln!(md, "| labelled | {} | the user's own clips, each labelled by ear as speech (with its text) or noise (`~/.whispy/bench`, the corpus of `banc --labelled`); local only, counts alone reach this file |\n", self.labelled.as_ref().map_or(0, |clips| *clips));
         let _ = writeln!(
             md,
             "Strategies: **raw** = the clip untouched; **gated** = V1's gates (peak RMS < 0.005, < 0.20 s voiced → nothing) then trim to the voiced span ± 0.3 s; \
@@ -246,22 +264,96 @@ impl<'a> Report<'a> {
         );
     }
 
+    /// Criterion 3 per configuration on the user's labelled clips: what the
+    /// pick is ranked on. Counts only: the clips and their texts stay local.
+    fn write_labelled(&self, md: &mut String) {
+        let _ = writeln!(md, "## The user's labelled clips, per configuration\n");
+        if let Err(reason) = &self.labelled {
+            let home = std::env::var("HOME").unwrap_or_default();
+            let reason = if home.is_empty() {
+                reason.clone()
+            } else {
+                reason.replace(&home, "~")
+            };
+            let _ = writeln!(
+                md,
+                "Not measured: {reason}. Without them the pick falls back on the unlabelled lost clips, where text may be invented.\n"
+            );
+            return;
+        }
+        let _ = writeln!(
+            md,
+            "Each configuration as a whole pipeline (long dictations split and joined as the app does), not one engine call per clip as in the table above.\n"
+        );
+        let _ = writeln!(
+            md,
+            "| configuration | lost speech: text | noise: text | word errors | WER | criterion 3 |\n|---|---|---|---|---|---|"
+        );
+        // V1's side is the same in every verdict: it comes from baseline.json.
+        if let Some(verdict) = self.rows.iter().find_map(|(_, m)| m.labelled.as_ref()) {
+            let _ = writeln!(
+                md,
+                "| **V1** (its `baseline.json`) | {} | {} | {} | {} | – |",
+                ratio((verdict.lost_recovered_v1, verdict.lost_chunks)),
+                verdict.lost_noise_invented_v1 + verdict.drift_noise_invented_v1,
+                verdict.v1_errors,
+                word_error_rate(verdict.v1_errors, verdict.wer_words)
+            );
+        }
+        for (config, metrics) in &self.rows {
+            let Some(verdict) = &metrics.labelled else {
+                continue;
+            };
+            let label = if *config == self.pick {
+                format!("**{}** (pick)", config.label())
+            } else {
+                config.label()
+            };
+            let _ = writeln!(
+                md,
+                "| {label} | {} | {} | {} | {} | {} |",
+                ratio((verdict.lost_recovered, verdict.lost_chunks)),
+                verdict.noise_with_text(),
+                verdict.v2_errors,
+                word_error_rate(verdict.v2_errors, verdict.wer_words),
+                if verdict.holds() { "holds" } else { "not met" }
+            );
+        }
+        let _ = writeln!(
+            md,
+            "\n\"lost speech\" = the lost clips labelled speech; \"noise\" = every clip labelled noise, lost or drift; \
+             word errors and WER are over the speech clips V1's baseline also scored, with V1's normalization; \
+             criterion 3 holds with at least 70% of lost speech back, no text on lost noise and no more word errors than V1.\n"
+        );
+    }
+
     fn write_pick(&self, md: &mut String) {
         let metrics = self.metrics_of(&self.pick);
         let _ = writeln!(md, "## Default engine and strategy (criterion 7)\n");
         let _ = writeln!(
             md,
-            "Rule: a configuration that invents text on non-speech is out (it would be typed into the user's window). \
-             Among the rest, one whose reference WER is not worse than V1's comes first; then the most lost speech clips with text, \
-             the most lost clips with text, the lowest WER over reference and quiet clips, the lowest ~5 s p95.\n"
+            "Rule: a configuration that returns text on non-speech, or on a clip the user labelled noise, is out (it would be typed into the user's window). \
+             Among the rest, one whose reference WER is not worse than V1's comes first; then, on the user's labelled clips, one that holds criterion 3, \
+             the most lost speech clips with text and the fewest word errors; then the most lost clips the oracle heard speech in with text; \
+             only without labelled clips, the most lost clips with text (unlabelled, so text there may be invented); \
+             then the lowest WER over reference and quiet clips, the lowest ~5 s p95.\n"
         );
         if !self.pick_meets_guards {
             let _ = writeln!(md, "**No configuration matches V1's reference WER**; the pick is the best of the others by the same order.\n");
         }
         let _ = writeln!(
             md,
-            "**Pick: {}** — lost speech clips with text {}, all lost clips with text {}, reference WER {}, quiet WER {}, invented on non-speech {}, ~5 s sentence p95 {:.2} s.\n",
+            "**Pick: {}** — {}lost speech clips with text (oracle) {}, all lost clips with text {}, reference WER {}, quiet WER {}, invented on non-speech {}, ~5 s sentence p95 {:.2} s.\n",
             self.pick.label(),
+            metrics.labelled.as_ref().map_or(String::new(), |verdict| {
+                format!(
+                    "labelled clips: lost speech with text {}, noise with text {}, WER {} against V1's {}; ",
+                    ratio((verdict.lost_recovered, verdict.lost_chunks)),
+                    verdict.noise_with_text(),
+                    word_error_rate(verdict.v2_errors, verdict.wer_words),
+                    word_error_rate(verdict.v1_errors, verdict.wer_words)
+                )
+            }),
             recovery_ratio(&metrics.lost_speech),
             ratio(metrics.non_empty(Group::Lost)),
             percent(metrics.wer(Group::Reference)),
@@ -285,6 +377,21 @@ impl<'a> Report<'a> {
     fn write_criteria(&self, md: &mut String) {
         let metrics = self.metrics_of(&self.pick);
         let _ = writeln!(md, "## Card criteria measured here\n");
+        if let Some(verdict) = &metrics.labelled {
+            let _ = writeln!(
+                md,
+                "- **3, on the user's labelled clips** (the measure the card settled on): lost speech with text {} (V1 {}), text on lost noise {}/{} (V1 {}/{}), WER {} against V1's {} → {}.",
+                ratio((verdict.lost_recovered, verdict.lost_chunks)),
+                ratio((verdict.lost_recovered_v1, verdict.lost_chunks)),
+                verdict.lost_noise_invented,
+                verdict.lost_noise,
+                verdict.lost_noise_invented_v1,
+                verdict.lost_noise,
+                word_error_rate(verdict.v2_errors, verdict.wer_words),
+                word_error_rate(verdict.v1_errors, verdict.wer_words),
+                if verdict.holds() { "met" } else { "**not met**" }
+            );
+        }
         let speech = &metrics.lost_speech;
         if speech.speech_clips > 0 {
             let _ = writeln!(
@@ -573,22 +680,35 @@ fn v1_outcome(results: &V1Results, clip: &Clip) -> Measured {
 
 /// Returns the pick and whether it also matches V1's reference WER.
 ///
-/// Invented text on non-speech disqualifies: it would be typed into the
-/// user's window. Among the rest, a configuration whose reference WER is not
-/// worse than V1's is preferred; then the most lost clips with text, the lowest
-/// WER over reference and quiet clips, the lowest ~5 s p95.
+/// Text on non-speech, or on a clip the user labelled noise, disqualifies: it
+/// would be typed into the user's window. Among the rest, a configuration
+/// whose reference WER is not worse than V1's is preferred; then the user's
+/// labelled clips decide (criterion 3 holds, most lost speech back, fewest
+/// word errors); then the lost clips the oracle heard speech in; then the
+/// lowest WER over reference and quiet clips, the lowest ~5 s p95.
+///
+/// The unlabelled lost clips rank only when there are no labelled clips: text
+/// there may be invented, and `~/.whispy/lost` rotates, so a pick resting on
+/// it changes from one day to the next.
 fn choose(rows: &[(Config, Metrics)], v1_reference_wer: Option<f64>) -> (Config, bool) {
     let matches_v1 = |metrics: &Metrics| {
         v1_reference_wer.is_none_or(|v1| metrics.wer(Group::Reference) <= v1 + 1e-9)
     };
+    let holds = |metrics: &Metrics| metrics.labelled.as_ref().is_some_and(Verdict::holds);
+    let recovered = |metrics: &Metrics| metrics.labelled.as_ref().map_or(0, |v| v.lost_recovered);
+    let errors = |metrics: &Metrics| metrics.labelled.as_ref().map_or(0, |v| v.v2_errors);
+    let unlabelled_lost = |metrics: &Metrics| match metrics.labelled {
+        Some(_) => 0.0,
+        None => metrics.non_empty_rate(Group::Lost),
+    };
     let order = |a: &&(Config, Metrics), b: &&(Config, Metrics)| -> Ordering {
         matches_v1(&b.1)
             .cmp(&matches_v1(&a.1))
+            .then(holds(&b.1).cmp(&holds(&a.1)))
+            .then(recovered(&b.1).cmp(&recovered(&a.1)))
+            .then(errors(&a.1).cmp(&errors(&b.1)))
             .then(b.1.lost_speech.rate().total_cmp(&a.1.lost_speech.rate()))
-            .then(
-                b.1.non_empty_rate(Group::Lost)
-                    .total_cmp(&a.1.non_empty_rate(Group::Lost)),
-            )
+            .then(unlabelled_lost(&b.1).total_cmp(&unlabelled_lost(&a.1)))
             .then(a.1.combined_wer().total_cmp(&b.1.combined_wer()))
             .then(
                 percentile(&a.1.sentence_latencies, 95.0)
@@ -597,7 +717,13 @@ fn choose(rows: &[(Config, Metrics)], v1_reference_wer: Option<f64>) -> (Config,
     };
     let honest: Vec<&(Config, Metrics)> = rows
         .iter()
-        .filter(|(_, metrics)| metrics.non_empty(Group::NonSpeech).0 == 0)
+        .filter(|(_, metrics)| {
+            metrics.non_empty(Group::NonSpeech).0 == 0
+                && metrics
+                    .labelled
+                    .as_ref()
+                    .is_none_or(|verdict| verdict.noise_with_text() == 0)
+        })
         .collect();
     let candidates = if honest.is_empty() {
         rows.iter().collect()
@@ -653,6 +779,13 @@ fn ratio((with_text, total): (usize, usize)) -> String {
     )
 }
 
+fn word_error_rate(errors: usize, words: usize) -> String {
+    if words == 0 {
+        return "–".to_string();
+    }
+    percent(errors as f64 / words as f64)
+}
+
 fn recovery_ratio(recovery: &Recovery) -> String {
     ratio((recovery.recovered, recovery.speech_clips))
 }
@@ -704,4 +837,86 @@ fn machine() -> String {
         "{}, {memory_gb:.0} GB",
         command_output("sysctl", &["-n", "machdep.cpu.brand_string"])
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use whispy_core::{EngineKind, Strategy};
+
+    fn config(strategy: Strategy, fallback: bool) -> Config {
+        Config {
+            primary: EngineKind::Parakeet,
+            fallback: fallback.then_some(EngineKind::Whisper),
+            strategy,
+        }
+    }
+
+    fn verdict(recovered: usize, noise_with_text: usize, errors: usize) -> Verdict {
+        Verdict {
+            lost_chunks: 7,
+            lost_recovered: recovered,
+            lost_recovered_v1: 4,
+            lost_noise: 13,
+            lost_noise_invented: noise_with_text,
+            lost_noise_invented_v1: 1,
+            drift_noise: 1,
+            drift_noise_invented: 0,
+            drift_noise_invented_v1: 0,
+            wer_clips: 21,
+            wer_words: 628,
+            v2_errors: errors,
+            v1_errors: 106,
+        }
+    }
+
+    /// Metrics with `lost_text` of 20 unlabelled lost clips back with text.
+    fn metrics(lost_text: usize, labelled: Option<Verdict>) -> Metrics {
+        let clips: Vec<Clip> = (0..20)
+            .map(|index| Clip {
+                id: index.to_string(),
+                group: Group::Lost,
+                kind: crate::corpus::Kind::Unknown,
+                expected: None,
+                samples: Vec::new(),
+                path: std::path::PathBuf::new(),
+            })
+            .collect();
+        let mut metrics = Metrics::from_outcomes(&clips, None, |index| Measured {
+            text: if index < lost_text { "text" } else { "" }.to_string(),
+            seconds: vec![0.1],
+        });
+        metrics.labelled = labelled;
+        metrics
+    }
+
+    #[test]
+    fn labelled_clips_outrank_text_on_unlabelled_lost_clips() {
+        let louder = config(Strategy::Louder, false);
+        let padded = config(Strategy::Padded, true);
+        let rows = vec![
+            (louder, metrics(1, Some(verdict(4, 0, 119)))),
+            (padded, metrics(0, Some(verdict(6, 0, 95)))),
+        ];
+        assert_eq!(choose(&rows, None).0, padded);
+    }
+
+    #[test]
+    fn text_on_a_clip_labelled_noise_disqualifies() {
+        let louder = config(Strategy::Louder, false);
+        let padded = config(Strategy::Padded, true);
+        let rows = vec![
+            (louder, metrics(0, Some(verdict(7, 1, 80)))),
+            (padded, metrics(0, Some(verdict(6, 0, 95)))),
+        ];
+        assert_eq!(choose(&rows, None).0, padded);
+    }
+
+    #[test]
+    fn without_labelled_clips_the_unlabelled_lost_clips_still_rank() {
+        let louder = config(Strategy::Louder, false);
+        let padded = config(Strategy::Padded, true);
+        let rows = vec![(padded, metrics(0, None)), (louder, metrics(1, None))];
+        assert_eq!(choose(&rows, None).0, louder);
+    }
 }
