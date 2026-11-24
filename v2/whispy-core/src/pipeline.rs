@@ -139,6 +139,12 @@ impl Pipeline {
         }
     }
 
+    /// The primary engine's name, for the journal of a dictation whose text came
+    /// from rolling passes (see [`Transcriber::name`]).
+    pub fn primary_name(&self) -> &'static str {
+        self.primary.name()
+    }
+
     /// The configuration the bench chose: `DEFAULT_ENGINE`, `DEFAULT_FALLBACK`, `DEFAULT_STRATEGY`.
     /// The primary engine is loaded now; the fallback only when the primary
     /// first returns nothing, and it is freed after [`FALLBACK_IDLE`] unused.
