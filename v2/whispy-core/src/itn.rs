@@ -2,23 +2,27 @@
 //!
 //! Parakeet writes numbers in words (« quatorze heures trente »). [`normalize`]
 //! rewrites them: cardinals and their compounds (« quatre-vingt-dix-sept » →
-//! 97, « deux mille vingt-six » → 2026), hours (« quatorze heures trente » →
-//! « 14 h 30 »), percentages (« dix pour cent » → « 10 % »). « un » and « une »
+//! 97, « deux mille vingt-six » → 2026, « deux millions cinq cent mille » →
+//! 2500000), hours (« quatorze heures trente », « 14 heures trente », « 14h30 »
+//! → « 14 h 30 »), percentages (« dix pour cent » → « 10 % »). « un » and « une »
 //! stay in letters (an article as often as a number: « un peu », « une fois »)
-//! unless they end a compound (« vingt et un » → 21).
+//! unless they end a compound (« vingt et un » → 21) or give the hour of
+//! « une heure trente » (→ « 1 h 30 »).
 //!
 //! No language is passed in: only French number words trigger anything, so
-//! English text goes through untouched. The words English shares with
-//! French, « six », « sept » and « cent », convert only next to no English function word
-//! (see [`ENGLISH_WORDS`]).
+//! English text goes through untouched. Some words are also English or plain
+//! French words: « cent » and « cents » alone (a coin) and « vingts » never
+//! start a number; a lone « six », « sept » or « neuf » stays in letters beside
+//! an English function word, or at the end of a clause unless a French word
+//! comes before it (« il y a six. » but « I will take six. », « un pull neuf »).
 //!
 //! The rolling dictation types text in passages, and a number must never be
 //! split between two of them. [`stable_prefix_len`] says how much of the text so
-//! far can be typed for good: the trailing number, or a word that may continue
-//! one (« et », « pour »), is held back. For any text, normalising the stable
-//! prefix gives the start of normalising the whole.
+//! far can be typed for good: whatever could still become part of a number is
+//! held back, even a number a guard would reject now. For any text, normalising
+//! the stable prefix gives the start of normalising the whole.
 
-/// English words that mark an English sentence around a lone « six », « sept » or « cent ».
+/// English words that mark an English sentence around a lone « six » or « sept ».
 /// None of them is a French word.
 const ENGLISH_WORDS: &[&str] = &[
     "the", "of", "and", "to", "is", "are", "was", "were", "with", "for", "you", "your", "we", "i",
@@ -27,27 +31,39 @@ const ENGLISH_WORDS: &[&str] = &[
     "just", "over", "under", "more", "less", "last", "next", "all", "any", "some",
 ];
 
+/// French words that, before a lone « six », « sept » or « neuf » ending a
+/// clause, say it is a number (« il y a six. »).
+const FRENCH_WORDS: &[&str] = &[
+    "le", "la", "les", "des", "au", "aux", "à", "a", "ai", "as", "avons", "avez", "ont", "est",
+    "sont", "y", "en", "et", "ou", "pour", "par", "sur", "dans", "avec", "plus", "moins", "que",
+    "qui", "ce", "cette", "ces", "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses",
+    "nous", "vous", "je", "tu", "il", "elle", "ils", "elles", "pas", "ne",
+];
+
 /// `text` with its spoken numbers in digits. Idempotent; spacing is kept.
 pub fn normalize(text: &str) -> String {
     let items = items(text);
-    let mut out: Vec<String> = Vec::with_capacity(items.len());
+    let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < items.len() {
-        match span_at(&items, i) {
+        if let Some(separator) = items[i].before {
+            out.push(separator);
+        }
+        match span_at(&items, i, true) {
             Some(span) => {
-                out.push(span.text);
+                out.push_str(&span.text);
                 i = span.end;
             }
             None => {
-                out.push(items[i].text.clone());
+                out.push_str(&items[i].text);
                 i += 1;
             }
         }
     }
-    out.join(" ")
+    out
 }
 
-/// Bytes of `text` (a whole-token prefix, without its trailing space) that
+/// Bytes of `text` (a whole-token prefix, without its trailing separator) that
 /// can be typed for good: what remains after it is a number being spoken, or a
 /// word that may continue one. `text.len()` when nothing is held.
 pub fn stable_prefix_len(text: &str) -> usize {
@@ -58,7 +74,7 @@ pub fn stable_prefix_len(text: &str) -> usize {
     let mut last_span: Option<Span> = None;
     let mut i = 0;
     while i < items.len() {
-        match span_at(&items, i) {
+        match span_at(&items, i, false) {
             Some(span) => {
                 i = span.end;
                 last_span = Some(span);
@@ -66,17 +82,35 @@ pub fn stable_prefix_len(text: &str) -> usize {
             None => i += 1,
         }
     }
-    let Some(span) = last_span else {
-        return text.len();
-    };
-    let can_continue = !span.closed
-        && (span.end == items.len()
-            || (span.end == last && is_continuer(&parse(&items[last].text))));
-    if !can_continue {
-        return text.len();
+    let mut held: Option<usize> = None;
+    if let Some(span) = last_span {
+        let can_continue = !span.closed
+            && (span.end == items.len()
+                || (span.end == last && is_continuer(&parse(&items[last].text))));
+        if can_continue {
+            held = Some(span.start);
+        }
     }
-    // The token before the held ones is followed by a space we drop.
-    items[span.start].start.saturating_sub(1)
+    let tail = parse(&items[last].text);
+    if tail.trail.is_empty() && tail.lead.is_empty() {
+        // A lone « un » / « une » may be the hour of « une heure trente »;
+        // digits may be followed by « heures » or « pour cent ».
+        let after_digits = last
+            .checked_sub(1)
+            .is_some_and(|k| digits_at(&items, k).is_some_and(|d| d.trail.is_empty()));
+        let is_digits = digits_at(&items, last).is_some();
+        if is_digits
+            || matches!(tail.core.as_str(), "un" | "une")
+            || (tail.core == "pour" && after_digits)
+        {
+            let from = if tail.core == "pour" { last - 1 } else { last };
+            held = Some(held.map_or(from, |h| h.min(from)));
+        }
+    }
+    match held {
+        Some(h) => items[h].start - items[h].before.map_or(0, char::len_utf8),
+        None => text.len(),
+    }
 }
 
 /// A word that, after a number, may start what the number is part of.
@@ -88,16 +122,28 @@ struct Item {
     text: String,
     /// Byte offset of the item's first character in the original text.
     start: usize,
+    /// The whitespace character before it, `None` for the first item.
+    before: Option<char>,
 }
 
-/// The space-separated tokens of `text`. A token starting with a hyphen that
-/// carries on a number word (« quatre-vingt » « -dix ») is glued to it.
+/// The whitespace-separated tokens of `text` (every whitespace character
+/// separates and is kept; two in a row leave an empty token between). A token
+/// starting with a hyphen that carries on a number word (« quatre-vingt »
+/// « -dix ») is glued to it.
 fn items(text: &str) -> Vec<Item> {
     let mut items: Vec<Item> = Vec::new();
-    let mut offset = 0;
-    for token in text.split(' ') {
-        let start = offset;
-        offset += token.len() + 1;
+    let mut before = None;
+    let mut start = 0;
+    let mut tokens: Vec<(usize, &str, Option<char>)> = Vec::new();
+    for (i, c) in text.char_indices() {
+        if c.is_whitespace() {
+            tokens.push((start, &text[start..i], before));
+            before = Some(c);
+            start = i + c.len_utf8();
+        }
+    }
+    tokens.push((start, &text[start..], before));
+    for (start, token, before) in tokens {
         if let (Some(rest), Some(previous)) = (token.strip_prefix('-'), items.last_mut()) {
             if !rest.is_empty()
                 && is_number_token(&previous.text, false)
@@ -110,6 +156,7 @@ fn items(text: &str) -> Vec<Item> {
         items.push(Item {
             text: token.to_string(),
             start,
+            before,
         });
     }
     items
@@ -156,9 +203,11 @@ fn parse(token: &str) -> Parsed {
 enum Atom {
     Zero,
     /// 1..=99: units, teens, tens.
-    Small(u32),
+    Small(u64),
     Hundred,
     Thousand,
+    /// « million », « milliard ».
+    Scale(u64),
 }
 
 fn atom(word: &str) -> Option<Atom> {
@@ -190,16 +239,21 @@ fn atom(word: &str) -> Option<Atom> {
         "nonante" => Atom::Small(90),
         "cent" | "cents" => Atom::Hundred,
         "mille" => Atom::Thousand,
+        "million" | "millions" => Atom::Scale(1_000_000),
+        "milliard" | "milliards" => Atom::Scale(1_000_000_000),
         _ => return None,
     })
 }
 
 /// A number being read word by word.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct Acc {
-    thousands: u32,
-    hundreds: u32,
-    rest: u32,
+    big: u64,
+    /// The last scale used (« million »), words of a smaller one may follow.
+    last_scale: u64,
+    thousands: u64,
+    hundreds: u64,
+    rest: u64,
     used_thousand: bool,
     zero: bool,
     atoms: usize,
@@ -214,20 +268,35 @@ struct Acc {
 impl Acc {
     fn new() -> Acc {
         Acc {
+            big: 0,
+            last_scale: u64::MAX,
+            thousands: 0,
+            hundreds: 0,
+            rest: 0,
+            used_thousand: false,
+            zero: false,
+            atoms: 0,
             only_shared: true,
+            after_four: false,
             only_un: true,
-            ..Acc::default()
         }
     }
 
-    fn value(&self) -> u32 {
+    fn group(&self) -> u64 {
         self.thousands * 1000 + self.hundreds + self.rest
+    }
+
+    fn value(&self) -> u64 {
+        self.big + self.group()
     }
 
     /// Whether « et » may come now, before `next`.
     fn can_et(&self, next: &str) -> bool {
         match next {
-            "un" | "une" => matches!(self.rest, 20 | 30 | 40 | 50),
+            "un" | "une" => {
+                matches!(self.rest, 20 | 30 | 40 | 50)
+                    || (self.used_thousand && self.hundreds == 0 && self.rest == 0)
+            }
             "onze" => self.rest == 60,
             _ => false,
         }
@@ -251,6 +320,7 @@ impl Acc {
             Atom::Small(v) => self.push_small(v),
             Atom::Hundred => self.push_hundred(),
             Atom::Thousand => self.push_thousand(),
+            Atom::Scale(scale) => self.push_scale(scale),
         };
         if ok {
             self.atoms += 1;
@@ -261,7 +331,7 @@ impl Acc {
         ok
     }
 
-    fn push_small(&mut self, v: u32) -> bool {
+    fn push_small(&mut self, v: u64) -> bool {
         let rest = self.rest;
         if v == 20 && self.after_four && rest == 4 {
             self.rest = 80;
@@ -271,8 +341,7 @@ impl Acc {
             0 => true,
             10 => (7..=9).contains(&v),
             20 | 30 | 40 | 50 | 70 | 90 => v < 10,
-            60 => v < 20,
-            80 => v < 20,
+            60 | 80 => v < 20,
             _ => false,
         };
         if allowed {
@@ -289,7 +358,7 @@ impl Acc {
             0 => self.hundreds = 100,
             1..=9 => self.hundreds = self.rest * 100,
             // « dix-neuf cent quatre-vingt »: a year.
-            10..=19 if self.thousands == 0 && !self.used_thousand => {
+            10..=19 if self.big == 0 && self.thousands == 0 && !self.used_thousand => {
                 self.hundreds = self.rest * 100;
             }
             _ => return false,
@@ -308,15 +377,43 @@ impl Acc {
         self.used_thousand = true;
         true
     }
+
+    fn push_scale(&mut self, scale: u64) -> bool {
+        let group = self.group();
+        if group == 0 || scale >= self.last_scale {
+            return false;
+        }
+        self.big += group * scale;
+        self.thousands = 0;
+        self.hundreds = 0;
+        self.rest = 0;
+        self.used_thousand = false;
+        self.last_scale = scale;
+        true
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Source {
+    /// Number words.
+    Words,
+    /// Digits the engine wrote itself.
+    Digits,
+    /// « une », only as the hour of « une heure trente ».
+    Une,
 }
 
 /// A number read from some tokens.
 struct Number {
+    source: Source,
     end: usize,
-    value: u32,
-    lead: String,
+    value: u64,
+    /// The number as it is written: punctuation before, then digits.
+    shown: String,
     trail: String,
     only_shared: bool,
+    /// The only word of a number made of words.
+    lone: Option<String>,
 }
 
 /// The number that starts at item `start`, as long as the words allow.
@@ -324,6 +421,7 @@ fn number_at(items: &[Item], start: usize) -> Option<Number> {
     let mut acc = Acc::new();
     let (mut end, mut k) = (start, start);
     let (mut lead, mut trail) = (String::new(), String::new());
+    let mut first_word = String::new();
     while k < items.len() {
         let token = parse(&items[k].text);
         if token.core.is_empty() || (k > start && !token.lead.is_empty()) {
@@ -364,6 +462,7 @@ fn number_at(items: &[Item], start: usize) -> Option<Number> {
         acc = trial;
         if end == start {
             lead = token.lead.clone();
+            first_word = parts[0].to_string();
         }
         end = k + 1;
         trail = token.trail.clone();
@@ -372,16 +471,55 @@ fn number_at(items: &[Item], start: usize) -> Option<Number> {
             break;
         }
     }
-    if end == start || acc.only_un {
+    // « cents » and « vingts » only end a number; « un » alone is no number.
+    if end == start || acc.only_un || matches!(first_word.as_str(), "cents" | "vingts") {
         return None;
     }
     Some(Number {
+        source: Source::Words,
         end,
         value: acc.value(),
-        lead,
+        shown: format!("{lead}{}", acc.value()),
         trail,
         only_shared: acc.only_shared,
+        lone: (acc.atoms == 1).then_some(first_word),
     })
+}
+
+/// Digits the engine wrote (« 14 »), as a number for the units after it.
+fn digits_at(items: &[Item], start: usize) -> Option<Number> {
+    let token = parse(&items.get(start)?.text);
+    if token.core.is_empty()
+        || token.core.len() > 9
+        || !token.core.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    Some(Number {
+        source: Source::Digits,
+        end: start + 1,
+        value: token.core.parse().ok()?,
+        shown: format!("{}{}", token.lead, token.core),
+        trail: token.trail,
+        only_shared: false,
+        lone: None,
+    })
+}
+
+/// « une » before « heure » (« une heure trente »).
+fn une_at(items: &[Item], start: usize) -> Option<Number> {
+    let token = parse(&items.get(start)?.text);
+    let next = parse(&items.get(start + 1)?.text);
+    (token.core == "une" && token.trail.is_empty() && next.lead.is_empty() && is_hours(&next.core))
+        .then(|| Number {
+            source: Source::Une,
+            end: start + 1,
+            value: 1,
+            shown: format!("{}1", token.lead),
+            trail: String::new(),
+            only_shared: false,
+            lone: None,
+        })
 }
 
 struct Span {
@@ -393,46 +531,94 @@ struct Span {
 }
 
 /// The rewritten number, with the units it governs, that starts at `start`.
-fn span_at(items: &[Item], start: usize) -> Option<Span> {
-    let number = number_at(items, start)?;
-    let digits = format!("{}{}", number.lead, number.value);
-    let after = |offset: usize| items.get(number.end + offset).map(|item| parse(&item.text));
+/// Not `strict`, the guards that leave a number in letters are off and a
+/// number that only gets digits when something follows is still a span: that
+/// is what [`stable_prefix_len`] holds back.
+fn span_at(items: &[Item], start: usize, strict: bool) -> Option<Span> {
+    if let Some(span) = clock_at(items, start) {
+        return Some(span);
+    }
+    let number = number_at(items, start)
+        .or_else(|| digits_at(items, start))
+        .or_else(|| une_at(items, start))?;
     if number.trail.is_empty() {
-        let (first, second) = (after(0), after(1));
-        // « dix pour cent ».
-        if let (Some(a), Some(b)) = (&first, &second) {
-            if is_bare(a, "pour") && b.lead.is_empty() && b.core == "cent" {
-                return Some(Span {
-                    start,
-                    end: number.end + 2,
-                    text: format!("{digits} %{}", b.trail),
-                    closed: !b.trail.is_empty(),
-                });
-            }
-        }
-        // « quatorze heures trente ».
-        if let Some(a) = first.filter(|a| a.lead.is_empty() && is_hours(&a.core)) {
-            if number.value <= 24 {
-                if let Some(span) = hours_at(items, start, &number, &digits, &a) {
-                    return Some(span);
-                }
-            }
-            return Some(Span {
-                start,
-                end: number.end + 1,
-                text: format!("{digits} {}", items[number.end].text),
-                closed: !a.trail.is_empty(),
-            });
+        if let Some(span) = unit_span(items, start, &number, strict) {
+            return Some(span);
         }
     }
-    if number.only_shared && is_english_around(items, start, &number) {
+    if number.source != Source::Words || (strict && is_left_in_letters(items, start, &number)) {
         return None;
     }
     Some(Span {
         start,
         end: number.end,
-        text: format!("{digits}{}", number.trail),
+        text: format!("{}{}", number.shown, number.trail),
         closed: !number.trail.is_empty(),
+    })
+}
+
+/// « 14h30 », as Parakeet writes it.
+fn clock_at(items: &[Item], start: usize) -> Option<Span> {
+    let token = parse(&items.get(start)?.text);
+    let (hours, minutes) = token.core.split_once('h')?;
+    let digits = |s: &str, n: usize| s.len() <= n && s.bytes().all(|b| b.is_ascii_digit());
+    if hours.is_empty() || minutes.len() != 2 || !digits(hours, 2) || !digits(minutes, 2) {
+        return None;
+    }
+    if hours.parse::<u32>().ok()? > 24 || minutes.parse::<u32>().ok()? > 59 {
+        return None;
+    }
+    Some(Span {
+        start,
+        end: start + 1,
+        text: format!("{}{hours} h {minutes}{}", token.lead, token.trail),
+        closed: !token.trail.is_empty(),
+    })
+}
+
+/// « pour cent » and « heures » after a number.
+fn unit_span(items: &[Item], start: usize, number: &Number, strict: bool) -> Option<Span> {
+    let after = |offset: usize| items.get(number.end + offset).map(|item| parse(&item.text));
+    let (first, second) = (after(0), after(1));
+    // « dix pour cent ».
+    if let (Some(a), Some(b)) = (&first, &second) {
+        if number.source != Source::Une
+            && is_bare(a, "pour")
+            && b.lead.is_empty()
+            && b.core == "cent"
+        {
+            return Some(Span {
+                start,
+                end: number.end + 2,
+                text: format!("{} %{}", number.shown, b.trail),
+                closed: !b.trail.is_empty(),
+            });
+        }
+    }
+    // « quatorze heures trente ».
+    let a = first.filter(|a| a.lead.is_empty() && is_hours(&a.core))?;
+    if number.value > 24 {
+        return None;
+    }
+    if let Some(span) = hours_at(items, start, number, &a) {
+        return Some(span);
+    }
+    if number.source == Source::Une && strict {
+        return None;
+    }
+    Some(Span {
+        start,
+        end: number.end + 1,
+        text: format!(
+            "{} {}",
+            if number.source == Source::Une {
+                items[start].text.clone()
+            } else {
+                number.shown.clone()
+            },
+            items[number.end].text
+        ),
+        closed: !a.trail.is_empty(),
     })
 }
 
@@ -445,13 +631,7 @@ fn is_hours(word: &str) -> bool {
 }
 
 /// « quatorze heures » followed by minutes: « 14 h 30 ».
-fn hours_at(
-    items: &[Item],
-    start: usize,
-    hours: &Number,
-    digits: &str,
-    word: &Parsed,
-) -> Option<Span> {
+fn hours_at(items: &[Item], start: usize, hours: &Number, word: &Parsed) -> Option<Span> {
     if !word.trail.is_empty() {
         return None;
     }
@@ -468,30 +648,70 @@ fn hours_at(
             return Some(Span {
                 start,
                 end: minutes_at + 2,
-                text: format!("{digits} h {minutes:02}{}", fraction.trail),
+                text: format!("{} h {minutes:02}{}", hours.shown, fraction.trail),
                 closed: !fraction.trail.is_empty(),
             });
         }
     }
-    let minutes = number_at(items, minutes_at)?;
-    if !minutes.lead.is_empty() || !(1..60).contains(&minutes.value) {
+    let minutes = number_at(items, minutes_at).or_else(|| digits_at(items, minutes_at))?;
+    let lead_free = items[minutes_at]
+        .text
+        .starts_with(|c: char| c.is_alphanumeric());
+    if !lead_free || !(1..60).contains(&minutes.value) {
         return None;
     }
     Some(Span {
         start,
         end: minutes.end,
-        text: format!("{digits} h {:02}{}", minutes.value, minutes.trail),
+        text: format!("{} h {:02}{}", hours.shown, minutes.value, minutes.trail),
         closed: !minutes.trail.is_empty(),
     })
 }
 
-/// A lone « six » or « cent » beside an English function word, or at the
-/// start of the sentence's English: left alone.
-fn is_english_around(items: &[Item], start: usize, number: &Number) -> bool {
-    let is_english = |item: &Item| ENGLISH_WORDS.contains(&parse(&item.text).core.as_str());
+/// A number made of words that stays in letters: « cent » alone; a lone
+/// « six » or « sept » beside an English function word; a lone « six »,
+/// « sept » or « neuf » ending a clause with no French word before it, or
+/// « neuf » after « tout ».
+fn is_left_in_letters(items: &[Item], start: usize, number: &Number) -> bool {
+    let lone = number.lone.as_deref();
+    if lone == Some("cent") {
+        return true;
+    }
     let before = start.checked_sub(1).and_then(|i| items.get(i));
-    let after = items.get(number.end).filter(|_| number.trail.is_empty());
-    before.is_some_and(is_english) || after.is_some_and(is_english)
+    let after = items.get(number.end);
+    if number.only_shared {
+        let is_english = |item: &Item| ENGLISH_WORDS.contains(&parse(&item.text).core.as_str());
+        if before.is_some_and(is_english)
+            || after
+                .filter(|_| number.trail.is_empty())
+                .is_some_and(is_english)
+        {
+            return true;
+        }
+    }
+    if !matches!(lone, Some("six" | "sept" | "neuf")) {
+        return false;
+    }
+    let is_neuf = lone == Some("neuf");
+    let previous = before.map(|item| parse(&item.text).core);
+    if is_neuf
+        && matches!(
+            previous.as_deref(),
+            Some("tout" | "toute" | "tous" | "toutes")
+        )
+    {
+        return true;
+    }
+    let is_final =
+        !number.trail.is_empty() || after.is_none_or(|item| parse(&item.text).core.is_empty());
+    if !is_final {
+        return false;
+    }
+    let is_french = previous.is_some_and(|word| {
+        FRENCH_WORDS.contains(&word.as_str())
+            || (!is_neuf && matches!(word.as_str(), "de" | "d" | "du"))
+    });
+    !is_french
 }
 
 #[cfg(test)]
@@ -582,9 +802,58 @@ mod tests {
             "we paid one cent and six more",
             "at eight o'clock sharp",
             "ten per cent of the total",
+            "it cost fifty cents.",
+            "one cent",
+            "I will take six.",
+            "I will take six more.",
+            "the cent",
         ] {
             assert_eq!(n(text), text);
         }
+    }
+
+    #[test]
+    fn the_guards_keep_english_and_plain_french_words_in_letters() {
+        assert_eq!(n("quoi de neuf ?"), "quoi de neuf ?");
+        assert_eq!(n("un pull neuf"), "un pull neuf");
+        assert_eq!(n("il est tout neuf"), "il est tout neuf");
+        assert_eq!(n("le neuf décembre"), "le 9 décembre");
+        assert_eq!(n("neuf personnes"), "9 personnes");
+        assert_eq!(n("à neuf heures"), "à 9 heures");
+        assert_eq!(n("il y a neuf."), "il y a 9.");
+        assert_eq!(n("il en a six."), "il en a 6.");
+        assert_eq!(n("cent"), "cent");
+        assert_eq!(n("cent vingt"), "120");
+        assert_eq!(n("cent euros"), "cent euros");
+    }
+
+    #[test]
+    fn scales_hours_and_digits_read_as_one_number() {
+        assert_eq!(n("deux millions cinq cent mille"), "2500000");
+        assert_eq!(n("un million"), "1000000");
+        assert_eq!(n("trois milliards deux millions"), "3002000000");
+        assert_eq!(n("mille et une nuits"), "1001 nuits");
+        assert_eq!(n("une heure trente"), "1 h 30");
+        assert_eq!(n("à une heure et demie"), "à 1 h 30");
+        assert_eq!(n("une heure"), "une heure");
+        assert_eq!(n("une heure de route"), "une heure de route");
+        assert_eq!(n("14 heures trente"), "14 h 30");
+        assert_eq!(n("14 heures"), "14 heures");
+        assert_eq!(n("à 14h30."), "à 14 h 30.");
+        assert_eq!(n("10 pour cent"), "10 %");
+        assert_eq!(n("14 h 30"), "14 h 30");
+    }
+
+    #[test]
+    fn any_whitespace_separates_words_and_is_kept() {
+        assert_eq!(n("trois\u{a0}tests"), "3\u{a0}tests");
+        assert_eq!(
+            n("trois\u{202f}tests\ndeux\u{a0}heures\u{202f}trente"),
+            "3\u{202f}tests\n2 h 30"
+        );
+        assert_eq!(n("dix\npour cent"), "10 %");
+        let text = "à\u{a0}quatre-vingt";
+        assert_eq!(&text[..stable_prefix_len(text)], "à");
     }
 
     #[test]
@@ -644,6 +913,12 @@ mod tests {
             "j'ai six chats, vingt-six. Trois, quatre, cinq heures.",
             "un peu de mille et une choses à quatre heures",
             "I have six apples and one cent at eight o'clock",
+            "it cost fifty cents. the cent vingt and I will take six.",
+            "à une heure trente, une heure et demie, une heure",
+            "il est quatorze heures trente puis 14 heures trente puis 14h30 et 10 pour cent",
+            "mille et une nuits et deux millions cinq cent mille personnes",
+            "quoi de neuf ? un pull neuf, tout neuf, le neuf décembre, neuf personnes, il y a neuf.",
+            "j'ai quatorze heures",
         ] {
             let words: Vec<&str> = sentence.split(' ').collect();
             let block = normalize(sentence);
@@ -672,6 +947,14 @@ mod tests {
         assert_eq!(held("un peu"), "un peu");
         assert_eq!(held(""), "");
         assert_eq!(held(" quatre-vingt"), "");
+        assert_eq!(held("à la fois un"), "à la fois");
+        assert_eq!(held("il est une heure"), "il est");
+        assert_eq!(held("il est une heure et"), "il est");
+        assert_eq!(held("il a 10 pour"), "il a");
+        assert_eq!(held("à 14 heures"), "à");
+        // A number a guard rejects now is held too: what follows may change it.
+        assert_eq!(held("the cent"), "the");
+        assert_eq!(held("I will take six"), "I will take");
     }
 
     #[test]

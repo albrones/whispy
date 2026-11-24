@@ -767,7 +767,13 @@ fn finish_stream(
     lost_clips: &LostClips,
 ) -> Transcribed {
     let Some(pipeline) = pipeline else {
-        return transcribe_samples(None, streamer.rest(), lost_clips);
+        let rest = streamer.rest().to_vec();
+        let held = streamer.flush();
+        if held.is_empty() {
+            return transcribe_samples(None, &rest, lost_clips);
+        }
+        keep_lost_clip(&rest, lost_clips);
+        return held_number(held);
     };
     let rest = streamer.rest().to_vec();
     match streamer.finish(pipeline) {
@@ -793,6 +799,20 @@ fn finish_stream(
             keep_lost_clip(&rest, lost_clips);
             Transcribed::without_text(Event::TranscriptionFailed, Outcome::Failed)
         }
+    }
+}
+
+/// The stop's outcome when only the text a number was held back with is left.
+fn held_number(text: String) -> Transcribed {
+    if text.trim().is_empty() {
+        return Transcribed::without_text(Event::Transcribed(String::new()), Outcome::Empty);
+    }
+    Transcribed {
+        length: text.chars().count(),
+        engine: None,
+        event: Event::Transcribed(text),
+        outcome: Outcome::Inserted,
+        alert: None,
     }
 }
 
@@ -986,7 +1006,8 @@ impl LiveDictation {
         }
         let streamer = self.streamer.take().unwrap_or_default();
         let done = if is_deaf_take(streamer.rest()) {
-            Transcribed::without_text(Event::Transcribed(String::new()), Outcome::Empty)
+            // Nothing to hear, but a number held back is still to be typed.
+            held_number(streamer.flush())
         } else {
             finish_stream(pipeline, streamer, lost_clips)
         };
@@ -1286,6 +1307,88 @@ mod tests {
         assert!(cues.contains(&Cue::Alert(Alert::microphone_heard_nothing(
             "Microphone heard nothing (MacBook Pro Microphone)"
         ))));
+    }
+
+    /// Says the same timed words whatever it hears; no plain text.
+    struct Words(Vec<whispy_core::Word>);
+    impl Transcriber for Words {
+        fn name(&self) -> &'static str {
+            "words"
+        }
+        fn transcribe(&mut self, _: &[f32]) -> Result<String, whispy_core::Error> {
+            Ok(String::new())
+        }
+        fn transcribe_timed(
+            &mut self,
+            _: &[f32],
+        ) -> Result<Option<Vec<whispy_core::Word>>, whispy_core::Error> {
+            Ok(Some(self.0.clone()))
+        }
+    }
+
+    /// A dictation whose passes committed « Rappelle moi à quatorze heures »
+    /// (the number held back), then went deaf.
+    fn live_holding_a_number() -> (LiveDictation, Pipeline) {
+        let word = |text: &str, start_s, end_s| whispy_core::Word {
+            text: text.to_string(),
+            start_s,
+            end_s,
+        };
+        let words = vec![
+            word("Rappelle", 0.2, 0.5),
+            word("moi", 0.6, 0.9),
+            word("à", 1.0, 1.2),
+            word("quatorze", 1.3, 1.6),
+            word("heures", 1.7, 2.1),
+        ];
+        let mut pipeline = pipeline(Words(words)).unwrap();
+        let voiced: Vec<f32> = (0..(2.2 * 16_000.0) as usize)
+            .map(|i| {
+                let t = i as f32 / 16_000.0;
+                (1..=10)
+                    .map(|h| 0.03 * (2.0 * std::f32::consts::PI * 150.0 * h as f32 * t).sin())
+                    .sum::<f32>()
+            })
+            .collect();
+        let mut live = LiveDictation::started(true);
+        let mut typed = String::new();
+        for block in [voiced, tone(3.0, 0.006)] {
+            live.push(&block);
+            let streamer = live.streamer.as_mut().unwrap();
+            if streamer.is_pass_due() {
+                typed.push_str(&streamer.pass(&mut pipeline).unwrap().typed);
+            }
+        }
+        assert_eq!(typed, "Rappelle moi à", "the number is held back");
+        assert!(is_deaf_take(live.streamer.as_ref().unwrap().rest()));
+        live.typed = typed;
+        (live, pipeline)
+    }
+
+    fn a_stop() -> Dictation {
+        Dictation {
+            samples: Vec::new(),
+            device: None,
+            released_at: Instant::now(),
+            trigger: Source::Fn,
+        }
+    }
+
+    #[test]
+    fn a_number_held_back_is_typed_when_the_stop_is_a_deaf_take() {
+        let (live, mut pipeline) = live_holding_a_number();
+        let lost = LostClips { directory: None };
+        let done = live.finish(Some(&mut pipeline), &a_stop(), Delivery::Paste, &lost);
+        assert_eq!(done.event, Event::Transcribed(" 14 heures".to_string()));
+        assert_eq!(done.outcome, Outcome::Inserted);
+    }
+
+    #[test]
+    fn a_number_held_back_is_typed_when_no_engine_is_loaded_at_the_stop() {
+        let (live, _) = live_holding_a_number();
+        let lost = LostClips { directory: None };
+        let done = live.finish(None, &a_stop(), Delivery::Paste, &lost);
+        assert_eq!(done.event, Event::Transcribed(" 14 heures".to_string()));
     }
 
     #[test]

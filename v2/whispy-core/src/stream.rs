@@ -135,6 +135,8 @@ pub struct Streamer {
     shown: String,
     /// [`itn::normalize`] of all of `raw`, for the caption.
     committed: String,
+    /// Words (as the engine wrote them) of the last text committed.
+    last_words: usize,
 }
 
 impl Default for Streamer {
@@ -158,6 +160,7 @@ impl Streamer {
             raw: String::new(),
             shown: String::new(),
             committed: String::new(),
+            last_words: 0,
         }
     }
 
@@ -208,7 +211,7 @@ impl Streamer {
             ..PassStats::default()
         };
         if !closed.is_empty() {
-            stats.committed_words = closed.split_whitespace().count().max(1);
+            stats.committed_words = self.last_words;
             stats.audio_end_s = seconds(self.window_start);
             return Ok(Update {
                 typed: closed,
@@ -236,7 +239,7 @@ impl Streamer {
             let typed = self.commit_text(&text, false, false);
             self.release(self.window.len());
             self.previous.clear();
-            stats.committed_words = text.split_whitespace().count();
+            stats.committed_words = self.last_words;
             stats.forced = true;
             stats.audio_end_s = seconds(self.window_start);
             return Ok(Update {
@@ -298,8 +301,8 @@ impl Streamer {
             .min(gap_middle)
             .min(window_s);
         stats.audio_end_s = seconds(self.window_start) + open[i].end_s;
-        stats.committed_words = i + 1;
         let typed = self.commit_text(&joined(&open[..=i]), in_context, false);
+        stats.committed_words = self.last_words;
         let start_s = context_start(&heard[..=first_open + i], boundary_s - LEFT_CONTEXT_S);
         let start = (start_s * SAMPLE_RATE as f32) as usize;
         let boundary = (boundary_s * SAMPLE_RATE as f32) as usize;
@@ -325,21 +328,23 @@ impl Streamer {
     /// padding, fallback, 20 s split).
     pub fn finish(mut self, pipeline: &mut Pipeline) -> Result<Finish, Error> {
         let open = self.rest().to_vec();
-        let (mut text, mut engine, mut in_context) = (String::new(), None, false);
-        if self.context > 0 && !open.is_empty() {
-            let heard = pipeline.transcribe_timed(&self.window)?.unwrap_or_default();
-            let words = &heard[first_after(&heard, seconds(self.context))..];
-            if !words.is_empty() {
-                text = joined(words);
-                engine = Some(pipeline.primary_name());
-                in_context = true;
+        let (text, engine, in_context) = match self.hear_open(pipeline, &open) {
+            Ok(heard) => heard,
+            Err(error) => {
+                // A number held back is still the speaker's: type it, and keep
+                // the audio the engine failed on as a lost clip.
+                let typed = self.release_typed(true);
+                if typed.is_empty() {
+                    return Err(error);
+                }
+                let is_speech = Strategy::Gated.prepare(&open).is_some();
+                return Ok(Finish {
+                    typed,
+                    engine: None,
+                    lost: is_speech.then_some(open),
+                });
             }
-        }
-        if text.is_empty() {
-            let transcript = pipeline.transcribe_raw(&open)?;
-            text = transcript.text;
-            engine = transcript.engine;
-        }
+        };
         let is_lost = text.trim().is_empty() && Strategy::Gated.prepare(&open).is_some();
         let typed = self.commit_text(&text, in_context, true);
         Ok(Finish {
@@ -347,6 +352,30 @@ impl Streamer {
             typed,
             lost: is_lost.then_some(open),
         })
+    }
+
+    /// What the stop types, without a number held back: the text of the open
+    /// audio, the engine that gave it, and whether it was heard in context.
+    fn hear_open(
+        &self,
+        pipeline: &mut Pipeline,
+        open: &[f32],
+    ) -> Result<(String, Option<&'static str>, bool), Error> {
+        if self.context > 0 && !open.is_empty() {
+            let heard = pipeline.transcribe_timed(&self.window)?.unwrap_or_default();
+            let words = &heard[first_after(&heard, seconds(self.context))..];
+            if !words.is_empty() {
+                return Ok((joined(words), Some(pipeline.primary_name()), true));
+            }
+        }
+        let transcript = pipeline.transcribe_raw(open)?;
+        Ok((transcript.text, transcript.engine, false))
+    }
+
+    /// The stop with nothing to transcribe (a deaf take, no engine loaded):
+    /// what a number held back says, typed now.
+    pub fn flush(mut self) -> String {
+        self.release_typed(true)
     }
 
     /// Whether `window[from..to]` holds a voiced frame.
@@ -443,6 +472,7 @@ impl Streamer {
                 self.raw.push(' ');
             }
             self.raw.push_str(&text);
+            self.last_words = text.split_whitespace().count();
         }
         self.release_typed(flush)
     }
@@ -460,21 +490,16 @@ impl Streamer {
         };
         let target = itn::normalize(&self.raw[..stable]);
         self.committed = itn::normalize(&self.raw);
-        let typed = match target.strip_prefix(self.shown.as_str()) {
-            Some(rest) => rest.to_string(),
-            None => {
-                debug_assert!(false, "typed text is not a prefix of the next");
-                let common = self
-                    .shown
-                    .chars()
-                    .zip(target.chars())
-                    .take_while(|(a, b)| a == b)
-                    .map(|(c, _)| c.len_utf8())
-                    .sum::<usize>();
-                target[common..].to_string()
-            }
-        };
-        self.shown = target;
+        // Never retype: what the field holds stays, only what extends it is typed.
+        let typed = target
+            .get(self.shown.len()..)
+            .unwrap_or_default()
+            .to_string();
+        debug_assert!(
+            target.starts_with(self.shown.as_str()),
+            "typed text changed"
+        );
+        self.shown.push_str(&typed);
         typed
     }
 }
@@ -982,6 +1007,98 @@ mod tests {
             let block = pipeline.transcribe(&voiced(4.6)).unwrap().text;
             assert_eq!(typed, block);
         }
+    }
+
+    /// Answers like [`Fake`] until `ok_calls` timed calls are made, then fails.
+    struct Failing {
+        timed: Timed,
+        ok_calls: usize,
+    }
+
+    impl Transcriber for Failing {
+        fn name(&self) -> &'static str {
+            "failing"
+        }
+        fn transcribe(&mut self, _: &[f32]) -> Result<String, Error> {
+            Err(Error::ModelMissing("gone".into()))
+        }
+        fn transcribe_timed(&mut self, samples: &[f32]) -> Result<Option<Vec<Word>>, Error> {
+            if self.ok_calls == 0 {
+                return Err(Error::ModelMissing("gone".into()));
+            }
+            self.ok_calls -= 1;
+            Ok(Some((self.timed)(samples)))
+        }
+    }
+
+    /// Two passes that commit « Rappelle moi à quatorze heures », the number
+    /// held back; returns the streamer and the pipeline whose engine then fails.
+    fn streamer_holding_a_number() -> (Streamer, Pipeline, String) {
+        let hypothesis = vec![
+            word("Rappelle", 0.2, 0.5),
+            word("moi", 0.6, 0.9),
+            word("à", 1.0, 1.2),
+            word("quatorze", 1.3, 1.6),
+            word("heures", 1.7, 2.1),
+            word("trente", 2.2, 3.6),
+            word("chez", 3.7, 3.9),
+            word("Paul", 4.0, 4.2),
+        ];
+        let engine = Failing {
+            timed: queue(vec![hypothesis.clone(), hypothesis]),
+            ok_calls: 2,
+        };
+        let mut pipeline = Pipeline::new(Box::new(engine), None, Strategy::Padded);
+        let mut streamer = Streamer::new();
+        streamer.push(&voiced(4.0));
+        let first = pass_now(&mut streamer, &mut pipeline);
+        streamer.push(&voiced(0.6));
+        let second = pass_now(&mut streamer, &mut pipeline);
+        let typed = format!("{}{}", first.typed, second.typed);
+        (streamer, pipeline, typed)
+    }
+
+    #[test]
+    fn a_number_held_back_is_typed_when_the_engine_fails_at_the_stop() {
+        let (streamer, mut pipeline, typed) = streamer_holding_a_number();
+        assert_eq!(typed, "Rappelle moi à");
+        let finish = streamer.finish(&mut pipeline).unwrap();
+        assert_eq!(finish.typed, " 14 heures");
+        assert!(
+            finish.lost.is_some(),
+            "the audio the engine failed on is kept"
+        );
+    }
+
+    #[test]
+    fn a_stop_that_fails_with_nothing_held_still_reports_the_error() {
+        let engine = Failing {
+            timed: queue(vec![]),
+            ok_calls: 0,
+        };
+        let mut pipeline = Pipeline::new(Box::new(engine), None, Strategy::Padded);
+        let mut streamer = Streamer::new();
+        streamer.push(&voiced(1.0));
+        assert!(streamer.finish(&mut pipeline).is_err());
+    }
+
+    #[test]
+    fn a_number_held_back_is_typed_when_the_stop_has_nothing_to_hear() {
+        let (streamer, _, _) = streamer_holding_a_number();
+        assert_eq!(streamer.flush(), " 14 heures");
+    }
+
+    #[test]
+    fn a_number_a_guard_rejected_is_never_retyped_when_it_grows() {
+        let mut streamer = Streamer::new();
+        let first = streamer.commit_text("the cent", false, false);
+        let second = streamer.commit_text("vingt ans", false, false);
+        let rest = streamer.commit_text("", false, true);
+        assert_eq!(first, "the");
+        assert_eq!(
+            format!("{first}{second}{rest}"),
+            itn::normalize("the cent vingt ans")
+        );
     }
 
     #[test]

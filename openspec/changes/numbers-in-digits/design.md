@@ -12,8 +12,13 @@ Parakeet writes numbers in words. The text leaves `whispy-core` by two paths: `P
 - **Caption:** `Streamer::committed()` and the provisional words are normalised too, at no cost.
 - **Bench:** `wer::normalized_words` and `labelled::v1_words` normalise numbers on both sides, so a reference written as spoken still meets digits. Idempotent, so already-normalised text is stable.
 
+- **Guards:** « cent » and « cents » alone and « vingts » never start a number; a lone « six », « sept » or « neuf » stays in letters beside an English function word, after « tout » (« neuf »), or at the end of a clause with no French word before it (« I will take six. », « un pull neuf », « quoi de neuf ? »).
+- **Held numbers:** what a guard rejects now is still held back at the end of a passage, since the next word may change the verdict (« the cent » | « vingt »). Text already typed is never typed again.
+- **Stop:** the held tail is typed on every way out: a normal stop, a deaf take, no engine loaded, an engine error (the audio is then kept as a lost clip).
+- **Bench:** `numbers.rs` checks V2's own text for the digits of the number clips (and that the English clip stays in letters) and the bench exits non-zero otherwise; the WER alone cannot see it, since it reads numbers in digits on both sides.
+
 ## Known limits
 
-- « mille et une » reads « 1000 et une »; no decimals (« virgule »); no ordinals; years like « dix-neuf cent » read 1900.
-- « deux heures trois tests » would read « 2 h 03 tests » (minutes are taken greedily).
-- A number at the very end of what is spoken is typed at the next commit or at the stop, not before.
+- Minutes are taken greedily (« deux heures cinq personnes » reads « 2 h 05 personnes »).
+- « Sept. » (abbreviation), proper names (« Louis Quatorze »), decimals (« virgule »), ordinals; years like « dix-neuf cent » read 1900; numbers are written without a thousands separator.
+- A number at the very end of what is spoken is typed with the next word or at the stop, not before.
