@@ -93,9 +93,9 @@ scrolls while V2 records or transcribes. Then, in any app, with the trigger key
 While you record, V1's pill sits at the bottom centre of the screen with 11
 bars that follow your voice; it hides when the recording stops, never takes
 the focus and shows over full-screen apps too. In every dictation (hold mode
-and « Type while speaking » off included) the words heard appear under the
-bars as one centred line, the latest words visible: the pill grows downward,
-the bars stay where they are. The same re-transcription passes produce them
+and « Type while speaking » off included) the words heard appear in the pill
+as one small centred line under the bars, the latest words visible: the pill
+keeps its size, the bars rise and shrink in a quarter of a second to make room. The same re-transcription passes produce them
 (about a third of the audio's duration in CPU); words the passes agree on are
 white, the others faded. With « Type while speaking » off, what is inserted is
 unchanged: the whole dictation transcribed once at the stop. A dictation of half a second or

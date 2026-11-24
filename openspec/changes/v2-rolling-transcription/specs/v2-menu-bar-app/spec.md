@@ -26,7 +26,7 @@ _Tier: bench — `banc --streaming`, extra sentence ends._
 ## ADDED Requirements
 
 ### Requirement: The pill shows the words as they are heard
-In every dictation (hold mode, toggle mode with « Type while speaking » on or off), V2 SHALL re-transcribe the recording as it is spoken and its pill SHALL show the latest words heard as one line of text centred under its bars: words two passes agree on in white (0.95 alpha), the others in white at 0.5 alpha. On the first non-empty caption the pill SHALL grow from 168 to 560 pt wide and by one text row downward, its bars staying where they were on screen and centred, and keep that size until the recording ends; a text longer than the line SHALL be truncated at its head, so the latest words stay visible. The caption SHALL be cleared when a recording starts. Only « Type while speaking » types text live: in hold mode or with the setting off, the inserted text SHALL be the whole dictation transcribed once at the stop, as before. The pill SHALL still ignore the mouse and never take focus. The pure parts (panel frame, bar placement, text rectangle) SHALL be unit-tested.
+In every dictation (hold mode, toggle mode with « Type while speaking » on or off), V2 SHALL re-transcribe the recording as it is spoken and its pill SHALL show the latest words heard as one line of text under its bars, inside V1's 168×52 pt pill: the pill SHALL never change size or place. On the first non-empty caption of a recording the bars SHALL rise and shrink (to at most 22 pt) over about a quarter of a second, never in one jump, and the line SHALL fade in under them: system font 11 pt, centred, words two passes agree on in white (0.95 alpha), the others in white at 0.5 alpha; a text longer than the line SHALL be truncated at its head, so the latest words stay visible. Each recording SHALL start as V1's plain pill, the caption cleared. Only « Type while speaking » types text live: in hold mode or with the setting off, the inserted text SHALL be the whole dictation transcribed once at the stop, as before. The pill SHALL still ignore the mouse and never take focus. The pure parts (bar layout along the transition, text rectangle, easing, bars clear of the text) SHALL be unit-tested.
 
 #### Scenario: Words appear before they are typed
 - **WHEN** the user dictates in toggle mode with the setting on
@@ -40,8 +40,8 @@ _Tier: manual._
 
 _Tier: unit — controller with a recording feedback._
 
-#### Scenario: The waveform stays centred
+#### Scenario: The pill keeps V1's size
 - **WHEN** the first words of a dictation appear
-- **THEN** the bars SHALL keep their place on screen and the text SHALL sit centred under them
+- **THEN** the pill SHALL stay 168×52 pt in its place, the bars SHALL rise smoothly and stay centred horizontally, and the text SHALL sit centred under them without touching them at full level
 
 _Tier: unit — `pill_geometry`; manual — the look._
