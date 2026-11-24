@@ -26,16 +26,22 @@ _Tier: bench — `banc --streaming`, extra sentence ends._
 ## ADDED Requirements
 
 ### Requirement: The pill shows the words as they are heard
-While a dictation is typed while spoken, V2's pill SHALL show the latest words heard as one line of text beside its bars: committed words in white (0.95 alpha), words not yet committed in white at 0.5 alpha. On the first non-empty caption the pill SHALL widen from 168 to 560 pt, stay bottom-centre and keep that width until the recording ends; a text longer than the line SHALL be truncated at its head, so the latest words stay visible. The caption SHALL be cleared when a recording starts and SHALL never be shown in hold mode or with the setting off. The pill SHALL still ignore the mouse and never take focus. The pure parts (widths, text rectangle, bar placement in the wide pill) SHALL be unit-tested.
+In every dictation (hold mode, toggle mode with « Type while speaking » on or off), V2 SHALL re-transcribe the recording as it is spoken and its pill SHALL show the latest words heard as one line of text centred under its bars: words two passes agree on in white (0.95 alpha), the others in white at 0.5 alpha. On the first non-empty caption the pill SHALL grow from 168 to 560 pt wide and by one text row downward, its bars staying where they were on screen and centred, and keep that size until the recording ends; a text longer than the line SHALL be truncated at its head, so the latest words stay visible. The caption SHALL be cleared when a recording starts. Only « Type while speaking » types text live: in hold mode or with the setting off, the inserted text SHALL be the whole dictation transcribed once at the stop, as before. The pill SHALL still ignore the mouse and never take focus. The pure parts (panel frame, bar placement, text rectangle) SHALL be unit-tested.
 
 #### Scenario: Words appear before they are typed
 - **WHEN** the user dictates in toggle mode with the setting on
-- **THEN** the words SHALL appear in the pill, faded, within about a second of being said, and turn white when their sentence is typed
+- **THEN** the words SHALL appear in the pill, faded, within about a second of being said, and turn white when they are typed
 
 _Tier: manual._
 
-#### Scenario: Hold mode keeps V1's pill
-- **WHEN** the user dictates in hold mode
-- **THEN** the pill SHALL stay 168 pt wide with no text
+#### Scenario: Hold mode shows the words and types nothing live
+- **WHEN** the user dictates in hold mode, or in toggle mode with the setting off
+- **THEN** the pill SHALL show the words while recording, nothing SHALL be typed before the stop, and the whole dictation SHALL be inserted once at the stop
 
 _Tier: unit — controller with a recording feedback._
+
+#### Scenario: The waveform stays centred
+- **WHEN** the first words of a dictation appear
+- **THEN** the bars SHALL keep their place on screen and the text SHALL sit centred under them
+
+_Tier: unit — `pill_geometry`; manual — the look._

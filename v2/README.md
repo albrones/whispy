@@ -78,21 +78,27 @@ scrolls while V2 records or transcribes. Then, in any app, with the trigger key
   punctuation is decided with what follows, so a thinking pause does not become
   a period. Words go out four or more at a time, or at the end of a phrase or a
   pause, each passage one paste: typically 2 s behind your voice (bench: median
-  1.9 s, p95 3.7 s). The pill shows the words as they are heard: faded until
-  typed, white once typed (the latest ones only, the start of a long text is
-  cut). Nothing typed is ever erased or rewritten. The stopping press hears
+  1.9 s, p95 3.7 s). The pill shows the words as they are heard (see below):
+  faded until typed, white once typed. Nothing typed is ever erased or
+  rewritten. The stopping press hears
   what is not typed yet once more, in its context, and types it (bench: p95
   0.6 s). Text goes through the same paste (or typing) as a whole dictation, so
   the clipboard is put back after each insertion. If the 5-minute watchdog
   stops the dictation, the whole text goes to the clipboard; if a passage could
   not be typed, the stop inserts the whole text again rather than lose it. Hold
-  mode is never typed live: the key is
-  held meanwhile. The log holds one line of counts per pass (window, time,
-  words, committed), never the text.
+  mode is never typed live: the key is held meanwhile. The log holds one line
+  of counts per pass (live or not, window, time, words, committed), never the
+  text.
 
 While you record, V1's pill sits at the bottom centre of the screen with 11
 bars that follow your voice; it hides when the recording stops, never takes
-the focus and shows over full-screen apps too. A dictation of half a second or
+the focus and shows over full-screen apps too. In every dictation (hold mode
+and « Type while speaking » off included) the words heard appear under the
+bars as one centred line, the latest words visible: the pill grows downward,
+the bars stay where they are. The same re-transcription passes produce them
+(about a third of the audio's duration in CPU); words the passes agree on are
+white, the others faded. With « Type while speaking » off, what is inserted is
+unchanged: the whole dictation transcribed once at the stop. A dictation of half a second or
 more in which the microphone heard nothing (no 30 ms window above RMS 0.01,
 V1's noise floor) inserts nothing, plays the Basso sound and posts
 « Microphone heard nothing » with the input device's name. Each dictation opens
@@ -109,8 +115,8 @@ permission alert; it opens the right Privacy pane), then under **SETTINGS**:
   Events `keystroke` and the clipboard is not touched;
 - **Toggle mode** — the mode above;
 - **Type while speaking** — in toggle mode, the text is typed as it becomes
-  stable instead of all at once at the stop, and the pill shows the words live
-  (on by default, V1's setting); it does nothing in hold mode;
+  stable instead of all at once at the stop (on by default, V1's setting); it
+  does nothing in hold mode. The pill shows the words live either way;
 - **Trigger: <key>** — V1's presets: Fn, Right Command, Right Option, F13
   (a key set by hand in V1's file shows its name);
 - **Start at login** — registers the installed app as a login item (disabled

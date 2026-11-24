@@ -22,6 +22,11 @@
 - [x] 4.1 One block vs pieces vs rolling, on reference clips (two sentences back to back, one with a 1 s pause inside a sentence, the run-on clip) and the labelled speech clips ≥ 8 s, simulated at real-time pace
 - [x] 4.2 WER, extra sentence ends, commit delay, stop latency, pass cost; exit 1 on a failed criterion; 180 s memory probe kept
 
+## 4b. After the first manual tests (2026-11-24)
+
+- [x] 4b.1 The pill shows the words in every dictation (hold mode, setting off); only « Type while speaking » types them live
+- [ ] 4b.2 The caption sits under the bars, which stay centred and in place
+
 ## 5. Delivery
 
 - [x] 5.1 `v2/README.md` describes the new « Type while speaking »
