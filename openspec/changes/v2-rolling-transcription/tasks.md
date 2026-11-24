@@ -1,9 +1,9 @@
 ## 1. Core (`whispy-core`)
 
-- [ ] 1.1 `Word` and `Transcriber::transcribe_timed` (provided, `None`); `Lazy` forwards it
-- [ ] 1.2 Parakeet timed words from the TDT frames; invariant test against `transcribe` and monotonic times on a reference clip (skipped when the model is missing)
-- [ ] 1.3 `Pipeline::transcribe_timed` (gates and louder copy, no trim, no padding, primary only)
-- [ ] 1.4 `stream::Streamer` (push, is_pass_due, pass, finish, committed) with the scenarios of `v2-transcription-core` as unit tests on a scripted timed engine
+- [x] 1.1 `Word` and `Transcriber::transcribe_timed` (provided, `None`); `Lazy` forwards it
+- [x] 1.2 Parakeet timed words from the TDT frames; invariant test against `transcribe` and monotonic times on a reference clip (skipped when the model is missing)
+- [x] 1.3 `Pipeline::transcribe_timed` (gates and louder copy, no trim, no padding, primary only)
+- [x] 1.4 `stream::Streamer` (push, is_pass_due, pass, finish, committed) with the scenarios of `v2-transcription-core` as unit tests on a scripted timed engine
 
 ## 2. Pill caption (`whispy2`)
 

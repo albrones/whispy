@@ -63,7 +63,7 @@ fn withhold_period(text: &str) -> (String, bool) {
 // ponytail: V1 also keeps a word of the user's vocabulary capitalized; V2
 // has no vocabulary, so a proper noun opening a piece is lowered (V1's
 // documented ceiling too).
-fn lowercase_first(text: &str) -> String {
+pub(crate) fn lowercase_first(text: &str) -> String {
     let first_word = text.split(' ').next().unwrap_or_default();
     let core = first_word.trim_matches(|c: char| !c.is_alphanumeric());
     let is_acronym = core.chars().any(char::is_uppercase) && !core.chars().any(char::is_lowercase);
