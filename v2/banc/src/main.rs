@@ -53,7 +53,7 @@ fn main() -> ExitCode {
 fn usage() -> &'static str {
     "usage: banc [--skip-v1]\n       banc --labelled [dir]   (criterion 3 on your labelled clips, default ~/.whispy/bench)\n       banc --trial [--since YYYY-MM-DD] [--journal PATH] [--v1-log-dir DIR]   (the trial report, default ~/.whispy/v2/dictations.jsonl and $HOME)
        banc --transcribe <parakeet|whisper> <raw|gated|louder|padded> <clip.wav>...
-       banc --streaming   (type while speaking: French + 1 s + French cut at pauses vs one block, and 180 s memory)\n\n\
+       banc --streaming   (type while speaking: one block vs pieces cut at pauses vs the rolling Streamer, on the references and your labelled clips; commit delay, stop latency, pass cost; 180 s memory)\n\n\
      Env: WHISPY_LOST_DIR (default ~/.whispy/lost), WHISPY_LABELLED_DIR (default ~/.whispy/bench), WHISPY_V1_PYTHON (default <repo>/.venv/bin/python),\n     \
      WHISPY_PARAKEET_DIR, WHISPY_WHISPER_MODEL (default: the files V1 and Jarvis already downloaded)."
 }
