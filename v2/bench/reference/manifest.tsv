@@ -23,5 +23,10 @@ en-sentence-groceries.wav	en	sentence	remember to buy bread and tomatoes on your
 en-sentence-train-daniel.wav	en	sentence	the eight o'clock train is cancelled so I will take the next one
 en-long-project.wav	en	long	we finished the first version of the project last week, but several problems remain to be fixed before we show it to users, especially the speed and the reliability of the transcription
 en-long-holidays.wav	en	long	for the holidays we are thinking of going to the coast in August, renting a small house near the sea and taking long bike rides along the shore
+fr-sentence-numbers-rdv.wav	fr	sentence	ajouter trois tests sous deux secondes le douze décembre à quatorze heures trente
+fr-sentence-numbers-annee.wav	fr	sentence	en deux mille vingt-six nous visons dix pour cent de croissance
+fr-short-numbers-compose.wav	fr	short	quatre-vingt-dix-sept
+fr-sentence-numbers-un-peu.wav	fr	sentence	il y a un peu plus de soixante-dix personnes et une fois de plus deux ou trois choses
+en-sentence-numbers.wav	en	sentence	I will buy three apples and six eggs at four o'clock
 ../../../tests/fixtures/audio/fr_speech.wav	fr	sentence	test un deux trois, le test est fini
 ../../../tests/fixtures/audio/en_speech.wav	en	sentence	testing one two three, the test is done

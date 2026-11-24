@@ -8,6 +8,7 @@ mod corpus;
 mod labelled;
 mod measure;
 mod memory;
+mod numbers;
 mod oracle;
 mod report;
 mod streaming;
@@ -141,12 +142,20 @@ fn run_in(work_dir: &std::path::Path, skip_v1: bool) -> Result<ExitCode, String>
         })
     });
 
+    let number_problems = numbers::problems(&clips, &runs, default.primary, default.strategy);
+    for problem in &number_problems {
+        eprintln!("banc: numbers: {problem}");
+    }
+
     let report = report::Report::build(&clips, &runs, v1, memory, lazy, oracle, labelled);
     let path = corpus::bench_dir().join("REPORT.md");
     std::fs::write(&path, report.markdown())
         .map_err(|error| format!("{}: {error}", path.display()))?;
     println!("{}", report.summary());
     println!("Report written to {}", path.display());
+    if !number_problems.is_empty() {
+        return Ok(ExitCode::FAILURE);
+    }
     if report.pick() != default {
         eprintln!(
             "banc: the bench picks {} but whispy_core defaults to {}: update DEFAULT_ENGINE/DEFAULT_FALLBACK/DEFAULT_STRATEGY",

@@ -69,6 +69,7 @@ scrolls while V2 records or transcribes. Then, in any app, with the trigger key
   text is inserted where the cursor is. A press under 0.3 s is discarded.
 - **Toggle mode**: one press starts a dictation, the next press stops it and
   inserts the text; releases are ignored.
+- **Numbers in digits**: French numbers are written in digits in every dictation (« quatorze heures trente » → « 14 h 30 », « dix pour cent » → « 10 % »), always on; « un » and « une » stay in letters, English is untouched. A number is never cut between two typed passages.
 - **Type while speaking** (toggle mode only, V1's `type_while_speaking`, on by
   default): while you dictate, the last seconds are re-transcribed about every
   0.6 s with the time of each word: the audio not typed yet, after about 5 s

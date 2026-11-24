@@ -1,9 +1,11 @@
 //! Word error rate on normalized words.
 
 /// Lowercase words without punctuation; apostrophes and hyphens split words
-/// ("l'équipe" and "l' équipe" both read as "l équipe").
+/// ("l'équipe" and "l' équipe" both read as "l équipe"). Numbers are read in
+/// digits ([`whispy_core::itn`]) on both sides, so a reference written as
+/// spoken (« huit heures ») meets the V2 text (« 8 heures »).
 pub fn normalized_words(text: &str) -> Vec<String> {
-    let spaced: String = text
+    let spaced: String = whispy_core::itn::normalize(text)
         .to_lowercase()
         .chars()
         .map(|c| match c {
@@ -40,6 +42,15 @@ mod tests {
             vec!["à", "améliorer", "je", "pense"]
         );
         assert_eq!(normalized_words("l'équipe"), normalized_words("L’ équipe"));
+    }
+
+    #[test]
+    fn numbers_are_read_in_digits_on_both_sides() {
+        assert_eq!(
+            normalized_words("le train de huit heures"),
+            normalized_words("le train de 8 heures")
+        );
+        assert_eq!(normalized_words("dix pour cent"), normalized_words("10 %"));
     }
 
     #[test]
