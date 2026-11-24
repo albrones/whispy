@@ -19,6 +19,15 @@ pub enum Phase {
     Hidden,
 }
 
+/// The latest words of a dictation typed while spoken, for the pill: `committed` is
+/// the tail of what was typed already, `provisional` the words heard but not
+/// committed yet (they may still change).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Caption {
+    pub committed: String,
+    pub provisional: String,
+}
+
 pub trait Feedback: Send {
     /// The indicator to show, or hide. Called on changes only.
     fn show(&mut self, phase: Phase);
@@ -27,6 +36,9 @@ pub trait Feedback: Send {
     /// Something went wrong that the menu bar icon alone would not get noticed: V1's
     /// notification (title "Whispy", the alert's subtitle and message).
     fn alert(&mut self, alert: Alert);
+    /// The latest words of a dictation typed while spoken. Called from the controller
+    /// thread, only while recording; adapters without a place for text ignore it.
+    fn caption(&mut self, _caption: &Caption) {}
 }
 
 /// Shows nothing: the default until an adapter exists, and the Linux stub.

@@ -103,10 +103,50 @@ pub fn bar_color(level: f64) -> (f64, f64, f64, f64) {
 /// Where the pill's origin goes in a screen's visible frame `(x, y, w, h)`:
 /// centred horizontally, [`BOTTOM_MARGIN`] above the bottom.
 pub fn pill_origin(visible: Rect) -> (f64, f64) {
+    pill_origin_for_width(visible, PILL_WIDTH)
+}
+
+/// [`pill_origin`] for a pill `width` points wide (the plain one or the captioned one).
+pub fn pill_origin_for_width(visible: Rect, width: f64) -> (f64, f64) {
     (
-        visible.0 + (visible.2 - PILL_WIDTH) / 2.0,
+        visible.0 + (visible.2 - width) / 2.0,
         visible.1 + BOTTOM_MARGIN,
     )
+}
+
+/// Width of the pill once it carries a caption (a type-while-speaking recording).
+pub const CAPTION_PILL_WIDTH: f64 = 560.0;
+/// The caption's left edge: the bars keep exactly the first [`PILL_WIDTH`] points.
+pub const CAPTION_TEXT_X: f64 = PILL_WIDTH;
+/// Space kept free right of the caption.
+pub const CAPTION_RIGHT_PADDING: f64 = 16.0;
+/// System font size of the caption, in points.
+pub const CAPTION_FONT_SIZE: f64 = 14.0;
+/// Height of one line of the caption font (14 pt system font: about 17 pt).
+pub const CAPTION_LINE_HEIGHT: f64 = 18.0;
+/// Opacity of the committed words (white).
+pub const CAPTION_COMMITTED_ALPHA: f64 = 0.95;
+/// Opacity of the words heard but not committed yet (white).
+pub const CAPTION_PROVISIONAL_ALPHA: f64 = 0.5;
+
+/// The caption's rectangle in a pill `width` wide and `height` tall: from
+/// [`CAPTION_TEXT_X`] to the right padding, one line high, vertically centred.
+pub fn caption_text_rect(width: f64, height: f64) -> Rect {
+    (
+        CAPTION_TEXT_X,
+        (height - CAPTION_LINE_HEIGHT) / 2.0,
+        (width - CAPTION_RIGHT_PADDING - CAPTION_TEXT_X).max(0.0),
+        CAPTION_LINE_HEIGHT,
+    )
+}
+
+/// The width a pill takes: wide once a caption has shown, until the recording ends.
+pub fn pill_width(captioned: bool) -> f64 {
+    if captioned {
+        CAPTION_PILL_WIDTH
+    } else {
+        PILL_WIDTH
+    }
 }
 
 #[cfg(test)]
@@ -197,5 +237,51 @@ mod tests {
         assert_eq!(a, 0.95);
         let (r1, g1, _, _) = bar_color(1.0);
         assert!(r1 > r && g1 > g);
+    }
+
+    #[test]
+    fn plain_origin_is_unchanged_by_the_generalisation() {
+        let visible = (0.0, 25.0, 1440.0, 875.0);
+        assert_eq!(
+            pill_origin(visible),
+            (visible.2 / 2.0 - PILL_WIDTH / 2.0, 25.0 + BOTTOM_MARGIN)
+        );
+        assert_eq!(
+            pill_origin(visible),
+            pill_origin_for_width(visible, pill_width(false))
+        );
+    }
+
+    #[test]
+    fn the_wide_pill_stays_centred_and_bottom_anchored() {
+        let visible = (100.0, 25.0, 1440.0, 875.0);
+        let (x, y) = pill_origin_for_width(visible, CAPTION_PILL_WIDTH);
+        assert_eq!(x + CAPTION_PILL_WIDTH / 2.0, 100.0 + 1440.0 / 2.0);
+        assert_eq!(y, 25.0 + BOTTOM_MARGIN);
+    }
+
+    #[test]
+    fn the_caption_line_starts_after_the_bars_and_ends_at_the_padding() {
+        let (x, y, w, h) = caption_text_rect(CAPTION_PILL_WIDTH, PILL_HEIGHT);
+        assert_eq!(x, 168.0);
+        assert_eq!(x + w, CAPTION_PILL_WIDTH - 16.0);
+        assert_eq!(y + h / 2.0, PILL_HEIGHT / 2.0);
+        assert_eq!(pill_width(true), 560.0);
+        assert_eq!(pill_width(false), PILL_WIDTH);
+    }
+
+    #[test]
+    fn the_bars_keep_their_place_in_the_wide_pill() {
+        // The view draws the bars in the first PILL_WIDTH points, as in the plain pill.
+        let heights = bar_heights(0.4, 0.7);
+        let plain = bar_rects(PILL_WIDTH, PILL_HEIGHT, &heights);
+        let last = plain[BAR_COUNT - 1];
+        assert!(last.0 + last.2 <= caption_text_rect(CAPTION_PILL_WIDTH, PILL_HEIGHT).0);
+    }
+
+    #[test]
+    fn committed_words_are_brighter_than_provisional_ones() {
+        assert_eq!(CAPTION_COMMITTED_ALPHA, 0.95);
+        assert_eq!(CAPTION_PROVISIONAL_ALPHA, 0.5);
     }
 }

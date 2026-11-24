@@ -7,9 +7,9 @@
 
 ## 2. Pill caption (`whispy2`)
 
-- [ ] 2.1 `feedback::Caption` and `Feedback::caption` (default no-op)
-- [ ] 2.2 Wide pill geometry in `pill_geometry.rs`, unit-tested
-- [ ] 2.3 The macOS pill draws the caption (committed white, provisional faded, head truncation), cleared at each recording
+- [x] 2.1 `feedback::Caption` and `Feedback::caption` (default no-op)
+- [x] 2.2 Wide pill geometry in `pill_geometry.rs`, unit-tested
+- [x] 2.3 The macOS pill draws the caption (committed white, provisional faded, head truncation), cleared at each recording
 
 ## 3. App wiring (`whispy2`)
 

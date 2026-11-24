@@ -7,6 +7,12 @@
 //! `pill_geometry`; this file only does AppKit. All AppKit objects and the
 //! animation state live on the main thread; [`PillFeedback`] is a zero-size
 //! `Send` handle whose methods hop to the main queue, as `menu_bar::show` does.
+//!
+//! A type-while-speaking recording also carries a caption: the first non-empty
+//! one widens the panel (the bars keep the first 168 pt) and `drawRect:` paints one
+//! attributed line beside them, truncated at its head so the latest words stay
+//! visible. Drawing it ourselves keeps the pill what it was, a panel that ignores
+//! the mouse and never takes focus: no text field, nothing selectable or editable.
 
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -17,18 +23,24 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{define_class, msg_send, sel, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSBackingStoreType, NSBezierPath, NSColor, NSPanel, NSScreen, NSScreenSaverWindowLevel,
-    NSSound, NSView, NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSAttributedStringNSStringDrawing, NSBackingStoreType, NSBezierPath, NSColor, NSFont,
+    NSFontAttributeName, NSForegroundColorAttributeName, NSLineBreakMode, NSMutableParagraphStyle,
+    NSPanel, NSParagraphStyleAttributeName, NSScreen, NSScreenSaverWindowLevel, NSSound, NSView,
+    NSWindowCollectionBehavior, NSWindowStyleMask,
 };
-use objc2_foundation::{NSObject, NSPoint, NSRect, NSSize, NSString, NSTimer};
+use objc2_foundation::{
+    NSMutableAttributedString, NSObject, NSPoint, NSRange, NSRect, NSSize, NSString, NSTimer,
+};
 
 use super::notify;
-use crate::feedback::{Feedback, Phase};
+use crate::feedback::{Caption, Feedback, Phase};
 use crate::log;
 use crate::menu_model::Alert;
 use crate::pill_geometry::{
-    advance_phase, bar_color, bar_heights, bar_rects, fade_step, level_from_rms, pill_origin,
-    smooth, Rect, BACKGROUND, BAR_WIDTH, FPS, HIDE_BELOW_ALPHA, PILL_HEIGHT, PILL_WIDTH,
+    advance_phase, bar_color, bar_heights, bar_rects, caption_text_rect, fade_step, level_from_rms,
+    pill_origin_for_width, pill_width, smooth, Rect, BACKGROUND, BAR_WIDTH,
+    CAPTION_COMMITTED_ALPHA, CAPTION_FONT_SIZE, CAPTION_PROVISIONAL_ALPHA, FPS, HIDE_BELOW_ALPHA,
+    PILL_HEIGHT, PILL_WIDTH,
 };
 
 /// V1 keeps the pill joining the active Space on every orderFront, so a
@@ -54,6 +66,8 @@ struct Pill {
     last_frame: Instant,
     fade: f64,
     fade_target: f64,
+    /// A caption has shown in this recording: the panel is wide until the next one.
+    captioned: bool,
 }
 
 thread_local! {
@@ -61,6 +75,8 @@ thread_local! {
     /// What `drawRect:` paints: (smoothed level, wobble phase). Separate from
     /// [`PILL`] so drawing never re-enters its borrow.
     static DRAW: Cell<(f64, f64)> = const { Cell::new((0.0, 0.0)) };
+    /// The caption `drawRect:` paints, apart from [`PILL`] for the same reason.
+    static CAPTION: RefCell<Caption> = RefCell::new(Caption::default());
 }
 
 define_class!(
@@ -87,7 +103,8 @@ define_class!(
             pill.fill();
 
             // Bars, centred horizontally and vertically.
-            let rects = bar_rects(width, height, &bar_heights(level, phase));
+            // The bars stay in the first PILL_WIDTH points, wide pill or not.
+            let rects = bar_rects(PILL_WIDTH, height, &bar_heights(level, phase));
             let color = srgb(bar_color(level));
             for (x, y, w, h) in rects {
                 let bar = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
@@ -98,6 +115,8 @@ define_class!(
                 color.set();
                 bar.fill();
             }
+
+            CAPTION.with(|caption| draw_caption(&caption.borrow(), width, height));
         }
     }
 );
@@ -121,6 +140,43 @@ define_class!(
         }
     }
 );
+
+/// One line of text right of the bars: committed words bright, provisional ones
+/// faded, the head cut with an ellipsis when it does not fit.
+fn draw_caption(caption: &Caption, width: f64, height: f64) {
+    let committed = caption.committed.trim();
+    let provisional = caption.provisional.trim();
+    let text = match (committed.is_empty(), provisional.is_empty()) {
+        (true, true) => return,
+        (false, false) => format!("{committed} {provisional}"),
+        (false, true) => committed.to_owned(),
+        (true, false) => provisional.to_owned(),
+    };
+    // Ranges are in UTF-16 units, as NSString counts them.
+    let committed_len = committed.encode_utf16().count();
+    let total_len = text.encode_utf16().count();
+
+    let font = NSFont::systemFontOfSize(CAPTION_FONT_SIZE);
+    let style = NSMutableParagraphStyle::new();
+    style.setLineBreakMode(NSLineBreakMode::ByTruncatingHead);
+    let faded = srgb((1.0, 1.0, 1.0, CAPTION_PROVISIONAL_ALPHA));
+    let bright = srgb((1.0, 1.0, 1.0, CAPTION_COMMITTED_ALPHA));
+
+    let string = NSMutableAttributedString::from_nsstring(&NSString::from_str(&text));
+    let whole = NSRange::new(0, total_len);
+    // SAFETY: the keys are AppKit's attribute names and each value is the object type it expects.
+    unsafe {
+        string.addAttribute_value_range(NSFontAttributeName, &font, whole);
+        string.addAttribute_value_range(NSParagraphStyleAttributeName, &style, whole);
+        string.addAttribute_value_range(NSForegroundColorAttributeName, &faded, whole);
+        string.addAttribute_value_range(
+            NSForegroundColorAttributeName,
+            &bright,
+            NSRange::new(0, committed_len),
+        );
+    }
+    string.drawInRect(rect(caption_text_rect(width, height)));
+}
 
 fn srgb((r, g, b, a): (f64, f64, f64, f64)) -> Retained<NSColor> {
     NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, a)
@@ -171,6 +227,7 @@ impl Pill {
             last_frame: Instant::now(),
             fade: 0.0,
             fade_target: 0.0,
+            captioned: false,
         }
     }
 
@@ -229,26 +286,57 @@ impl Pill {
         self.panel.setLevel(NSScreenSaverWindowLevel);
         self.panel.setCollectionBehavior(overlay_behavior());
 
-        // The active screen each time; the first screen if there is no main one.
-        let screen = NSScreen::mainScreen(mtm).or_else(|| NSScreen::screens(mtm).firstObject());
-        let Some(screen) = screen else {
-            log::line("pill: no screen available");
+        // A new recording starts without a caption, at V1's width.
+        self.captioned = false;
+        CAPTION.with(|caption| *caption.borrow_mut() = Caption::default());
+        if !self.place(mtm) {
             return;
-        };
-        let visible = screen.visibleFrame();
-        let (x, y) = pill_origin((
-            visible.origin.x,
-            visible.origin.y,
-            visible.size.width,
-            visible.size.height,
-        ));
-        self.panel.setFrameOrigin(NSPoint::new(x, y));
+        }
 
         // Start transparent and fade in through the timer.
         self.panel.setAlphaValue(0.0);
         self.fade_target = 1.0;
         self.panel.orderFrontRegardless();
         self.start_animation();
+    }
+
+    /// Sizes the panel for the current width and puts it bottom-centre of the active
+    /// screen (the first one if there is no main one). False when there is no screen.
+    fn place(&mut self, mtm: MainThreadMarker) -> bool {
+        let screen = NSScreen::mainScreen(mtm).or_else(|| NSScreen::screens(mtm).firstObject());
+        let Some(screen) = screen else {
+            log::line("pill: no screen available");
+            return false;
+        };
+        let visible = screen.visibleFrame();
+        let width = pill_width(self.captioned);
+        let (x, y) = pill_origin_for_width(
+            (
+                visible.origin.x,
+                visible.origin.y,
+                visible.size.width,
+                visible.size.height,
+            ),
+            width,
+        );
+        self.panel
+            .setFrame_display(rect((x, y, width, PILL_HEIGHT)), false);
+        true
+    }
+
+    /// Shows the words heard. The first non-empty caption of a recording widens the
+    /// panel, which then keeps that width until the next recording, so the line does
+    /// not jitter. A caption that arrives after the pill started fading out is stale.
+    fn set_caption(&mut self, mtm: MainThreadMarker, caption: Caption) {
+        if self.fade_target == 0.0 {
+            return;
+        }
+        let empty = caption.committed.trim().is_empty() && caption.provisional.trim().is_empty();
+        if !self.captioned && !empty {
+            self.captioned = true;
+            self.place(mtm);
+        }
+        CAPTION.with(|cell| *cell.borrow_mut() = caption);
     }
 
     fn hide(&mut self) {
@@ -284,6 +372,17 @@ impl Feedback for PillFeedback {
     fn level(&mut self, rms: f32) {
         let level = level_from_rms(f64::from(rms.max(0.0))) as f32;
         TARGET_LEVEL.store(level.to_bits(), Ordering::Relaxed);
+    }
+
+    fn caption(&mut self, caption: &Caption) {
+        let caption = caption.clone();
+        on_main(move |mtm| {
+            PILL.with(|cell| {
+                if let Some(pill) = cell.borrow_mut().as_mut() {
+                    pill.set_caption(mtm, caption);
+                }
+            })
+        });
     }
 
     fn alert(&mut self, alert: Alert) {
