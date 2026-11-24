@@ -70,12 +70,14 @@ pub fn bar_heights(level: f64, phase: f64) -> [f64; BAR_COUNT] {
     out
 }
 
-/// Each bar's rectangle in a view of `width` x `height`, centred on both axes.
+/// Each bar's rectangle in a view of `width` x `height`: centred horizontally,
+/// and vertically in the top [`PILL_HEIGHT`] points (the whole view when it is the
+/// plain pill, the part above the caption row when it is the captioned one).
 /// The corner radius is half the bar width.
 pub fn bar_rects(width: f64, height: f64, heights: &[f64; BAR_COUNT]) -> [Rect; BAR_COUNT] {
     let total_w = BAR_COUNT as f64 * BAR_WIDTH + (BAR_COUNT - 1) as f64 * BAR_GAP;
     let start_x = (width - total_w) / 2.0;
-    let mid_y = height / 2.0;
+    let mid_y = height - PILL_HEIGHT / 2.0;
     let mut out = [(0.0, 0.0, 0.0, 0.0); BAR_COUNT];
     for (i, r) in out.iter_mut().enumerate() {
         let h = heights[i];
@@ -100,26 +102,21 @@ pub fn bar_color(level: f64) -> (f64, f64, f64, f64) {
     )
 }
 
-/// Where the pill's origin goes in a screen's visible frame `(x, y, w, h)`:
+/// Where the plain pill's origin goes in a screen's visible frame `(x, y, w, h)`:
 /// centred horizontally, [`BOTTOM_MARGIN`] above the bottom.
 pub fn pill_origin(visible: Rect) -> (f64, f64) {
-    pill_origin_for_width(visible, PILL_WIDTH)
-}
-
-/// [`pill_origin`] for a pill `width` points wide (the plain one or the captioned one).
-pub fn pill_origin_for_width(visible: Rect, width: f64) -> (f64, f64) {
     (
-        visible.0 + (visible.2 - width) / 2.0,
+        visible.0 + (visible.2 - PILL_WIDTH) / 2.0,
         visible.1 + BOTTOM_MARGIN,
     )
 }
 
 /// Width of the pill once it carries a caption (a type-while-speaking recording).
 pub const CAPTION_PILL_WIDTH: f64 = 560.0;
-/// The caption's left edge: the bars keep exactly the first [`PILL_WIDTH`] points.
-pub const CAPTION_TEXT_X: f64 = PILL_WIDTH;
-/// Space kept free right of the caption.
-pub const CAPTION_RIGHT_PADDING: f64 = 16.0;
+/// Height of the caption row, below the bars.
+pub const CAPTION_ROW_HEIGHT: f64 = 26.0;
+/// Space kept free left and right of the caption.
+pub const CAPTION_SIDE_PADDING: f64 = 16.0;
 /// System font size of the caption, in points.
 pub const CAPTION_FONT_SIZE: f64 = 14.0;
 /// Height of one line of the caption font (14 pt system font: about 17 pt).
@@ -128,25 +125,44 @@ pub const CAPTION_LINE_HEIGHT: f64 = 18.0;
 pub const CAPTION_COMMITTED_ALPHA: f64 = 0.95;
 /// Opacity of the words heard but not committed yet (white).
 pub const CAPTION_PROVISIONAL_ALPHA: f64 = 0.5;
+/// The background's corner radius: V1's, half the plain pill's height, kept for the
+/// taller captioned pill so its corners do not bulge into the caption row.
+pub const CORNER_RADIUS: f64 = PILL_HEIGHT / 2.0;
 
-/// The caption's rectangle in a pill `width` wide and `height` tall: from
-/// [`CAPTION_TEXT_X`] to the right padding, one line high, vertically centred.
-pub fn caption_text_rect(width: f64, height: f64) -> Rect {
+/// The panel's size: the plain pill, or the captioned one (wider, with the caption
+/// row below the bars), which then keeps it until the recording ends.
+pub fn pill_size(captioned: bool) -> (f64, f64) {
+    if captioned {
+        (CAPTION_PILL_WIDTH, PILL_HEIGHT + CAPTION_ROW_HEIGHT)
+    } else {
+        (PILL_WIDTH, PILL_HEIGHT)
+    }
+}
+
+/// The panel's frame in a screen's visible frame. Horizontally centred; the top
+/// edge is the plain pill's (so the bars never move) and the captioned panel
+/// extends downward from it.
+pub fn pill_frame(visible: Rect, captioned: bool) -> Rect {
+    let (_, y) = pill_origin(visible);
+    let top = y + PILL_HEIGHT;
+    let (width, height) = pill_size(captioned);
     (
-        CAPTION_TEXT_X,
-        (height - CAPTION_LINE_HEIGHT) / 2.0,
-        (width - CAPTION_RIGHT_PADDING - CAPTION_TEXT_X).max(0.0),
-        CAPTION_LINE_HEIGHT,
+        visible.0 + (visible.2 - width) / 2.0,
+        top - height,
+        width,
+        height,
     )
 }
 
-/// The width a pill takes: wide once a caption has shown, until the recording ends.
-pub fn pill_width(captioned: bool) -> f64 {
-    if captioned {
-        CAPTION_PILL_WIDTH
-    } else {
-        PILL_WIDTH
-    }
+/// The caption's rectangle in a panel `width` wide: the bottom row, side padding
+/// each side, one line high, vertically centred in the row.
+pub fn caption_text_rect(width: f64) -> Rect {
+    (
+        CAPTION_SIDE_PADDING,
+        (CAPTION_ROW_HEIGHT - CAPTION_LINE_HEIGHT) / 2.0,
+        (width - 2.0 * CAPTION_SIDE_PADDING).max(0.0),
+        CAPTION_LINE_HEIGHT,
+    )
 }
 
 #[cfg(test)]
@@ -240,43 +256,51 @@ mod tests {
     }
 
     #[test]
-    fn plain_origin_is_unchanged_by_the_generalisation() {
+    fn the_plain_frame_is_the_plain_pill() {
         let visible = (0.0, 25.0, 1440.0, 875.0);
         assert_eq!(
-            pill_origin(visible),
-            (visible.2 / 2.0 - PILL_WIDTH / 2.0, 25.0 + BOTTOM_MARGIN)
-        );
-        assert_eq!(
-            pill_origin(visible),
-            pill_origin_for_width(visible, pill_width(false))
+            pill_frame(visible, false),
+            ((1440.0 - 168.0) / 2.0, 25.0 + BOTTOM_MARGIN, 168.0, 52.0)
         );
     }
 
     #[test]
-    fn the_wide_pill_stays_centred_and_bottom_anchored() {
+    fn the_captioned_frame_hangs_from_the_plain_top_edge_and_stays_centred() {
         let visible = (100.0, 25.0, 1440.0, 875.0);
-        let (x, y) = pill_origin_for_width(visible, CAPTION_PILL_WIDTH);
-        assert_eq!(x + CAPTION_PILL_WIDTH / 2.0, 100.0 + 1440.0 / 2.0);
-        assert_eq!(y, 25.0 + BOTTOM_MARGIN);
+        let plain = pill_frame(visible, false);
+        let (x, y, w, h) = pill_frame(visible, true);
+        assert_eq!(w, 560.0);
+        assert_eq!(h, PILL_HEIGHT + CAPTION_ROW_HEIGHT);
+        assert_eq!(y + h, plain.1 + plain.3); // same top edge
+        assert_eq!(y, plain.1 - CAPTION_ROW_HEIGHT); // bottom moved down by the row
+        assert_eq!(x + w / 2.0, plain.0 + plain.2 / 2.0); // same centre axis
+        assert_eq!(x + w / 2.0, 100.0 + 1440.0 / 2.0);
     }
 
     #[test]
-    fn the_caption_line_starts_after_the_bars_and_ends_at_the_padding() {
-        let (x, y, w, h) = caption_text_rect(CAPTION_PILL_WIDTH, PILL_HEIGHT);
-        assert_eq!(x, 168.0);
-        assert_eq!(x + w, CAPTION_PILL_WIDTH - 16.0);
-        assert_eq!(y + h / 2.0, PILL_HEIGHT / 2.0);
-        assert_eq!(pill_width(true), 560.0);
-        assert_eq!(pill_width(false), PILL_WIDTH);
-    }
-
-    #[test]
-    fn the_bars_keep_their_place_in_the_wide_pill() {
-        // The view draws the bars in the first PILL_WIDTH points, as in the plain pill.
+    fn the_bars_are_centred_in_the_top_52_points_of_the_captioned_panel() {
         let heights = bar_heights(0.4, 0.7);
+        let (_, _, w, h) = pill_frame((0.0, 0.0, 1440.0, 875.0), true);
+        let rects = bar_rects(w, h, &heights);
+        let (first, last) = (rects[0], rects[BAR_COUNT - 1]);
+        assert!((first.0 - (w - (last.0 + last.2))).abs() < 1e-9);
+        for (r, bar_h) in rects.iter().zip(heights) {
+            // Centre line 26 pt below the panel top, as in the plain pill.
+            assert!((h - (r.1 + bar_h / 2.0) - PILL_HEIGHT / 2.0).abs() < 1e-9);
+            assert!(r.1 >= h - PILL_HEIGHT && r.1 + r.3 <= h);
+        }
+        // Without a caption the bars are where they always were.
         let plain = bar_rects(PILL_WIDTH, PILL_HEIGHT, &heights);
-        let last = plain[BAR_COUNT - 1];
-        assert!(last.0 + last.2 <= caption_text_rect(CAPTION_PILL_WIDTH, PILL_HEIGHT).0);
+        assert!((plain[0].1 + plain[0].3 / 2.0 - PILL_HEIGHT / 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_caption_sits_in_the_bottom_row_with_sixteen_points_each_side() {
+        let (x, y, w, h) = caption_text_rect(CAPTION_PILL_WIDTH);
+        assert_eq!(x, 16.0);
+        assert_eq!(x + w, CAPTION_PILL_WIDTH - 16.0);
+        assert_eq!(y + h / 2.0, CAPTION_ROW_HEIGHT / 2.0);
+        assert!(y >= 0.0 && y + h <= CAPTION_ROW_HEIGHT);
     }
 
     #[test]

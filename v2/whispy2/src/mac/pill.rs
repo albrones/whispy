@@ -9,9 +9,9 @@
 //! `Send` handle whose methods hop to the main queue, as `menu_bar::show` does.
 //!
 //! A type-while-speaking recording also carries a caption: the first non-empty
-//! one widens the panel (the bars keep the first 168 pt) and `drawRect:` paints one
-//! attributed line beside them, truncated at its head so the latest words stay
-//! visible. Drawing it ourselves keeps the pill what it was, a panel that ignores
+//! one widens the panel and adds a row below the bars (the panel extends downward,
+//! so the bars stay put and centred) and `drawRect:` paints one attributed line
+//! there, centred and truncated at its head so the latest words stay visible. Drawing it ourselves keeps the pill what it was, a panel that ignores
 //! the mouse and never takes focus: no text field, nothing selectable or editable.
 
 use std::cell::{Cell, RefCell};
@@ -25,8 +25,8 @@ use objc2::{define_class, msg_send, sel, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSAttributedStringNSStringDrawing, NSBackingStoreType, NSBezierPath, NSColor, NSFont,
     NSFontAttributeName, NSForegroundColorAttributeName, NSLineBreakMode, NSMutableParagraphStyle,
-    NSPanel, NSParagraphStyleAttributeName, NSScreen, NSScreenSaverWindowLevel, NSSound, NSView,
-    NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSPanel, NSParagraphStyleAttributeName, NSScreen, NSScreenSaverWindowLevel, NSSound,
+    NSTextAlignment, NSView, NSWindowCollectionBehavior, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSMutableAttributedString, NSObject, NSPoint, NSRange, NSRect, NSSize, NSString, NSTimer,
@@ -38,9 +38,8 @@ use crate::log;
 use crate::menu_model::Alert;
 use crate::pill_geometry::{
     advance_phase, bar_color, bar_heights, bar_rects, caption_text_rect, fade_step, level_from_rms,
-    pill_origin_for_width, pill_width, smooth, Rect, BACKGROUND, BAR_WIDTH,
-    CAPTION_COMMITTED_ALPHA, CAPTION_FONT_SIZE, CAPTION_PROVISIONAL_ALPHA, FPS, HIDE_BELOW_ALPHA,
-    PILL_HEIGHT, PILL_WIDTH,
+    pill_frame, pill_size, smooth, Rect, BACKGROUND, BAR_WIDTH, CAPTION_COMMITTED_ALPHA,
+    CAPTION_FONT_SIZE, CAPTION_PROVISIONAL_ALPHA, CORNER_RADIUS, FPS, HIDE_BELOW_ALPHA,
 };
 
 /// V1 keeps the pill joining the active Space on every orderFront, so a
@@ -95,16 +94,16 @@ define_class!(
             let (width, height) = (bounds.size.width, bounds.size.height);
 
             // Rounded "pill" background.
-            let radius = height / 2.0;
             let pill = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
-                bounds, radius, radius,
+                bounds,
+                CORNER_RADIUS,
+                CORNER_RADIUS,
             );
             srgb(BACKGROUND).set();
             pill.fill();
 
-            // Bars, centred horizontally and vertically.
-            // The bars stay in the first PILL_WIDTH points, wide pill or not.
-            let rects = bar_rects(PILL_WIDTH, height, &bar_heights(level, phase));
+            // Bars, centred horizontally, in the top 52 pt (all of it without a caption).
+            let rects = bar_rects(width, height, &bar_heights(level, phase));
             let color = srgb(bar_color(level));
             for (x, y, w, h) in rects {
                 let bar = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
@@ -116,7 +115,7 @@ define_class!(
                 bar.fill();
             }
 
-            CAPTION.with(|caption| draw_caption(&caption.borrow(), width, height));
+            CAPTION.with(|caption| draw_caption(&caption.borrow(), width));
         }
     }
 );
@@ -141,9 +140,9 @@ define_class!(
     }
 );
 
-/// One line of text right of the bars: committed words bright, provisional ones
+/// One line of text in the row below the bars, centred: committed words bright, provisional ones
 /// faded, the head cut with an ellipsis when it does not fit.
-fn draw_caption(caption: &Caption, width: f64, height: f64) {
+fn draw_caption(caption: &Caption, width: f64) {
     let committed = caption.committed.trim();
     let provisional = caption.provisional.trim();
     let text = match (committed.is_empty(), provisional.is_empty()) {
@@ -158,6 +157,7 @@ fn draw_caption(caption: &Caption, width: f64, height: f64) {
 
     let font = NSFont::systemFontOfSize(CAPTION_FONT_SIZE);
     let style = NSMutableParagraphStyle::new();
+    style.setAlignment(NSTextAlignment::Center);
     style.setLineBreakMode(NSLineBreakMode::ByTruncatingHead);
     let faded = srgb((1.0, 1.0, 1.0, CAPTION_PROVISIONAL_ALPHA));
     let bright = srgb((1.0, 1.0, 1.0, CAPTION_COMMITTED_ALPHA));
@@ -175,7 +175,7 @@ fn draw_caption(caption: &Caption, width: f64, height: f64) {
             NSRange::new(0, committed_len),
         );
     }
-    string.drawInRect(rect(caption_text_rect(width, height)));
+    string.drawInRect(rect(caption_text_rect(width)));
 }
 
 fn srgb((r, g, b, a): (f64, f64, f64, f64)) -> Retained<NSColor> {
@@ -188,7 +188,8 @@ fn rect((x, y, w, h): Rect) -> NSRect {
 
 impl Pill {
     fn build(mtm: MainThreadMarker) -> Pill {
-        let frame = rect((0.0, 0.0, PILL_WIDTH, PILL_HEIGHT));
+        let (width, height) = pill_size(false);
+        let frame = rect((0.0, 0.0, width, height));
         // A non-activating floating panel: an accessory (menu bar) app can show
         // it over another app's full-screen Space without stealing focus.
         let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
@@ -286,7 +287,7 @@ impl Pill {
         self.panel.setLevel(NSScreenSaverWindowLevel);
         self.panel.setCollectionBehavior(overlay_behavior());
 
-        // A new recording starts without a caption, at V1's width.
+        // A new recording starts without a caption, at V1's size.
         self.captioned = false;
         CAPTION.with(|caption| *caption.borrow_mut() = Caption::default());
         if !self.place(mtm) {
@@ -300,7 +301,7 @@ impl Pill {
         self.start_animation();
     }
 
-    /// Sizes the panel for the current width and puts it bottom-centre of the active
+    /// Sizes the panel for the current size and puts it bottom-centre of the active
     /// screen (the first one if there is no main one). False when there is no screen.
     fn place(&mut self, mtm: MainThreadMarker) -> bool {
         let screen = NSScreen::mainScreen(mtm).or_else(|| NSScreen::screens(mtm).firstObject());
@@ -309,23 +310,21 @@ impl Pill {
             return false;
         };
         let visible = screen.visibleFrame();
-        let width = pill_width(self.captioned);
-        let (x, y) = pill_origin_for_width(
+        let frame = pill_frame(
             (
                 visible.origin.x,
                 visible.origin.y,
                 visible.size.width,
                 visible.size.height,
             ),
-            width,
+            self.captioned,
         );
-        self.panel
-            .setFrame_display(rect((x, y, width, PILL_HEIGHT)), false);
+        self.panel.setFrame_display(rect(frame), false);
         true
     }
 
-    /// Shows the words heard. The first non-empty caption of a recording widens the
-    /// panel, which then keeps that width until the next recording, so the line does
+    /// Shows the words heard. The first non-empty caption of a recording grows the
+    /// panel, which then keeps that size until the next recording, so the line does
     /// not jitter. A caption that arrives after the pill started fading out is stale.
     fn set_caption(&mut self, mtm: MainThreadMarker, caption: Caption) {
         if self.fade_target == 0.0 {
