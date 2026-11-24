@@ -22,3 +22,8 @@ Parakeet writes numbers in words. The text leaves `whispy-core` by two paths: `P
 - Minutes are taken greedily (« deux heures cinq personnes » reads « 2 h 05 personnes »).
 - « Sept. » (abbreviation), proper names (« Louis Quatorze »), decimals (« virgule »), ordinals; years like « dix-neuf cent » read 1900; numbers are written without a thousands separator.
 - A number at the very end of what is spoken is typed with the next word or at the stop, not before.
+
+## Accepted after review (follow-up, Régie idea card)
+
+- Two ambiguous numbers within three words, with an English word after the second (« il y a six chats six the »), can break « joined = one block » in live typing: the first one's window reaches past the hold. Rare, mixed-language only.
+- « four » sits in the English word list, so « six pains au four » keeps « six » in letters.

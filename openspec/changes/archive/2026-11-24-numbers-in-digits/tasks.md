@@ -19,4 +19,4 @@
 
 - [x] 4.1 Gate green (fmt, clippy, tests)
 - [ ] 4.2 [manual] The 24/11 sentence in toggle mode with Type while speaking arrives in TextEdit with digits
-- [ ] 4.3 Archive
+- [x] 4.3 Archive
