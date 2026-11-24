@@ -57,17 +57,19 @@ Constants (tunable from the bench): `PASS_EVERY_S = 0.6`, `COMMIT_PAUSE_S = 2.0`
 
 `pass`, with W the open window and P the previous hypothesis (times relative to W's start):
 
+0. If P is empty and W holds a run of at least `COMMIT_PAUSE_S` unvoiced frames followed by speech, the audio up to `LEADING_SILENCE_KEPT_S` before that speech is closed: released with no engine call when it holds no voiced frame, else transcribed by the full default pipeline (fallback included: quiet speech the timed pass heard nothing in) and committed. A long thinking pause therefore never pushes the next sentence past `MAX_WINDOW_S`.
 1. If W holds no voiced frame and P is empty, keep only its last `LEADING_SILENCE_KEPT_S` and return (no engine call).
 2. If W is longer than `MAX_WINDOW_S`: **overflow commit**. Run `Pipeline::transcribe(W)` (the full default pipeline, fallback included), commit its whole text as a forced commit, clear W and P.
 3. H = `pipeline.transcribe_timed(W)`; `None` (no timings) is treated as no stable words, so only the overflow commit can apply.
 4. `stable` = the length of the longest common prefix of H and P, comparing word texts exactly (punctuation and case included).
 5. Sentence commit: the largest `i < stable` whose text ends with `.`, `?`, `!` or `…`, and either `i + 1 < H.len()` (speech follows) or `W_s - H[i].end_s ≥ COMMIT_PAUSE_S`. A thinking pause shorter than 2 s therefore never commits a sentence end: the period stays provisional until the speaker goes on and the model, seeing the continuation, keeps or drops it.
+5b. Else, if every word of H is stable and `COMMIT_PAUSE_S` of silence follow the last one, all of H is committed as a forced (mid-sentence) commit: the model reads it as unfinished, and without this the silence would cost a pass every `PASS_EVERY_S`.
 6. Else, if `W_s ≥ FORCE_COMMIT_S`: forced commit at the `i < stable` with `i + 1 < H.len()` whose gap `H[i+1].start_s - H[i].end_s` is the largest (ties: the latest).
 7. On a commit at `i`: typed = join(H[0..=i]); the cut is the middle of the gap to `H[i+1]` when it exists, else `H[i].end_s + 0.3 s` (capped at W's end); the audio before the cut is released; P = H[i+1..] shifted by the cut. Without a commit, P = H.
 
 Joining: the first commit of a dictation is typed as is; each next one is preceded by a space; after a forced (mid-sentence) commit, the next text's first letter is lowered unless its first word is an acronym (`join::lowercase_first`, made `pub(crate)`).
 
-`finish`: the open window goes through `Pipeline::transcribe` (gates, padding, fallback, 20 s split), joined by the same rule; if it is empty and the last commit was forced, a `.` closes the dictation.
+`finish`: the open window goes through `Pipeline::transcribe` (gates, padding, fallback, 20 s split), joined by the same rule; if it is empty and the last commit was forced, a `.` closes the dictation. The app uses `rest()` then `finish_with(text)` instead, so it keeps its own lost-clip and engine bookkeeping on the rest.
 
 ### App wiring (`whispy2`)
 

@@ -146,11 +146,22 @@ impl Streamer {
     pub fn pass(&mut self, pipeline: &mut Pipeline) -> Result<Update, Error> {
         self.pushed_since_pass = 0;
         self.voiced_since_pass = false;
+
+        // 0. Nothing pending: what came before the last long pause is closed.
+        let closed = self.close_before_pause(pipeline)?;
         let window_s = seconds(self.window.len());
         let mut stats = PassStats {
             window_s,
             ..PassStats::default()
         };
+        if !closed.is_empty() {
+            stats.committed_words = closed.split_whitespace().count();
+            return Ok(Update {
+                typed: closed,
+                provisional: String::new(),
+                stats,
+            });
+        }
 
         // 1. Nothing said and nothing pending: keep only the lead-in.
         if self.previous.is_empty() && !self.window_has_voice() {
@@ -199,9 +210,17 @@ impl Streamer {
             ends_a_sentence(&hypothesis[i].text)
                 && (i + 1 < hypothesis.len() || window_s - hypothesis[i].end_s >= COMMIT_PAUSE_S)
         });
+        // 5b. Else everything stable, when the speaker has stopped that long
+        // with no sentence end: the model reads it as unfinished, so what
+        // follows continues it. Without this, silence would cost a pass every
+        // PASS_EVERY_S until the run-on cut.
+        let paused_after_all = stable > 0
+            && stable == hypothesis.len()
+            && window_s - hypothesis[stable - 1].end_s >= COMMIT_PAUSE_S;
         // 6. Else a run-on window is cut at its longest stable gap.
         let commit = match sentence_end {
             Some(i) => Some((i, false)),
+            None if paused_after_all => Some((stable - 1, true)),
             None if window_s >= FORCE_COMMIT_S => {
                 longest_gap(&hypothesis, stable).map(|i| (i, true))
             }
@@ -244,21 +263,87 @@ impl Streamer {
     /// The text to append at the stop: the open window goes through the full
     /// default pipeline (gates, padding, fallback, 20 s split). When it holds
     /// nothing and the last commit was cut mid-sentence, a `.` closes it.
-    pub fn finish(mut self, pipeline: &mut Pipeline) -> Result<String, Error> {
+    pub fn finish(self, pipeline: &mut Pipeline) -> Result<String, Error> {
         let text = pipeline.transcribe(&self.window)?.text;
-        let typed = self.commit_text(&text, false);
+        Ok(self.finish_with(&text))
+    }
+
+    /// The open window at the stop, for a caller that transcribes it itself
+    /// (the app, which keeps a lost clip and the engine's name) before
+    /// [`finish_with`](Streamer::finish_with).
+    pub fn rest(&self) -> &[f32] {
+        &self.window
+    }
+
+    /// [`finish`](Streamer::finish) with the rest already transcribed as `text`.
+    pub fn finish_with(mut self, text: &str) -> String {
+        let typed = self.commit_text(text, false);
         if typed.is_empty() && self.last_commit_forced {
-            return Ok(".".to_string());
+            return ".".to_string();
         }
-        Ok(typed)
+        typed
     }
 
     /// Whether the open window holds a voiced frame.
     fn window_has_voice(&self) -> bool {
-        let first_frame = self.window_start / FRAME_SAMPLES;
+        self.has_voice(0, self.window.len())
+    }
+
+    /// Whether `window[from..to]` holds a voiced frame.
+    fn has_voice(&self, from: usize, to: usize) -> bool {
+        let first = (self.window_start + from) / FRAME_SAMPLES;
+        let last = (self.window_start + to).div_ceil(FRAME_SAMPLES);
         self.voiced
-            .get(first_frame..)
+            .get(first..last.min(self.voiced.len()))
             .is_some_and(|frames| frames.iter().any(|&voiced| voiced))
+    }
+
+    /// With nothing pending, the audio before the last pause of at least
+    /// [`COMMIT_PAUSE_S`] that speech follows is closed: no pass will ever
+    /// agree on words in it. Without this a long pause would sit in the window
+    /// and push the next sentence past [`MAX_WINDOW_S`]. Silence is released
+    /// with no engine call; anything voiced (a cough, or quiet speech the timed
+    /// pass heard nothing in) goes through the full default pipeline, fallback
+    /// included, as a whole dictation would. Returns the text to type.
+    fn close_before_pause(&mut self, pipeline: &mut Pipeline) -> Result<String, Error> {
+        if !self.previous.is_empty() {
+            return Ok(String::new());
+        }
+        let Some(pause_end) = self.last_pause_end() else {
+            return Ok(String::new());
+        };
+        let lead_in = (LEADING_SILENCE_KEPT_S * SAMPLE_RATE as f32) as usize;
+        let cut = pause_end.saturating_sub(lead_in).min(self.window.len());
+        if cut == 0 {
+            return Ok(String::new());
+        }
+        let text = if self.has_voice(0, cut) {
+            pipeline.transcribe(&self.window[..cut])?.text
+        } else {
+            String::new()
+        };
+        self.release(cut);
+        Ok(self.commit_text(&text, false))
+    }
+
+    /// Where (window samples) the latest run of at least [`COMMIT_PAUSE_S`] of
+    /// unvoiced frames ends, when a voiced frame follows it.
+    fn last_pause_end(&self) -> Option<usize> {
+        let first = self.window_start.div_ceil(FRAME_SAMPLES);
+        let frames = self.voiced.get(first..)?;
+        let min_run = (COMMIT_PAUSE_S * SAMPLE_RATE as f32) as usize / FRAME_SAMPLES;
+        let (mut run, mut end) = (0, None);
+        for (i, &voiced) in frames.iter().enumerate() {
+            if voiced {
+                if run >= min_run {
+                    end = Some(i);
+                }
+                run = 0;
+            } else {
+                run += 1;
+            }
+        }
+        end.map(|frame| (first + frame) * FRAME_SAMPLES - self.window_start)
     }
 
     /// Drops the first `samples` of the window: they are committed.
@@ -707,5 +792,127 @@ mod tests {
         assert_eq!(update.typed, "");
         assert_eq!(update.stats.words, 0);
         assert_eq!(streamer.finish(&mut pipeline).unwrap(), "mot");
+    }
+
+    /// Commits « Bonjour. » with a 2 s pause, as the user stops talking.
+    fn after_a_committed_sentence(pipeline: &mut Pipeline) -> Streamer {
+        let mut streamer = Streamer::new();
+        streamer.push(&voiced(1.0));
+        pass_now(&mut streamer, pipeline);
+        let mut typed = String::new();
+        while typed.is_empty() {
+            streamer.push(&silence(0.6));
+            typed = pass_now(&mut streamer, pipeline).typed;
+        }
+        assert_eq!(typed, "Bonjour.");
+        streamer
+    }
+
+    #[test]
+    fn a_long_pause_never_pushes_the_next_sentence_into_an_overflow() {
+        let (mut pipeline, calls) = pipeline(
+            // Five passes commit « Bonjour. » (see `after_a_committed_sentence`).
+            queue(
+                std::iter::repeat_n(vec![word("Bonjour.", 0.2, 0.9)], 5)
+                    .chain([vec![word("Ensuite", 0.5, 1.0)]])
+                    .collect(),
+            ),
+            no_plain(),
+        );
+        let mut streamer = after_a_committed_sentence(&mut pipeline);
+        // 25 s of thinking: no pass is due, the window grows.
+        for _ in 0..50 {
+            streamer.push(&silence(0.5));
+            assert!(!streamer.is_pass_due());
+        }
+        streamer.push(&voiced(1.0));
+        let update = pass_now(&mut streamer, &mut pipeline);
+        assert_eq!(update.typed, "");
+        assert_eq!(update.provisional, "Ensuite");
+        assert!(!update.stats.forced);
+        let calls = calls.lock().unwrap();
+        // The pause was released with no engine call: the timed pass saw the
+        // lead-in and the new speech only, and the full pipeline never ran.
+        let last = seconds_of(*calls.timed.last().unwrap());
+        assert!(last <= LEADING_SILENCE_KEPT_S + 1.0 + 0.1, "{last} s");
+        assert!(calls.plain.is_empty());
+    }
+
+    #[test]
+    fn a_sound_with_no_words_before_a_long_pause_goes_through_the_full_pipeline() {
+        // Words only once a full second of speech ends the window.
+        let timed: Timed = Box::new(|samples| {
+            let second = SAMPLE_RATE as usize;
+            let tail = &samples[samples.len().saturating_sub(second)..];
+            // The louder copy removes the mean: silence is near zero, not zero.
+            let loudness = tail.iter().map(|s| s.abs()).sum::<f32>() / tail.len().max(1) as f32;
+            let is_speaking = samples.len() > second && loudness > 0.01;
+            let start = seconds_of(samples.len()) - 1.0;
+            if is_speaking {
+                vec![word("Ensuite", start + 0.1, start + 0.6)]
+            } else {
+                vec![]
+            }
+        });
+        let (mut pipeline, calls) = pipeline(timed, Box::new(|_| "Oui.".to_string()));
+        let mut streamer = Streamer::new();
+        // Quiet speech the timed pass hears nothing in, then a long pause.
+        streamer.push(&voiced(0.6));
+        let first = pass_now(&mut streamer, &mut pipeline);
+        assert_eq!((first.typed.as_str(), first.stats.words), ("", 0));
+        // The VAD's hangover may call for a pass or two: they hear nothing.
+        for _ in 0..50 {
+            streamer.push(&silence(0.5));
+            if streamer.is_pass_due() {
+                assert_eq!(streamer.pass(&mut pipeline).unwrap().typed, "");
+            }
+        }
+        streamer.push(&voiced(1.0));
+        let update = pass_now(&mut streamer, &mut pipeline);
+        // The full pipeline (fallback included) gave it a text, typed now.
+        assert_eq!(update.typed, "Oui.");
+        assert_eq!(calls.lock().unwrap().plain.len(), 1);
+        streamer.push(&voiced(0.6));
+        let next = pass_now(&mut streamer, &mut pipeline);
+        assert_eq!(next.provisional, "Ensuite");
+        let last = seconds_of(*calls.lock().unwrap().timed.last().unwrap());
+        assert!(last <= LEADING_SILENCE_KEPT_S + 1.6 + 0.1, "{last} s");
+    }
+
+    #[test]
+    fn stable_words_with_no_sentence_end_are_committed_after_a_long_pause() {
+        let hypothesis = vec![word("ok", 0.2, 0.5), word("alors", 0.6, 1.0)];
+        let (mut pipeline, calls) = pipeline(queue(vec![hypothesis]), no_plain());
+        let mut streamer = Streamer::new();
+        streamer.push(&voiced(1.2));
+        pass_now(&mut streamer, &mut pipeline);
+        let mut update = Update::default();
+        while update.typed.is_empty() {
+            streamer.push(&silence(0.6));
+            update = pass_now(&mut streamer, &mut pipeline);
+        }
+        assert_eq!(update.typed, "ok alors");
+        assert!(update.stats.forced);
+        // Then the silence costs nothing, and what follows continues the sentence.
+        let before = calls.lock().unwrap().timed.len();
+        for _ in 0..20 {
+            streamer.push(&silence(0.5));
+            assert!(!streamer.is_pass_due());
+        }
+        assert_eq!(calls.lock().unwrap().timed.len(), before);
+        assert_eq!(streamer.finish_with("On y va."), " on y va.");
+    }
+
+    #[test]
+    fn rest_and_finish_with_match_finish() {
+        let (mut pipeline, _) = pipeline(
+            queue(vec![vec![word("Bonjour.", 0.2, 0.9)]]),
+            Box::new(|_| "Ça va ?".to_string()),
+        );
+        let mut streamer = after_a_committed_sentence(&mut pipeline);
+        streamer.push(&voiced(1.0));
+        let rest = streamer.rest().to_vec();
+        let text = pipeline.transcribe(&rest).unwrap().text;
+        assert_eq!(streamer.finish_with(&text), " Ça va ?");
     }
 }
