@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- **The Linux tray never blocks dictation.** If the X11 tray icon cannot start
+  (no pystray backend, no display, a GTK error), Whispy now logs the reason,
+  posts one notification and keeps running with notification-only feedback
+  instead of exiting. New `tray_icon` config key (default on): set it to
+  `false` to skip the tray entirely; `whispy --doctor` gains a `tray icon` check.
 - **Omarchy bar widget.** Whispy's icon on the right of the Omarchy bar (the
   macOS braille waveform: ready, listening, transcribing, stopped); a panel
   with the dictation key (Right Option, Right Ctrl or F9 held, Left Option +

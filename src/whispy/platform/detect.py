@@ -9,6 +9,7 @@ selecting a platform never drags in another platform's optional dependencies
 
 from __future__ import annotations
 
+import logging
 import sys
 from dataclasses import dataclass
 from typing import Any
@@ -119,8 +120,14 @@ def _linux_adapters(session_is_wayland: bool) -> PlatformAdapters:
     def make_tray(engine):
         from .linux import tray
 
-        tray_class = tray.NotificationOnlyTray if session_is_wayland else tray.PystrayApp
-        return tray_class(engine)
+        if session_is_wayland:
+            return tray.NotificationOnlyTray(engine)
+        if not engine.state.config.get("tray_icon", True):
+            logging.getLogger(__name__).info(
+                'Tray icon is off by config ("tray_icon": false); using notifications only'
+            )
+            return tray.NotificationOnlyTray(engine)
+        return tray.PystrayApp(engine)
 
     return PlatformAdapters(
         name="linux",

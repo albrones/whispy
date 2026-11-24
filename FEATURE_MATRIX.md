@@ -47,6 +47,7 @@ Tiers are defined in `openspec/specs/TESTING-TIERS.md`.
 | Permissions detection | macOS | unit-mocked | `tests/test_permissions.py`, `doctor` | Input Monitoring / Accessibility / Mic |
 | Linux adapters wiring | Linux | unit-mocked | `tests/test_linux_adapters.py` | pynput/pystray/xdotool selection |
 | Wayland adapters wiring | Linux | unit-mocked | `tests/test_linux_adapters.py::TestWaylandAdapterSelection` | compositor-bound trigger, wtype injector, notification-only tray |
+| Optional X11 tray (fallback + `tray_icon` opt-out) | Linux | unit-mocked | `tests/test_linux_adapters.py::TestPystrayFallback`, `tests/test_doctor.py::TestTrayCheck` | a tray that cannot start falls back to notifications; `"tray_icon": false` skips it |
 | wtype injection (both modes, UTF-8) | Linux | unit-mocked | `tests/test_linux_adapters.py::TestWtypeInjector` | stdin text, LC_ALL=C.UTF-8, wl-copy not piped |
 | /transcribe endpoint (WAV upload) | both | unit-mocked | `tests/test_api/test_server.py::TestPostTranscribe` | 16 kHz mono WAV, 400/413/503 JSON errors, no inject, no file kept |
 | Omarchy backend never fails silently | Linux | unit-mocked | `tests/test_omarchy_adapter.py` | « Whispy ne répond pas » + non-zero exit when the API is down |

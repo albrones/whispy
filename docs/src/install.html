@@ -4,6 +4,7 @@
 <h2>One-line installer</h2>
 <pre data-copy id="bootstrap-cmd"><code>curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash</code></pre>
 <p data-os="macos">On macOS it builds and installs the signed <code>Whispy.app</code> into <code>/Applications</code>. Source lives in <code>~/.local/share/whispy</code>.</p>
+<p data-os="linux">Under X11 the tray icon is optional: if your desktop has no working tray, Whispy runs without it (see <a href="troubleshooting.html#tray-icon">troubleshooting</a>).</p>
 <p data-os="linux">On Linux it sets up a virtualenv and a <code>systemd --user</code> service. Source lives in <code>~/.local/share/whispy</code>.</p>
 
 <h2>Checklist</h2>
