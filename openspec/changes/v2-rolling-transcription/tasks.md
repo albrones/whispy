@@ -13,16 +13,16 @@
 
 ## 3. App wiring (`whispy2`)
 
-- [ ] 3.1 `StreamAudio` / `FinishStream` / `DiscardStream` jobs; the worker coalesces and runs a pass when due
-- [ ] 3.2 Committed text typed, caption sent to the controller and to the pill while recording; one log line of counts per pass
-- [ ] 3.3 Deaf take, watchdog to the clipboard, failed insertion, lost clips and journal kept; controller tests for the streaming path and hold mode
+- [x] 3.1 `StreamAudio` / `FinishStream` / `DiscardStream` jobs; the worker coalesces and runs a pass when due
+- [x] 3.2 Committed text typed, caption sent to the controller and to the pill while recording; one log line of counts per pass
+- [x] 3.3 Deaf take, watchdog to the clipboard, failed insertion, lost clips and journal kept; controller tests for the streaming path and hold mode
 
 ## 4. Bench (`banc --streaming`)
 
-- [ ] 4.1 One block vs pieces vs rolling, on reference clips (two sentences back to back, one with a 1 s pause inside a sentence, the run-on clip) and the labelled speech clips ≥ 8 s, simulated at real-time pace
-- [ ] 4.2 WER, extra sentence ends, commit delay, stop latency, pass cost; exit 1 on a failed criterion; 180 s memory probe kept
+- [x] 4.1 One block vs pieces vs rolling, on reference clips (two sentences back to back, one with a 1 s pause inside a sentence, the run-on clip) and the labelled speech clips ≥ 8 s, simulated at real-time pace
+- [x] 4.2 WER, extra sentence ends, commit delay, stop latency, pass cost; exit 1 on a failed criterion; 180 s memory probe kept
 
 ## 5. Delivery
 
-- [ ] 5.1 `v2/README.md` describes the new « Type while speaking »
+- [x] 5.1 `v2/README.md` describes the new « Type while speaking »
 - [ ] 5.2 v2/ gate green (`cargo test --release`, `cargo clippy --release --all-targets -- -D warnings`), bench criteria proven, `make v2-reinstall`, manual check in TextEdit

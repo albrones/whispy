@@ -1,17 +1,17 @@
 ## MODIFIED Requirements
 
 ### Requirement: Type while speaking in toggle mode
-When the trigger mode is toggle and `type_while_speaking` is on in V1's config file (V1's default: on), V2 SHALL re-transcribe the sentence in progress while it records and type each sentence into the frontmost app once it is committed (see `v2-transcription-core`, « A dictation typed while spoken is committed sentence by sentence »), in recording order. The stopping press SHALL transcribe the open sentence with the full default pipeline and type it. Nothing typed SHALL ever be erased or retyped, no text SHALL be typed twice, and none SHALL be dropped. In hold mode, or with the setting off, the whole dictation SHALL be inserted once at the end, as before. The menu SHALL show V1's « Type while speaking » row under SETTINGS, with V1's trailing ✓ when on, and toggling it SHALL save only that key and apply to the next dictation.
+When the trigger mode is toggle and `type_while_speaking` is on in V1's config file (V1's default: on), V2 SHALL re-transcribe the dictation's last seconds while it records and type each committed passage into the frontmost app (see `v2-transcription-core`, « A dictation typed while spoken is committed word by word, in context »), in recording order. The stopping press SHALL transcribe what is not typed yet, in its context, and type it. Nothing typed SHALL ever be erased or retyped, no text SHALL be typed twice, and none SHALL be dropped. In hold mode, or with the setting off, the whole dictation SHALL be inserted once at the end, as before. The menu SHALL show V1's « Type while speaking » row under SETTINGS, with V1's trailing ✓ when on, and toggling it SHALL save only that key and apply to the next dictation.
 
 #### Scenario: First sentence typed before the stop
-- **WHEN** the user, in toggle mode with the setting on, says two sentences, the second starting right after the first
-- **THEN** the first sentence SHALL be typed before the stopping press, and the second after it
+- **WHEN** the user, in toggle mode with the setting on, says two sentences and keeps talking
+- **THEN** the first sentence SHALL be typed before the stopping press, and what was not typed yet after it
 
 _Tier: bench — `banc --streaming`; manual — TextEdit._
 
 #### Scenario: A thinking pause is not a sentence end
 - **WHEN** the user pauses 1 s in the middle of a sentence, then finishes it
-- **THEN** the sentence SHALL be typed once, as the model punctuates it with its continuation, not cut at the pause
+- **THEN** the sentence SHALL be typed once, punctuated as the model hears it with its continuation, never with a period at the pause
 
 _Tier: bench — `banc --streaming`, extra sentence ends._
 

@@ -70,21 +70,23 @@ scrolls while V2 records or transcribes. Then, in any app, with the trigger key
 - **Toggle mode**: one press starts a dictation, the next press stops it and
   inserts the text; releases are ignored.
 - **Type while speaking** (toggle mode only, V1's `type_while_speaking`, on by
-  default): while you dictate, the sentence in progress is re-transcribed about
-  every 0.6 s, with the time of each word. A sentence is typed once two
-  consecutive passes agree on it, word for word, up to its end punctuation, and
-  you have either gone on speaking or paused for 2 s; a thinking pause shorter
-  than that leaves the period undecided until the model has heard what comes
-  next. A run-on sentence with no end is typed by 15 s, cut at its longest
-  stable gap, and the next text continues it in lowercase. The pill shows the
-  words as they are heard: faded until typed, white once typed (the latest ones
-  only, the start of a long text is cut). Nothing typed is ever erased or
-  rewritten. The stopping press types the open sentence, which goes through the
-  full pipeline like a whole dictation. Text goes through the same paste (or
-  typing) as a whole dictation, so the clipboard is put back after each
-  insertion. If the 5-minute watchdog stops the dictation, the whole text goes
-  to the clipboard; if a passage could not be typed, the stop inserts the whole
-  text again rather than lose it. Hold mode is never typed live: the key is
+  default): while you dictate, the last seconds are re-transcribed about every
+  0.6 s with the time of each word: the audio not typed yet, after about 5 s
+  already typed, so the model hears it in its sentence. A word is typed once
+  two consecutive passes agree on it, word for word, and the model has heard
+  1.5 s and three words past it (2 s of silence for the last word): its
+  punctuation is decided with what follows, so a thinking pause does not become
+  a period. Words go out four or more at a time, or at the end of a phrase or a
+  pause, each passage one paste: typically 2 s behind your voice (bench: median
+  1.9 s, p95 3.7 s). The pill shows the words as they are heard: faded until
+  typed, white once typed (the latest ones only, the start of a long text is
+  cut). Nothing typed is ever erased or rewritten. The stopping press hears
+  what is not typed yet once more, in its context, and types it (bench: p95
+  0.6 s). Text goes through the same paste (or typing) as a whole dictation, so
+  the clipboard is put back after each insertion. If the 5-minute watchdog
+  stops the dictation, the whole text goes to the clipboard; if a passage could
+  not be typed, the stop inserts the whole text again rather than lose it. Hold
+  mode is never typed live: the key is
   held meanwhile. The log holds one line of counts per pass (window, time,
   words, committed), never the text.
 
@@ -106,7 +108,7 @@ permission alert; it opens the right Privacy pane), then under **SETTINGS**:
   and the previous clipboard is put back; off: the text is typed by System
   Events `keystroke` and the clipboard is not touched;
 - **Toggle mode** — the mode above;
-- **Type while speaking** — in toggle mode, each sentence is typed once it is
+- **Type while speaking** — in toggle mode, the text is typed as it becomes
   stable instead of all at once at the stop, and the pill shows the words live
   (on by default, V1's setting); it does nothing in hold mode;
 - **Trigger: <key>** — V1's presets: Fn, Right Command, Right Option, F13

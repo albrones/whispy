@@ -755,6 +755,44 @@ fn heard_nothing(dictation: &Dictation) -> Transcribed {
 }
 
 /// The engines on `samples`, with no deaf-take check; a lost text keeps its clip.
+/// The stop of a dictation typed while spoken: the streamer hears its open
+/// audio once more, in context, and the text comes back already joined to
+/// what was typed. A lost text keeps its clip, as [`transcribe_samples`] does.
+fn finish_stream(
+    pipeline: Option<&mut Pipeline>,
+    streamer: Streamer,
+    lost_clips: &LostClips,
+) -> Transcribed {
+    let Some(pipeline) = pipeline else {
+        return transcribe_samples(None, streamer.rest(), lost_clips);
+    };
+    let rest = streamer.rest().to_vec();
+    match streamer.finish(pipeline) {
+        Ok(finish) => {
+            let outcome = match (&finish.lost, finish.typed.trim().is_empty()) {
+                (Some(clip), _) => {
+                    keep_lost_clip(clip, lost_clips);
+                    Outcome::Lost
+                }
+                (None, true) => Outcome::Empty,
+                (None, false) => Outcome::Inserted,
+            };
+            Transcribed {
+                length: finish.typed.chars().count(),
+                engine: finish.engine,
+                event: Event::Transcribed(finish.typed),
+                outcome,
+                alert: None,
+            }
+        }
+        Err(error) => {
+            log::line(&format!("transcription failed: {error}"));
+            keep_lost_clip(&rest, lost_clips);
+            Transcribed::without_text(Event::TranscriptionFailed, Outcome::Failed)
+        }
+    }
+}
+
 fn transcribe_samples(
     pipeline: Option<&mut Pipeline>,
     samples: &[f32],
@@ -811,7 +849,10 @@ fn caption_tail(text: &str, max_chars: usize) -> String {
         .chars()
         .next_back()
         .is_some_and(|before| !before.is_whitespace())
-        && tail.chars().next().is_some_and(|first| !first.is_whitespace());
+        && tail
+            .chars()
+            .next()
+            .is_some_and(|first| !first.is_whitespace());
     if cut_mid_word {
         if let Some(space) = tail.find(char::is_whitespace) {
             return tail[space..].trim_start().to_string();
@@ -934,12 +975,11 @@ impl LiveDictation {
         let done = if is_deaf_take(streamer.rest()) {
             Transcribed::without_text(Event::Transcribed(String::new()), Outcome::Empty)
         } else {
-            transcribe_samples(pipeline, streamer.rest(), lost_clips)
+            finish_stream(pipeline, streamer, lost_clips)
         };
-        let Event::Transcribed(rest_text) = &done.event else {
+        let Event::Transcribed(last) = done.event else {
             return done;
         };
-        let last = streamer.finish_with(rest_text);
         let whole = format!("{}{last}", self.typed);
         let outcome = match (self.typed.is_empty(), self.has_insertion_failed) {
             (true, _) => done.outcome,
@@ -1619,12 +1659,13 @@ mod tests {
     }
 
     /// Two sentences with a one-second pause between them.
+    /// « Hello. », a 1 s pause, « there », then 1 s of silence before the stop.
     fn two_sentences() -> Vec<f32> {
         [
             voiced(1.5),
             vec![0.0; 16_000],
-            voiced(1.5),
-            vec![0.0; 3_200],
+            voiced(1.2),
+            vec![0.0; 16_000],
         ]
         .concat()
     }
@@ -1652,10 +1693,11 @@ mod tests {
         }
     }
 
-    /// A timed engine for the rolling passes: its first two hypotheses agree on a
-    /// first sentence that speech follows, so the second pass commits it; the
-    /// next ones are one open word. The plain engine, at the stop, says « the rest ».
-    struct Rolling(usize);
+    /// A timed engine that hears the clip: each voiced run is a word, named by
+    /// its length (1.5 s « Hello. », 1.2 s « there »); a run still going at the
+    /// window's end is not heard yet. The plain engine (hold mode, the setting
+    /// off) says « the rest ».
+    struct Rolling;
     impl Transcriber for Rolling {
         fn name(&self) -> &'static str {
             "rolling"
@@ -1667,18 +1709,35 @@ mod tests {
             &mut self,
             samples: &[f32],
         ) -> Result<Option<Vec<whispy_core::Word>>, whispy_core::Error> {
-            self.0 += 1;
-            let word = |text: &str, start_s: f32, end_s: f32| whispy_core::Word {
-                text: text.into(),
-                start_s,
-                end_s,
-            };
-            Ok(Some(if self.0 <= 2 {
-                vec![word("Hello.", 0.2, 1.4), word("there", 1.6, 2.0)]
-            } else {
-                // Ends with the window: no pause, so nothing more is committed.
-                vec![word("there", 0.1, samples.len() as f32 / SAMPLE_RATE - 0.05)]
-            }))
+            let end_s = samples.len() as f32 / SAMPLE_RATE;
+            let loud = samples
+                .chunks(160)
+                .map(|frame| frame.iter().map(|s| s.abs()).sum::<f32>() / frame.len() as f32 > 0.02)
+                .chain(std::iter::once(false));
+            let (mut words, mut run_start) = (Vec::new(), None);
+            for (i, is_loud) in loud.enumerate() {
+                match (is_loud, run_start) {
+                    (true, None) => run_start = Some(i),
+                    (false, Some(first)) => {
+                        let (start_s, end) = (first as f32 / 100.0, i as f32 / 100.0);
+                        if end < end_s - 0.05 {
+                            words.push(whispy_core::Word {
+                                text: if end - start_s > 1.35 {
+                                    "Hello."
+                                } else {
+                                    "there"
+                                }
+                                .into(),
+                                start_s,
+                                end_s: end,
+                            });
+                        }
+                        run_start = None;
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Some(words))
         }
     }
 
@@ -1702,7 +1761,7 @@ mod tests {
                 clip: two_sentences(),
                 taken: 0,
             },
-            || pipeline(Rolling(0)),
+            || pipeline(Rolling),
             inserter,
             LostClips { directory: None },
             no_journal(),
@@ -1751,7 +1810,9 @@ mod tests {
         );
         press(&controller, start + Duration::from_secs(5));
         let last = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(last, (" the rest".to_string(), Delivery::Paste));
+        // The stop hears « there » in the context of « Hello. », and a capital
+        // follows the typed period.
+        assert_eq!(last, (" There".to_string(), Delivery::Paste));
         controller.stop();
         assert!(inserted.try_recv().is_err(), "nothing typed twice");
     }
@@ -1804,7 +1865,7 @@ mod tests {
         );
         controller.send(Event::Tick(start + RECORDING_LIMIT));
         let last = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(last, ("Hello. the rest".to_string(), Delivery::Clipboard));
+        assert_eq!(last, ("Hello. There".to_string(), Delivery::Clipboard));
         controller.stop();
     }
 
@@ -1831,7 +1892,7 @@ mod tests {
         thread::sleep(Duration::from_millis(200));
         press(&controller, start + Duration::from_secs(5));
         let last = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(last, ("Hello. the rest".to_string(), Delivery::Paste));
+        assert_eq!(last, ("Hello. There".to_string(), Delivery::Paste));
         controller.stop();
     }
 
@@ -1972,7 +2033,7 @@ mod tests {
         let (delivered, inserted) = mpsc::channel();
         let (inputs, _controller_inputs) = mpsc::channel();
         let (jobs, worker) = spawn_worker(
-            || pipeline(Rolling(0)),
+            || pipeline(Rolling),
             Recorder(delivered),
             LostClips { directory: None },
             no_journal(),
@@ -1988,7 +2049,10 @@ mod tests {
         thread::sleep(Duration::from_millis(100));
         drop(jobs);
         worker.join().unwrap();
-        assert!(inserted.try_recv().is_err(), "nothing typed after a discard");
+        assert!(
+            inserted.try_recv().is_err(),
+            "nothing typed after a discard"
+        );
     }
 
     #[test]

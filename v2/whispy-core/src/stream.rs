@@ -1,25 +1,30 @@
 //! Rolling re-transcription: type what is said while it is said, with the
 //! quality of one block (V2's « Type while speaking »).
 //!
-//! The pieces of [`crate::split::LiveSplitter`] decide at a pause, with the
-//! least context, and cannot take it back. This is « LocalAgreement »
-//! (Macháček et al., 2023; NVIDIA's buffered Parakeet inference): the open
-//! window (the audio since the last commit) is re-transcribed with word times
-//! every [`PASS_EVERY_S`], and only text two consecutive passes agree on, word
-//! for word, is committed. Audio is released only at a committed boundary, in
-//! the middle of the gap after the last committed word, so no word is cut.
+//! The pieces of [`crate::split::LiveSplitter`] decide at a pause, with no
+//! context, and cannot take it back. This is « LocalAgreement » (Macháček et
+//! al., 2023) over NVIDIA's buffered Parakeet inference: the window, a few
+//! seconds already typed then the open audio, is re-transcribed with word
+//! times every [`PASS_EVERY_S`]. A word is committed once two consecutive
+//! passes agree on it, word for word from the start of the open text, and the
+//! model has heard [`LOOKAHEAD_S`] of audio past it while more words follow
+//! ([`COMMIT_PAUSE_S`] of silence when none does). Its punctuation is decided
+//! with that much right context: a thinking pause leaves a period open until
+//! the model has heard what comes next.
 //!
-//! A sentence is committed once it is stable up to its final `.`, `?`, `!` or
-//! `…` and either more words follow or [`COMMIT_PAUSE_S`] of silence do: a
-//! thinking pause shorter than that leaves the period provisional until the
-//! model has seen what comes next. Run-on speech is committed by
-//! [`FORCE_COMMIT_S`] at its longest stable gap, and the next text continues
-//! that sentence ([`crate::join::lowercase_first`]). Past [`MAX_WINDOW_S`] the
-//! window goes whole through the default pipeline.
+//! After a commit the window keeps [`LEFT_CONTEXT_S`] of the typed audio,
+//! starting in a gap between words, and the words a pass hears in it are
+//! dropped (they are typed already). The model hears the open text inside its
+//! sentence, so a commit may fall anywhere. The bench measured the first
+//! version, which committed at sentence ends with one word of right context
+//! and restarted each window cold: on the user's dictations it typed periods
+//! where one block has commas (« comportement. Déjà ») and misheard words
+//! after a cut (« ça aurait ‖ c'était ‖ beaucoup »).
 //!
-//! Every pushed sample ends in exactly one committed text or in the text
-//! [`Streamer::finish`] returns (silence nobody spoke over is dropped): the
-//! committed texts and the finish text, in order, are the dictation.
+//! No engine call gets more than [`MAX_WINDOW_S`]: past it, the open audio
+//! goes whole through the default pipeline. Every pushed sample ends in
+//! exactly one committed text or in the stop's ([`Streamer::finish`]);
+//! silence nobody spoke over is dropped.
 //!
 //! A [`Streamer`] holds a [`VoiceDetector`] (a raw C pointer): like
 //! [`crate::split::LiveSplitter`] it is not `Send`; create it on the thread
@@ -31,35 +36,52 @@ use crate::audio::SAMPLE_RATE;
 use crate::join::lowercase_first;
 use crate::split::MAX_PIECE_S;
 use crate::vad::{VoiceDetector, FRAME_SAMPLES};
-use crate::{Error, Pipeline, Word};
+use crate::{Error, Pipeline, Strategy, Word};
 
 /// New audio, in seconds, between two passes.
 pub const PASS_EVERY_S: f32 = 0.6;
-/// Silence after a sentence end that commits it when nothing follows.
+/// Audio the model must have heard past a word, more words following, before
+/// the word is committed: the right context its punctuation is decided with.
+pub const LOOKAHEAD_S: f32 = 1.5;
+/// Words that must follow a word before it is committed (with
+/// [`LOOKAHEAD_S`]): a thinking pause fills the seconds, not the words, and
+/// the bench saw « dernière. Mais » typed where one block has « dernière, mais ».
+pub const LOOKAHEAD_WORDS: usize = 3;
+/// Fewest words typed at once, unless they end on punctuation or a pause:
+/// each commit is a paste (about half a second, and the clipboard swapped).
+pub const MIN_COMMIT_WORDS: usize = 4;
+/// Silence after the last word heard that commits it.
 pub const COMMIT_PAUSE_S: f32 = 2.0;
-/// A window this long without a committable sentence is committed at its longest stable gap.
-pub const FORCE_COMMIT_S: f32 = 15.0;
-/// No engine call gets more than this: past it the window is committed whole.
+/// Typed audio kept before the open audio, so the model hears it in context.
+pub const LEFT_CONTEXT_S: f32 = 5.0;
+/// No engine call gets more than this: past it the open audio is committed whole.
 pub const MAX_WINDOW_S: f32 = MAX_PIECE_S;
-/// What is kept of a window that holds no voice and no hypothesis: the start
+/// A window this long is committed whole: two passes early, so the overflow
+/// call itself stays one piece under [`MAX_WINDOW_S`] (the pipeline would
+/// otherwise split it and hear a short tail on its own).
+const OVERFLOW_S: f32 = MAX_WINDOW_S - 2.0 * PASS_EVERY_S;
+/// What is kept of open audio that holds no voice and no hypothesis: the start
 /// of the next word needs its lead-in.
 pub const LEADING_SILENCE_KEPT_S: f32 = 0.5;
-/// Past the last committed word with nothing after it, the cut falls this far on.
-const TAIL_KEPT_S: f32 = 0.3;
+/// How far past the last committed word the context ends. Not the middle of
+/// the gap to the next word heard: speech the pass did not transcribe yet may
+/// sit in that gap (the bench lost « Euh... ça aurait » between « ça. » and
+/// « été » that way), and it must stay open to be heard again.
+const BOUNDARY_MARGIN_S: f32 = 0.15;
 
 /// What one pass did. Counts only, never text: it goes to the log.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct PassStats {
-    /// The open window's length when the pass began.
+    /// The window's length (context included) when the pass began.
     pub window_s: f32,
     /// Time spent in the engine.
     pub took_s: f32,
-    /// Words of the new hypothesis.
+    /// Words of the new hypothesis after the context.
     pub words: usize,
     /// Words it shares with the previous hypothesis, from the start.
     pub stable: usize,
     pub committed_words: usize,
-    /// The commit was cut mid-sentence (run-on or overflow).
+    /// The open audio was committed whole, without word times (overflow).
     pub forced: bool,
     /// Where the committed text's audio ends, in seconds since the stream
     /// began (its last word's end, or the released audio's end when the text
@@ -77,8 +99,20 @@ pub struct Update {
     pub stats: PassStats,
 }
 
+/// The stop's outcome.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Finish {
+    /// Text to append to the field, already joined; may be empty.
+    pub typed: String,
+    /// The engine that gave it, `None` when it is empty.
+    pub engine: Option<&'static str>,
+    /// The open audio, when the gates call it speech and no text came back:
+    /// the app keeps it as a lost clip for the bench.
+    pub lost: Option<Vec<f32>>,
+}
+
 pub struct Streamer {
-    /// The open window: the audio since the last commit.
+    /// The left context, then the open audio.
     window: Vec<f32>,
     /// Samples since the last complete VAD frame.
     frame_tail: Vec<f32>,
@@ -87,13 +121,13 @@ pub struct Streamer {
     voiced: Vec<bool>,
     /// Where the window starts, in samples since the stream began.
     window_start: usize,
+    /// Samples at the start of the window that are typed already.
+    context: usize,
     pushed_since_pass: usize,
     voiced_since_pass: bool,
-    /// The last hypothesis after the committed text, times relative to the window.
+    /// The last hypothesis after the context, times relative to the window.
     previous: Vec<Word>,
     committed: String,
-    /// The last commit was cut mid-sentence.
-    last_commit_forced: bool,
 }
 
 impl Default for Streamer {
@@ -110,11 +144,11 @@ impl Streamer {
             detector: VoiceDetector::new(),
             voiced: Vec::new(),
             window_start: 0,
+            context: 0,
             pushed_since_pass: 0,
             voiced_since_pass: false,
             previous: Vec::new(),
             committed: String::new(),
-            last_commit_forced: false,
         }
     }
 
@@ -146,7 +180,12 @@ impl Streamer {
         &self.committed
     }
 
-    /// One re-transcription of the open window; commits what is stable.
+    /// The open audio: what is not typed yet.
+    pub fn rest(&self) -> &[f32] {
+        &self.window[self.context..]
+    }
+
+    /// One re-transcription of the window; commits what is stable.
     pub fn pass(&mut self, pipeline: &mut Pipeline) -> Result<Update, Error> {
         self.pushed_since_pass = 0;
         self.voiced_since_pass = false;
@@ -169,95 +208,98 @@ impl Streamer {
         }
 
         // 1. Nothing said and nothing pending: keep only the lead-in.
-        if self.previous.is_empty() && !self.window_has_voice() {
+        if self.previous.is_empty() && !self.has_voice(self.context, self.window.len()) {
             let kept = (LEADING_SILENCE_KEPT_S * SAMPLE_RATE as f32) as usize;
-            let dropped = self.window.len().saturating_sub(kept);
-            self.window.drain(..dropped);
-            self.window_start += dropped;
+            self.release(self.window.len().saturating_sub(kept));
+            self.context = 0;
             return Ok(Update {
                 stats,
                 ..Update::default()
             });
         }
 
-        // 2. Overflow: the full default pipeline, committed whole.
-        if window_s > MAX_WINDOW_S {
+        // 2. Overflow: the open audio through the full default pipeline, committed whole.
+        if window_s > OVERFLOW_S {
             let started = Instant::now();
-            let text = pipeline.transcribe(&self.window)?.text;
+            let text = pipeline.transcribe(self.rest())?.text;
             stats.took_s = started.elapsed().as_secs_f32();
-            stats.committed_words = text.split_whitespace().count();
-            stats.forced = true;
+            let typed = self.commit_text(&text, false);
             self.release(self.window.len());
-            stats.audio_end_s = seconds(self.window_start);
             self.previous.clear();
+            stats.committed_words = typed.split_whitespace().count();
+            stats.forced = true;
+            stats.audio_end_s = seconds(self.window_start);
             return Ok(Update {
-                typed: self.commit_text(&text, true),
+                typed,
                 provisional: String::new(),
                 stats,
             });
         }
 
-        // 3. The hypothesis; an engine without timings never agrees with itself.
+        // 3. The hypothesis; the words heard in the context are typed already.
+        // An engine without timings never agrees with itself.
         let started = Instant::now();
-        let mut hypothesis = pipeline.transcribe_timed(&self.window)?.unwrap_or_default();
+        let heard = pipeline.transcribe_timed(&self.window)?.unwrap_or_default();
         stats.took_s = started.elapsed().as_secs_f32();
-        stats.words = hypothesis.len();
+        let in_context = self.context > 0;
+        let first_open = first_after(&heard, seconds(self.context));
+        let open = &heard[first_open..];
+        stats.words = open.len();
 
         // 4. The words two passes agree on, punctuation and case included.
-        let stable = hypothesis
+        let stable = open
             .iter()
             .zip(&self.previous)
             .take_while(|(new, old)| new.text == old.text)
             .count();
         stats.stable = stable;
 
-        // 5. A sentence, stable up to its end, that speech or a long pause follows.
-        let sentence_end = (0..stable).rev().find(|&i| {
-            ends_a_sentence(&hypothesis[i].text)
-                && (i + 1 < hypothesis.len() || window_s - hypothesis[i].end_s >= COMMIT_PAUSE_S)
+        // 5. The last stable word the model has heard far enough past that
+        // makes a passage worth a paste: enough words, or the end of a phrase,
+        // or the last word before a pause.
+        let commit = (0..stable).rev().find(|&i| {
+            let heard_past = window_s - open[i].end_s;
+            let words_after = open.len() - i - 1;
+            let is_heard_past = if words_after == 0 {
+                heard_past >= COMMIT_PAUSE_S
+            } else {
+                heard_past >= LOOKAHEAD_S && words_after >= LOOKAHEAD_WORDS
+            };
+            let is_worth_a_paste = i + 1 >= MIN_COMMIT_WORDS
+                || words_after == 0
+                || open[i].text.ends_with(['.', ',', '?', '!', '…', ';', ':']);
+            is_heard_past && is_worth_a_paste
         });
-        // 5b. Else everything stable, when the speaker has stopped that long
-        // with no sentence end: the model reads it as unfinished, so what
-        // follows continues it. Without this, silence would cost a pass every
-        // PASS_EVERY_S until the run-on cut.
-        let paused_after_all = stable > 0
-            && stable == hypothesis.len()
-            && window_s - hypothesis[stable - 1].end_s >= COMMIT_PAUSE_S;
-        // 6. Else a run-on window is cut at its longest stable gap.
-        let commit = match sentence_end {
-            Some(i) => Some((i, false)),
-            None if paused_after_all => Some((stable - 1, true)),
-            None if window_s >= FORCE_COMMIT_S => {
-                longest_gap(&hypothesis, stable).map(|i| (i, true))
-            }
-            None => None,
-        };
-
-        // 7. Commit, release the audio, keep what follows as the hypothesis.
-        let Some((i, forced)) = commit else {
-            let provisional = joined(&hypothesis);
-            self.previous = hypothesis;
+        let Some(i) = commit else {
+            let provisional = joined(open);
+            self.previous = open.to_vec();
             return Ok(Update {
                 typed: String::new(),
                 provisional,
                 stats,
             });
         };
-        let cut_s = match hypothesis.get(i + 1) {
-            Some(next) => (hypothesis[i].end_s + next.start_s) / 2.0,
-            None => hypothesis[i].end_s + TAIL_KEPT_S,
-        }
-        .clamp(0.0, window_s);
-        stats.audio_end_s = seconds(self.window_start) + hypothesis[i].end_s;
-        self.release((cut_s * SAMPLE_RATE as f32) as usize);
-        let mut rest = hypothesis.split_off(i + 1);
-        for word in &mut rest {
-            word.start_s = (word.start_s - cut_s).max(0.0);
-            word.end_s = (word.end_s - cut_s).max(0.0);
-        }
-        let typed = self.commit_text(&joined(&hypothesis), forced);
+
+        // 6. Commit; the window keeps LEFT_CONTEXT_S before the boundary.
+        let gap_middle = open
+            .get(i + 1)
+            .map_or(window_s, |next| (open[i].end_s + next.start_s) / 2.0);
+        let boundary_s = (open[i].end_s + BOUNDARY_MARGIN_S)
+            .min(gap_middle)
+            .min(window_s);
+        stats.audio_end_s = seconds(self.window_start) + open[i].end_s;
         stats.committed_words = i + 1;
-        stats.forced = forced;
+        let typed = self.commit_text(&joined(&open[..=i]), in_context);
+        let start_s = context_start(&heard[..=first_open + i], boundary_s - LEFT_CONTEXT_S);
+        let start = (start_s * SAMPLE_RATE as f32) as usize;
+        let boundary = (boundary_s * SAMPLE_RATE as f32) as usize;
+        let mut rest = open[i + 1..].to_vec();
+        for word in &mut rest {
+            word.start_s = (word.start_s - start_s).max(0.0);
+            word.end_s = (word.end_s - start_s).max(0.0);
+        }
+        self.release(start);
+        self.context = boundary.saturating_sub(start).min(self.window.len());
         let provisional = joined(&rest);
         self.previous = rest;
         Ok(Update {
@@ -267,33 +309,34 @@ impl Streamer {
         })
     }
 
-    /// The text to append at the stop: the open window goes through the full
-    /// default pipeline (gates, padding, fallback, 20 s split). When it holds
-    /// nothing and the last commit was cut mid-sentence, a `.` closes it.
-    pub fn finish(self, pipeline: &mut Pipeline) -> Result<String, Error> {
-        let text = pipeline.transcribe(&self.window)?.text;
-        Ok(self.finish_with(&text))
-    }
-
-    /// The open window at the stop, for a caller that transcribes it itself
-    /// (the app, which keeps a lost clip and the engine's name) before
-    /// [`finish_with`](Streamer::finish_with).
-    pub fn rest(&self) -> &[f32] {
-        &self.window
-    }
-
-    /// [`finish`](Streamer::finish) with the rest already transcribed as `text`.
-    pub fn finish_with(mut self, text: &str) -> String {
-        let typed = self.commit_text(text, false);
-        if typed.is_empty() && self.last_commit_forced {
-            return ".".to_string();
+    /// The stop: the open audio is transcribed once more, in its context when
+    /// there is one (Parakeet with times, the context's words dropped), else,
+    /// or when that hears nothing, through the full default pipeline (gates,
+    /// padding, fallback, 20 s split).
+    pub fn finish(mut self, pipeline: &mut Pipeline) -> Result<Finish, Error> {
+        let open = self.rest().to_vec();
+        let (mut text, mut engine, mut in_context) = (String::new(), None, false);
+        if self.context > 0 && !open.is_empty() {
+            let heard = pipeline.transcribe_timed(&self.window)?.unwrap_or_default();
+            let words = &heard[first_after(&heard, seconds(self.context))..];
+            if !words.is_empty() {
+                text = joined(words);
+                engine = Some(pipeline.primary_name());
+                in_context = true;
+            }
         }
-        typed
-    }
-
-    /// Whether the open window holds a voiced frame.
-    fn window_has_voice(&self) -> bool {
-        self.has_voice(0, self.window.len())
+        if text.is_empty() {
+            let transcript = pipeline.transcribe(&open)?;
+            text = transcript.text;
+            engine = transcript.engine;
+        }
+        let is_lost = text.trim().is_empty() && Strategy::Gated.prepare(&open).is_some();
+        let typed = self.commit_text(&text, in_context);
+        Ok(Finish {
+            engine: engine.filter(|_| !typed.is_empty()),
+            typed,
+            lost: is_lost.then_some(open),
+        })
     }
 
     /// Whether `window[from..to]` holds a voiced frame.
@@ -305,13 +348,14 @@ impl Streamer {
             .is_some_and(|frames| frames.iter().any(|&voiced| voiced))
     }
 
-    /// With nothing pending, the audio before the last pause of at least
+    /// With nothing pending, the open audio before the last pause of at least
     /// [`COMMIT_PAUSE_S`] that speech follows is closed: no pass will ever
     /// agree on words in it. Without this a long pause would sit in the window
     /// and push the next sentence past [`MAX_WINDOW_S`]. Silence is released
     /// with no engine call; anything voiced (a cough, or quiet speech the timed
     /// pass heard nothing in) goes through the full default pipeline, fallback
-    /// included, as a whole dictation would. Returns the text to type.
+    /// included, as a whole dictation would. The context goes with it: what
+    /// follows a long pause is heard on its own. Returns the text to type.
     fn close_before_pause(&mut self, pipeline: &mut Pipeline) -> Result<String, Error> {
         if !self.previous.is_empty() {
             return Ok(String::new());
@@ -320,23 +364,26 @@ impl Streamer {
             return Ok(String::new());
         };
         let lead_in = (LEADING_SILENCE_KEPT_S * SAMPLE_RATE as f32) as usize;
-        let cut = pause_end.saturating_sub(lead_in).min(self.window.len());
+        let cut = pause_end
+            .saturating_sub(lead_in)
+            .clamp(self.context, self.window.len());
         if cut == 0 {
             return Ok(String::new());
         }
-        let text = if self.has_voice(0, cut) {
-            pipeline.transcribe(&self.window[..cut])?.text
+        let text = if self.has_voice(self.context, cut) {
+            pipeline.transcribe(&self.window[self.context..cut])?.text
         } else {
             String::new()
         };
         self.release(cut);
+        self.context = 0;
         Ok(self.commit_text(&text, false))
     }
 
     /// Where (window samples) the latest run of at least [`COMMIT_PAUSE_S`] of
-    /// unvoiced frames ends, when a voiced frame follows it.
+    /// unvoiced frames in the open audio ends, when a voiced frame follows it.
     fn last_pause_end(&self) -> Option<usize> {
-        let first = self.window_start.div_ceil(FRAME_SAMPLES);
+        let first = (self.window_start + self.context).div_ceil(FRAME_SAMPLES);
         let frames = self.voiced.get(first..)?;
         let min_run = (COMMIT_PAUSE_S * SAMPLE_RATE as f32) as usize / FRAME_SAMPLES;
         let (mut run, mut end) = (0, None);
@@ -353,30 +400,41 @@ impl Streamer {
         end.map(|frame| (first + frame) * FRAME_SAMPLES - self.window_start)
     }
 
-    /// Drops the first `samples` of the window: they are committed.
+    /// Drops the first `samples` of the window.
     fn release(&mut self, samples: usize) {
         let samples = samples.min(self.window.len());
         self.window.drain(..samples);
         self.window_start += samples;
+        self.context = self.context.saturating_sub(samples);
     }
 
     /// `text` as it is typed after what is committed: the first of a dictation
-    /// as is, the others after a space, and after a commit cut mid-sentence
-    /// with its first letter lowered (unless an acronym). Empty text changes nothing.
-    fn commit_text(&mut self, text: &str, forced: bool) -> String {
+    /// as is, the others after a space. After a typed `.`, `?` or `!`, its
+    /// first letter is raised: that period may come from an earlier pass than
+    /// the text, which did not hear it (« donc bon. pensez »). Heard without
+    /// context after a text that ends mid-sentence, its first letter is
+    /// lowered (unless an acronym); in context the model's own case stands (a
+    /// proper noun mid-sentence). Empty text changes nothing.
+    fn commit_text(&mut self, text: &str, in_context: bool) -> String {
         let text = text.trim();
         if text.is_empty() {
             return String::new();
         }
-        let typed = if self.committed.is_empty() {
+        let before = self.committed.trim_end();
+        let continues = !before.is_empty() && !ends_a_sentence(before);
+        let text = if ends_a_statement(before) {
+            uppercase_first(text)
+        } else if continues && !in_context {
+            lowercase_first(text)
+        } else {
             text.to_string()
-        } else if self.last_commit_forced {
-            format!(" {}", lowercase_first(text))
+        };
+        let typed = if self.committed.is_empty() {
+            text
         } else {
             format!(" {text}")
         };
         self.committed.push_str(&typed);
-        self.last_commit_forced = forced;
         typed
     }
 }
@@ -393,27 +451,53 @@ fn joined(words: &[Word]) -> String {
         .join(" ")
 }
 
-fn ends_a_sentence(word: &str) -> bool {
-    word.ends_with(['.', '?', '!', '…'])
+fn ends_a_sentence(text: &str) -> bool {
+    text.ends_with(['.', '?', '!', '…'])
 }
 
-/// The word, among the first `stable` and followed by another, after which the
-/// gap is the largest (ties: the latest).
-fn longest_gap(words: &[Word], stable: usize) -> Option<usize> {
-    (0..stable.min(words.len().saturating_sub(1)))
-        .map(|i| (i, words[i + 1].start_s - words[i].end_s))
-        .fold(None, |best: Option<(usize, f32)>, (i, gap)| match best {
-            Some((_, best_gap)) if gap < best_gap => best,
-            _ => Some((i, gap)),
-        })
-        .map(|(i, _)| i)
+/// A sentence end after which a capital follows: not an ellipsis, which in
+/// French may go on in lowercase (« sera de... pouvoir »).
+fn ends_a_statement(text: &str) -> bool {
+    text.ends_with(['.', '?', '!']) && !text.ends_with("..")
+}
+
+fn uppercase_first(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// The index of the first word whose middle is at or past `context_s`: the
+/// words before it were heard in the context, which is typed already.
+fn first_after(words: &[Word], context_s: f32) -> usize {
+    words
+        .iter()
+        .position(|word| (word.start_s + word.end_s) / 2.0 >= context_s)
+        .unwrap_or(words.len())
+}
+
+/// Where the window should start to keep about `target_s` onwards as context,
+/// in a gap between `words` (the words up to the boundary) so no word is cut:
+/// `target_s` itself when it falls in a gap, else the middle of the gap before
+/// the first word that starts after it. 0 keeps the whole window.
+fn context_start(words: &[Word], target_s: f32) -> f32 {
+    if target_s <= 0.0 {
+        return 0.0;
+    }
+    match words.iter().position(|word| word.start_s >= target_s) {
+        Some(k) if k > 0 && target_s < words[k - 1].end_s => {
+            (words[k - 1].end_s + words[k].start_s) / 2.0
+        }
+        _ => target_s,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Strategy, Transcriber};
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use crate::Transcriber;
     use std::sync::{Arc, Mutex};
 
     type Timed = Box<dyn FnMut(&[f32]) -> Vec<Word> + Send>;
@@ -509,8 +593,129 @@ mod tests {
         samples as f32 / SAMPLE_RATE as f32
     }
 
+    // --- an engine that hears the audio it is given ------------------------
+
+    /// Word `k` of a [`spoken`] dictation lasts `0.3 + 0.04 k` seconds.
+    fn word_seconds(k: usize) -> f32 {
+        0.3 + 0.04 * k as f32
+    }
+
+    /// Voiced words separated by silence; `pauses[k]` follows word `k`.
+    fn spoken(pauses: &[f32]) -> Vec<f32> {
+        let mut audio = silence(0.3);
+        for (k, pause) in pauses.iter().enumerate() {
+            audio.extend(voiced(word_seconds(k)));
+            audio.extend(silence(*pause));
+        }
+        audio
+    }
+
+    /// The voiced runs of `samples` (10 ms frames), as (start, end) seconds.
+    fn runs(samples: &[f32]) -> Vec<(f32, f32)> {
+        let frame = SAMPLE_RATE as usize / 100;
+        let mut runs = Vec::new();
+        let mut start = None;
+        for (i, chunk) in samples.chunks(frame).enumerate() {
+            let loud = chunk.iter().map(|s| s.abs()).sum::<f32>() / chunk.len() as f32 > 0.02;
+            match (loud, start) {
+                (true, None) => start = Some(i),
+                (false, Some(s)) => {
+                    runs.push((s as f32 / 100.0, i as f32 / 100.0));
+                    start = None;
+                }
+                _ => {}
+            }
+        }
+        if let Some(s) = start {
+            runs.push((
+                s as f32 / 100.0,
+                samples.len().div_ceil(frame) as f32 / 100.0,
+            ));
+        }
+        runs
+    }
+
+    /// Names each voiced run by its length (`w<k>`, see [`word_seconds`]); a
+    /// run cut by the window's start gets a wrong name, as a real engine
+    /// mishears a clipped word. A run still going at the window's end is left
+    /// out: the speaker is in the middle of it.
+    fn hear(samples: &[f32]) -> Vec<Word> {
+        let end_s = seconds_of(samples.len());
+        runs(samples)
+            .into_iter()
+            .filter(|&(_, end)| end < end_s - 0.05)
+            .map(|(start, end)| {
+                let k = ((end - start - 0.3) / 0.04).round().max(0.0) as usize;
+                word(&format!("w{k}"), start, end)
+            })
+            .collect()
+    }
+
+    fn hearing_pipeline() -> (Pipeline, Arc<Mutex<Calls>>) {
+        pipeline(
+            Box::new(hear),
+            Box::new(|samples| {
+                hear(samples)
+                    .iter()
+                    .map(|w| w.text.clone())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }),
+        )
+    }
+
+    /// Plays `audio` to a streamer 50 ms at a time with a pass whenever one is
+    /// due, then stops; returns the typed text and every update.
+    fn dictate(audio: &[f32], pipeline: &mut Pipeline) -> (String, Vec<Update>) {
+        let mut streamer = Streamer::new();
+        let mut updates = Vec::new();
+        for block in audio.chunks(800) {
+            streamer.push(block);
+            if streamer.is_pass_due() {
+                updates.push(streamer.pass(pipeline).unwrap());
+            }
+        }
+        let mut text: String = updates.iter().map(|u| u.typed.as_str()).collect();
+        text.push_str(&streamer.finish(pipeline).unwrap().typed);
+        (text, updates)
+    }
+
+    fn expected_words(count: usize) -> String {
+        (0..count)
+            .map(|k| format!("w{k}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     #[test]
-    fn a_sentence_followed_by_speech_is_committed_after_two_agreeing_passes() {
+    fn every_word_is_typed_once_in_order_with_no_call_over_twenty_seconds() {
+        // 30 words, a 1 s pause every 7 (no sentence ends: commits fall mid-speech).
+        let pauses: Vec<f32> = (0..30)
+            .map(|k| if k % 7 == 6 { 1.0 } else { 0.15 })
+            .collect();
+        let audio = spoken(&pauses);
+        let (mut pipeline, calls) = hearing_pipeline();
+        let (text, updates) = dictate(&audio, &mut pipeline);
+        assert_eq!(text, expected_words(30));
+        let commits = updates.iter().filter(|u| !u.typed.is_empty()).count();
+        assert!(
+            commits >= 5,
+            "{commits} commits: text must flow while spoken"
+        );
+        let calls = calls.lock().unwrap();
+        assert!(calls
+            .timed
+            .iter()
+            .chain(&calls.plain)
+            .all(|&n| n <= MAX_CALL));
+        // Words flow out of the window: it never grows into an overflow.
+        assert!(updates.iter().all(|u| !u.stats.forced));
+        let longest = seconds_of(*calls.timed.iter().max().unwrap());
+        assert!(longest < OVERFLOW_S, "longest window {longest} s");
+    }
+
+    #[test]
+    fn a_word_is_committed_once_two_passes_agree_and_the_model_heard_past_it() {
         let hypothesis = vec![
             word("Je", 0.2, 0.5),
             word("vais", 0.6, 0.9),
@@ -518,6 +723,8 @@ mod tests {
             word("le", 1.6, 1.8),
             word("rapport.", 1.9, 2.5),
             word("Pense", 3.0, 3.4),
+            word("à", 3.5, 3.6),
+            word("acheter", 3.7, 4.2),
         ];
         let (mut pipeline, calls) =
             pipeline(queue(vec![hypothesis.clone(), hypothesis]), no_plain());
@@ -525,71 +732,129 @@ mod tests {
 
         streamer.push(&voiced(4.0));
         let first = pass_now(&mut streamer, &mut pipeline);
-        assert_eq!(first.typed, "");
-        assert_eq!(first.stats.stable, 0);
-        assert_eq!(first.provisional, "Je vais envoyer le rapport. Pense");
+        assert_eq!((first.typed.as_str(), first.stats.stable), ("", 0));
+        assert_eq!(
+            first.provisional,
+            "Je vais envoyer le rapport. Pense à acheter"
+        );
 
+        // 4.6 s heard: « rapport. » (ends 2.5 s) is 2.1 s behind with three
+        // words after it; « Pense » (ends 3.4 s) only 1.2 s behind.
         streamer.push(&voiced(0.6));
         let second = pass_now(&mut streamer, &mut pipeline);
         assert_eq!(second.typed, "Je vais envoyer le rapport.");
-        assert_eq!(second.provisional, "Pense");
+        assert_eq!(second.provisional, "Pense à acheter");
         assert_eq!(second.stats.committed_words, 5);
-        assert!(!second.stats.forced);
-        // « rapport. » ends 2.5 s into the stream.
         assert!((second.stats.audio_end_s - 2.5).abs() < 1e-3);
         assert_eq!(streamer.committed(), "Je vais envoyer le rapport.");
 
-        // The window restarts in the middle of the gap (2.5 .. 3.0): 2.75 s are released.
+        // The boundary is just past « rapport. » (2.65 s), not the middle of
+        // the gap: speech not heard yet may sit there. The window keeps the
+        // 5 s before it, i.e. all of it: nothing is released yet.
+        assert!((seconds_of(streamer.context) - 2.65).abs() < 1e-3);
         streamer.push(&voiced(0.6));
         pass_now(&mut streamer, &mut pipeline);
         let lengths = calls.lock().unwrap().timed.clone();
-        assert_eq!(lengths[1], (4.6 * SAMPLE_RATE as f32) as usize);
-        let expected = ((4.6 + 0.6 - 2.75) * SAMPLE_RATE as f32) as usize;
-        assert!(lengths[2].abs_diff(expected) < 8, "{lengths:?}");
+        assert_eq!(lengths[2], (5.2 * SAMPLE_RATE as f32) as usize);
     }
 
     #[test]
-    fn a_provisional_final_period_is_never_committed() {
-        let short = vec![
+    fn a_provisional_period_waits_for_what_the_speaker_says_next() {
+        // « faire. » at a thinking pause, then the speaker goes on.
+        let paused = vec![
             word("on", 0.2, 0.4),
             word("pourrait", 0.5, 1.0),
             word("faire.", 1.1, 1.5),
         ];
-        let long = vec![
+        let went_on = vec![
             word("on", 0.2, 0.4),
             word("pourrait", 0.5, 1.0),
             word("faire", 1.1, 1.5),
-            word("vraiment", 1.6, 2.0),
-            word("de", 2.1, 2.2),
-            word("l'affichage.", 2.3, 3.0),
+            word("vraiment", 2.6, 3.0),
+            word("de", 3.1, 3.2),
+            word("l'affichage.", 3.3, 4.0),
         ];
+        let said = "on pourrait faire vraiment de l'affichage.";
         let (mut pipeline, _) = pipeline(
-            queue(vec![short.clone(), short, long.clone(), long]),
-            no_plain(),
+            queue(vec![paused.clone(), paused, went_on]),
+            Box::new(move |_| said.to_string()),
         );
-        let mut streamer = Streamer::new();
-        streamer.push(&voiced(1.7));
-        for _ in 0..4 {
-            let update = pass_now(&mut streamer, &mut pipeline);
-            assert_eq!(update.typed, "");
-            streamer.push(&voiced(0.6));
-        }
-        assert_eq!(streamer.committed(), "");
-    }
-
-    #[test]
-    fn a_sentence_end_followed_by_two_seconds_of_silence_is_committed() {
-        let hypothesis = vec![
-            word("Bonjour", 0.2, 0.8),
-            word("tout", 0.9, 1.1),
-            word("le", 1.2, 1.3),
-            word("monde.", 1.4, 1.5),
-        ];
-        let (mut pipeline, calls) = pipeline(queue(vec![hypothesis]), no_plain());
         let mut streamer = Streamer::new();
         streamer.push(&voiced(1.6));
         pass_now(&mut streamer, &mut pipeline);
+        // A 1.2 s pause: « faire. » agrees twice, but nothing follows it yet
+        // and the speaker has not been silent 2 s.
+        streamer.push(&silence(0.6));
+        assert_eq!(pass_now(&mut streamer, &mut pipeline).typed, "");
+        streamer.push(&silence(0.6));
+        streamer.push(&voiced(1.8));
+        let update = pass_now(&mut streamer, &mut pipeline);
+        // « faire » lost its period: it no longer agrees, and two words are
+        // too few to type on their own.
+        assert_eq!(update.typed, "");
+        assert_eq!(update.provisional, said);
+        let finish = streamer.finish(&mut pipeline).unwrap();
+        assert_eq!(finish.typed, said);
+    }
 
+    #[test]
+    fn speech_heard_only_after_a_commit_in_the_gap_is_still_typed() {
+        // The first passes hear « sans ça. » then « été … » and skip the
+        // hesitation between; a later pass hears it. It must not fall into
+        // the context.
+        let early = vec![
+            word("sans", 0.2, 0.6),
+            word("ça.", 0.7, 1.0),
+            word("été", 3.0, 3.3),
+            word("beaucoup", 3.4, 3.8),
+            word("plus", 3.9, 4.1),
+            word("compliqué.", 4.2, 4.8),
+        ];
+        let late = vec![
+            word("sans", 0.2, 0.6),
+            word("ça.", 0.7, 1.0),
+            word("Euh...", 1.6, 2.0),
+            word("ça", 2.2, 2.4),
+            word("aurait", 2.5, 2.9),
+            word("été", 3.0, 3.3),
+            word("beaucoup", 3.4, 3.8),
+            word("plus", 3.9, 4.1),
+            word("compliqué.", 4.2, 4.8),
+        ];
+        let (mut pipeline, _) = pipeline(queue(vec![early.clone(), early, late]), no_plain());
+        let mut streamer = Streamer::new();
+        streamer.push(&voiced(5.0));
+        pass_now(&mut streamer, &mut pipeline);
+        streamer.push(&voiced(0.6));
+        assert_eq!(pass_now(&mut streamer, &mut pipeline).typed, "sans ça.");
+        streamer.push(&voiced(0.6));
+        pass_now(&mut streamer, &mut pipeline);
+        let committed = streamer.committed().to_string();
+        let finish = streamer.finish(&mut pipeline).unwrap();
+        assert_eq!(
+            format!("{committed}{}", finish.typed),
+            "sans ça. Euh... ça aurait été beaucoup plus compliqué."
+        );
+    }
+
+    #[test]
+    fn the_words_heard_in_the_context_are_never_typed_twice() {
+        let (mut pipeline, _) = hearing_pipeline();
+        // Four words, a pause, four more: later windows start in the context
+        // of the first words.
+        let audio = spoken(&[0.15, 0.15, 0.15, 1.2, 0.15, 0.15, 0.15, 2.5]);
+        let (text, updates) = dictate(&audio, &mut pipeline);
+        assert_eq!(text, expected_words(8));
+        assert!(updates.iter().filter(|u| !u.typed.is_empty()).count() >= 2);
+    }
+
+    #[test]
+    fn the_last_word_is_committed_after_two_seconds_of_silence() {
+        let hypothesis = vec![word("Bonjour", 0.2, 1.1)];
+        let (mut pipeline, calls) = pipeline(queue(vec![hypothesis]), no_plain());
+        let mut streamer = Streamer::new();
+        streamer.push(&voiced(1.2));
+        pass_now(&mut streamer, &mut pipeline);
         let mut typed = String::new();
         let mut silent_s = 0.0;
         while typed.is_empty() {
@@ -598,10 +863,9 @@ mod tests {
             typed = pass_now(&mut streamer, &mut pipeline).typed;
             assert!(silent_s < 5.0, "never committed");
         }
-        // The sentence ends at 1.5 s; the window is 1.6 s of speech plus the silence.
-        assert!(1.6 + silent_s - 1.5 >= COMMIT_PAUSE_S);
-        assert!(1.6 + silent_s - 0.6 - 1.5 < COMMIT_PAUSE_S);
-        assert_eq!(typed, "Bonjour tout le monde.");
+        assert!(1.2 + silent_s - 1.1 >= COMMIT_PAUSE_S);
+        assert!(1.2 + silent_s - 0.6 - 1.1 < COMMIT_PAUSE_S);
+        assert_eq!(typed, "Bonjour");
 
         // Silence after everything is committed makes no engine call.
         let before = calls.lock().unwrap().timed.len();
@@ -609,149 +873,58 @@ mod tests {
             streamer.push(&silence(0.1));
             assert!(!streamer.is_pass_due());
         }
-        streamer.pass(&mut pipeline).unwrap();
-        let calls = calls.lock().unwrap();
-        assert_eq!(calls.timed.len(), before);
-        assert!(calls.plain.is_empty());
-        // Only the lead-in is kept.
-        assert!(seconds_of(streamer.window.len()) <= LEADING_SILENCE_KEPT_S + 1e-3);
-    }
-
-    /// Words of a run-on dictation at absolute times: 0.5 s apart, a 0.5 s gap
-    /// after the twentieth. `Suite` is the twenty-first.
-    fn run_on_words() -> Vec<Word> {
-        (0..60)
-            .map(|n| {
-                let start = 0.5 * n as f32 + if n >= 20 { 0.4 } else { 0.0 };
-                let text = match n {
-                    20 => "Suite".to_string(),
-                    _ => format!("m{n}"),
-                };
-                word(&text, start, start + 0.4)
-            })
-            .collect()
-    }
-
-    /// The run-on words inside the window, with window times; only those
-    /// finished `margin_s` before the end of what was pushed.
-    fn in_window(window_len: usize, pushed: &AtomicUsize, margin_s: f32) -> Vec<Word> {
-        let pushed = seconds_of(pushed.load(Ordering::SeqCst));
-        let offset = pushed - seconds_of(window_len);
-        run_on_words()
-            .into_iter()
-            .filter(|w| w.start_s >= offset - 1e-3 && w.end_s <= pushed - margin_s)
-            .map(|w| word(&w.text, w.start_s - offset, w.end_s - offset))
-            .collect()
-    }
-
-    /// Streams `seconds` of speech in 0.6 s blocks, passing as the app does.
-    /// `plain_answers`: whether the full pipeline hears the words or nothing.
-    fn run_on(
-        seconds: f32,
-        plain_answers: bool,
-    ) -> (Streamer, Pipeline, Arc<Mutex<Calls>>, Vec<Update>) {
-        let pushed = Arc::new(AtomicUsize::new(0));
-        let (for_timed, for_plain) = (pushed.clone(), pushed.clone());
-        let (mut pipeline, calls) = pipeline(
-            Box::new(move |window| in_window(window.len(), &for_timed, 0.2)),
-            Box::new(move |window| {
-                if plain_answers {
-                    let words = in_window(window.len(), &for_plain, 0.0);
-                    joined(&words)
-                } else {
-                    String::new()
-                }
-            }),
-        );
-        let mut streamer = Streamer::new();
-        let mut updates = Vec::new();
-        let blocks = (seconds / 0.6) as usize;
-        for _ in 0..blocks {
-            let block = voiced(0.6);
-            pushed.fetch_add(block.len(), Ordering::SeqCst);
-            streamer.push(&block);
-            if streamer.is_pass_due() {
-                updates.push(streamer.pass(&mut pipeline).unwrap());
-            }
-        }
-        // What is left of `seconds`, too short for a pass.
-        let rest = voiced(seconds - blocks as f32 * 0.6);
-        pushed.fetch_add(rest.len(), Ordering::SeqCst);
-        streamer.push(&rest);
-        (streamer, pipeline, calls, updates)
+        assert_eq!(calls.lock().unwrap().timed.len(), before);
     }
 
     #[test]
-    fn run_on_speech_is_committed_by_fifteen_seconds_at_the_longest_gap() {
-        let (streamer, mut pipeline, calls, updates) = run_on(25.0, true);
-        let commits: Vec<&Update> = updates.iter().filter(|u| !u.typed.is_empty()).collect();
-        assert_eq!(commits.len(), 1, "one forced commit");
-        let commit = commits[0];
-        assert!(commit.stats.forced);
-        assert!(commit.stats.window_s >= FORCE_COMMIT_S);
-        assert!(commit.stats.window_s < FORCE_COMMIT_S + PASS_EVERY_S + 0.1);
-        // Cut after m19, before the 0.5 s gap: the longest.
-        let head: Vec<String> = (0..20).map(|n| format!("m{n}")).collect();
-        assert_eq!(commit.typed, head.join(" "));
-
-        // The next text continues the sentence: lowered first letter.
-        let committed = streamer.committed().to_string();
-        let rest = streamer.finish(&mut pipeline).unwrap();
-        assert!(rest.starts_with(" suite m21 "), "{rest}");
-        // Every word once, in order, up to where the speech ends.
-        let mut expected: Vec<String> = run_on_words()
-            .into_iter()
-            .filter(|w| w.end_s <= 25.0)
-            .map(|w| w.text)
-            .collect();
-        expected[20] = "suite".to_string();
-        assert_eq!(format!("{committed}{rest}"), expected.join(" "));
-
-        let calls = calls.lock().unwrap();
-        assert!(calls.timed.iter().all(|&len| len <= MAX_CALL));
-        assert!(calls.plain.iter().all(|&len| len <= MAX_CALL));
-    }
-
-    #[test]
-    fn finish_closes_a_forced_commit_with_a_period_when_nothing_follows() {
-        let (streamer, mut pipeline, _, updates) = run_on(16.5, false);
-        assert!(updates.iter().any(|u| u.stats.forced));
-        assert!(!streamer.committed().is_empty());
-        assert_eq!(streamer.finish(&mut pipeline).unwrap(), ".");
-    }
-
-    #[test]
-    fn an_acronym_keeps_its_capitals_after_a_forced_commit() {
+    fn heard_without_context_after_a_text_left_open_continues_it() {
         let mut streamer = Streamer::new();
         assert_eq!(
-            streamer.commit_text("On pousse sur la", true),
-            "On pousse sur la"
+            streamer.commit_text("Il y a des tickets", true),
+            "Il y a des tickets"
         );
-        assert_eq!(streamer.commit_text("API demain.", false), " API demain.");
-        assert_eq!(streamer.commit_text("Merci.", false), " Merci.");
-        let mut streamer = Streamer::new();
-        streamer.commit_text("On pousse sur la", true);
-        assert_eq!(streamer.commit_text("Dernière", false), " dernière");
-        assert_eq!(streamer.committed(), "On pousse sur la dernière");
+        assert_eq!(
+            streamer.commit_text("Qui se baladent.", false),
+            " qui se baladent."
+        );
+        assert_eq!(streamer.commit_text("Ensuite", false), " Ensuite");
+        // In context the model's capitals stand (a proper noun mid-sentence).
+        assert_eq!(streamer.commit_text("Pierre", true), " Pierre");
+        assert_eq!(streamer.commit_text("API demain", false), " API demain");
+        // After a typed period a capital follows, whoever heard the period;
+        // after an ellipsis the model's case stands.
+        assert_eq!(streamer.commit_text("donc bon.", true), " donc bon.");
+        assert_eq!(streamer.commit_text("pensez-y", true), " Pensez-y");
+        assert_eq!(streamer.commit_text("sera de...", true), " sera de...");
+        assert_eq!(streamer.commit_text("pouvoir", true), " pouvoir");
     }
 
     #[test]
     fn an_overflowing_window_is_committed_whole_through_the_pipeline() {
+        // An engine that never hears a timed word: only the overflow commits.
         let (mut pipeline, calls) = pipeline(
-            Box::new(|_| panic!("the timed call must not receive an overflowing window")),
-            Box::new(|_| "alpha beta".to_string()),
+            Box::new(|_| Vec::new()),
+            Box::new(|_| "tout un bloc".to_string()),
         );
         let mut streamer = Streamer::new();
-        streamer.push(&voiced(25.0));
-        let update = pass_now(&mut streamer, &mut pipeline);
-        assert!(update.stats.forced);
-        assert_eq!(update.typed, "alpha beta alpha beta");
-        assert_eq!(update.stats.committed_words, 4);
-        assert_eq!(streamer.window.len(), 0);
+        let mut typed = String::new();
+        for _ in 0..42 {
+            streamer.push(&voiced(0.5));
+            if streamer.is_pass_due() {
+                let update = streamer.pass(&mut pipeline).unwrap();
+                if !update.typed.is_empty() {
+                    assert!(update.stats.forced);
+                    typed.push_str(&update.typed);
+                }
+            }
+        }
+        assert_eq!(typed, "tout un bloc");
         let calls = calls.lock().unwrap();
-        assert!(calls.timed.is_empty());
-        assert!(!calls.plain.is_empty());
-        assert!(calls.plain.iter().all(|&len| len <= MAX_CALL));
+        assert!(calls
+            .timed
+            .iter()
+            .chain(&calls.plain)
+            .all(|&n| n <= MAX_CALL));
     }
 
     #[test]
@@ -762,45 +935,9 @@ mod tests {
             streamer.push(&silence(0.5));
             assert!(!streamer.is_pass_due());
         }
-        assert_eq!(streamer.finish(&mut pipeline).unwrap(), "");
-        let calls = calls.lock().unwrap();
-        assert!(calls.timed.is_empty() && calls.plain.is_empty());
-    }
-
-    #[test]
-    fn finish_joins_with_a_space_after_a_sentence_commit() {
-        let hypothesis = vec![word("Bonjour.", 0.2, 0.9), word("Ça", 1.2, 1.4)];
-        let (mut pipeline, _) = pipeline(
-            queue(vec![hypothesis.clone(), hypothesis]),
-            Box::new(|_| "Ça va ?".to_string()),
-        );
-        let mut streamer = Streamer::new();
-        streamer.push(&voiced(1.6));
-        pass_now(&mut streamer, &mut pipeline);
-        streamer.push(&voiced(0.6));
-        let update = pass_now(&mut streamer, &mut pipeline);
-        assert_eq!(update.typed, "Bonjour.");
-        assert_eq!(streamer.finish(&mut pipeline).unwrap(), " Ça va ?");
-    }
-
-    #[test]
-    fn an_engine_without_timings_only_commits_by_overflow() {
-        struct Untimed;
-        impl Transcriber for Untimed {
-            fn name(&self) -> &'static str {
-                "untimed"
-            }
-            fn transcribe(&mut self, _: &[f32]) -> Result<String, Error> {
-                Ok("mot".to_string())
-            }
-        }
-        let mut pipeline = Pipeline::new(Box::new(Untimed), None, Strategy::Padded);
-        let mut streamer = Streamer::new();
-        streamer.push(&voiced(3.0));
-        let update = pass_now(&mut streamer, &mut pipeline);
-        assert_eq!(update.typed, "");
-        assert_eq!(update.stats.words, 0);
-        assert_eq!(streamer.finish(&mut pipeline).unwrap(), "mot");
+        let finish = streamer.finish(&mut pipeline).unwrap();
+        assert_eq!(finish, Finish::default());
+        assert!(calls.lock().unwrap().timed.is_empty());
     }
 
     /// Commits « Bonjour. » with a 2 s pause, as the user stops talking.
@@ -838,10 +975,9 @@ mod tests {
         let update = pass_now(&mut streamer, &mut pipeline);
         assert_eq!(update.typed, "");
         assert_eq!(update.provisional, "Ensuite");
-        assert!(!update.stats.forced);
         let calls = calls.lock().unwrap();
-        // The pause was released with no engine call: the timed pass saw the
-        // lead-in and the new speech only, and the full pipeline never ran.
+        // The pause and the context were released with no engine call: the
+        // timed pass heard the lead-in and the new speech only.
         let last = seconds_of(*calls.timed.last().unwrap());
         assert!(last <= LEADING_SILENCE_KEPT_S + 1.0 + 0.1, "{last} s");
         assert!(calls.plain.is_empty());
@@ -889,39 +1025,73 @@ mod tests {
     }
 
     #[test]
-    fn stable_words_with_no_sentence_end_are_committed_after_a_long_pause() {
-        let hypothesis = vec![word("ok", 0.2, 0.5), word("alors", 0.6, 1.0)];
-        let (mut pipeline, calls) = pipeline(queue(vec![hypothesis]), no_plain());
+    fn the_stop_hears_the_open_audio_in_its_context() {
+        let (mut pipeline, calls) = hearing_pipeline();
         let mut streamer = Streamer::new();
-        streamer.push(&voiced(1.2));
-        pass_now(&mut streamer, &mut pipeline);
-        let mut update = Update::default();
-        while update.typed.is_empty() {
-            streamer.push(&silence(0.6));
-            update = pass_now(&mut streamer, &mut pipeline);
+        // Words committed while spoken, then two still open at the stop.
+        let audio = spoken(&[0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.3]);
+        for block in audio.chunks(800) {
+            streamer.push(block);
+            if streamer.is_pass_due() {
+                streamer.pass(&mut pipeline).unwrap();
+            }
         }
-        assert_eq!(update.typed, "ok alors");
-        assert!(update.stats.forced);
-        // Then the silence costs nothing, and what follows continues the sentence.
-        let before = calls.lock().unwrap().timed.len();
-        for _ in 0..20 {
-            streamer.push(&silence(0.5));
-            assert!(!streamer.is_pass_due());
-        }
-        assert_eq!(calls.lock().unwrap().timed.len(), before);
-        assert_eq!(streamer.finish_with("On y va."), " on y va.");
+        let committed = streamer.committed().to_string();
+        assert!(!committed.is_empty() && streamer.context > 0);
+        let plain_before = calls.lock().unwrap().plain.len();
+        let finish = streamer.finish(&mut pipeline).unwrap();
+        assert_eq!(format!("{committed}{}", finish.typed), expected_words(7));
+        assert_eq!(finish.engine, Some("fake"));
+        assert_eq!(finish.lost, None);
+        // Heard in context: no call of the full pipeline.
+        assert_eq!(calls.lock().unwrap().plain.len(), plain_before);
     }
 
     #[test]
-    fn rest_and_finish_with_match_finish() {
-        let (mut pipeline, _) = pipeline(
-            queue(vec![vec![word("Bonjour.", 0.2, 0.9)]]),
-            Box::new(|_| "Ça va ?".to_string()),
-        );
-        let mut streamer = after_a_committed_sentence(&mut pipeline);
-        streamer.push(&voiced(1.0));
-        let rest = streamer.rest().to_vec();
-        let text = pipeline.transcribe(&rest).unwrap().text;
-        assert_eq!(streamer.finish_with(&text), " Ça va ?");
+    fn a_stop_that_hears_no_word_in_speech_reports_the_audio_lost() {
+        let (mut pipeline, _) = pipeline(Box::new(|_| Vec::new()), no_plain());
+        let mut streamer = Streamer::new();
+        streamer.push(&voiced(1.5));
+        let finish = streamer.finish(&mut pipeline).unwrap();
+        assert_eq!(finish.typed, "");
+        assert_eq!(finish.engine, None);
+        assert_eq!(finish.lost.map(|clip| clip.len()), Some(24_000));
+    }
+
+    #[test]
+    fn an_engine_without_timings_only_commits_by_overflow() {
+        struct Untimed;
+        impl Transcriber for Untimed {
+            fn name(&self) -> &'static str {
+                "untimed"
+            }
+            fn transcribe(&mut self, _: &[f32]) -> Result<String, Error> {
+                Ok("mot".to_string())
+            }
+        }
+        let mut pipeline = Pipeline::new(Box::new(Untimed), None, Strategy::Padded);
+        let mut streamer = Streamer::new();
+        streamer.push(&voiced(3.0));
+        let update = pass_now(&mut streamer, &mut pipeline);
+        assert_eq!(update.typed, "");
+        assert_eq!(update.stats.words, 0);
+        assert_eq!(streamer.finish(&mut pipeline).unwrap().typed, "mot");
+    }
+
+    #[test]
+    fn the_context_starts_in_a_gap() {
+        let words = [
+            word("a", 0.0, 1.0),
+            word("b", 1.4, 2.0),
+            word("c", 2.2, 3.0),
+        ];
+        // In the gap a–b: as asked.
+        assert_eq!(context_start(&words, 1.2), 1.2);
+        // Inside « b »: the gap before « c ».
+        assert_eq!(context_start(&words, 1.7), 2.1);
+        // Before the window: keep it all.
+        assert_eq!(context_start(&words, -0.5), 0.0);
+        assert_eq!(first_after(&words, 1.6), 1);
+        assert_eq!(first_after(&words, 5.0), 3);
     }
 }

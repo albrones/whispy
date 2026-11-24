@@ -33,43 +33,39 @@ pub trait Transcriber: Send {
 ### Rolling re-transcription (`whispy-core/src/stream.rs`)
 
 ```rust
-pub struct Streamer { /* open window audio, previous hypothesis, join state, timings */ }
-pub struct Update {
-    /// Text to append to the field now, already joined (leading space included); empty most passes.
-    pub typed: String,
-    /// The hypothesis after the committed text, words joined by spaces.
-    pub provisional: String,
-    pub stats: PassStats, // window_s, took_s, words, stable, committed words, forced: bool — counts only
-}
+pub struct Streamer { /* window = left context + open audio, previous hypothesis, timings */ }
+pub struct Update { pub typed: String, pub provisional: String, pub stats: PassStats } // stats: counts only
+pub struct Finish { pub typed: String, pub engine: Option<&'static str>, pub lost: Option<Vec<f32>> }
 impl Streamer {
     pub fn new() -> Self;
-    pub fn push(&mut self, samples: &[f32]);        // 16 kHz mono, as the microphone gives it
+    pub fn push(&mut self, samples: &[f32]);   // 16 kHz mono, as the microphone gives it
     pub fn is_pass_due(&self) -> bool;
     pub fn pass(&mut self, pipeline: &mut Pipeline) -> Result<Update, Error>;
-    pub fn finish(self, pipeline: &mut Pipeline) -> Result<String, Error>; // text to append at the stop
-    pub fn committed(&self) -> &str;                // everything typed so far
+    pub fn finish(self, pipeline: &mut Pipeline) -> Result<Finish, Error>;
+    pub fn rest(&self) -> &[f32];              // the open audio
+    pub fn committed(&self) -> &str;
 }
 ```
 
-Constants (tunable from the bench): `PASS_EVERY_S = 0.6`, `COMMIT_PAUSE_S = 2.0`, `FORCE_COMMIT_S = 15.0`, `MAX_WINDOW_S = 20.0` (= `split::MAX_PIECE_S`), `LEADING_SILENCE_KEPT_S = 0.5`.
+Constants (tuned on the bench): `PASS_EVERY_S = 0.6`, `LOOKAHEAD_S = 1.5`, `LOOKAHEAD_WORDS = 3`, `MIN_COMMIT_WORDS = 4`, `COMMIT_PAUSE_S = 2.0`, `LEFT_CONTEXT_S = 5.0`, `BOUNDARY_MARGIN_S = 0.15`, `MAX_WINDOW_S = 20.0` (= `split::MAX_PIECE_S`; the overflow fires two passes before it), `LEADING_SILENCE_KEPT_S = 0.5`.
+
+**Revised after the first bench run (2026-11-24).** The first version committed whole sentences once two passes agreed on their final period with one word of speech after it, cut run-ons at 15 s, and restarted every window cold at the cut. On the reference clips it matched one block; on the user's 11 labelled dictations it did worse than the pieces (WER 16.3 % vs 15.0 %, 9 extra sentence ends vs 1, commit delay p95 16 s). The rule below gives, on the same clips: WER 14.5 % (one block 14.0 %, pieces 15.0 %), no extra sentence end (pieces 1), commit delay median 1.9 s / p95 3.7 s, stop p95 0.6 s, pass cost 0.36, 111 pastes (a per-word version without batching made 277). Read side by side, the extra periods came from deciding with too little right context (« comportement. Déjà » where one block has « comportement, déjà ») and the misheard words from cold restarts after a cut (« ça aurait ‖ c'était ‖ beaucoup »). The commit rule is now per word, with right context and left context:
 
 `is_pass_due`: at least `PASS_EVERY_S` of audio pushed since the last pass, and either some of it is voiced (WebRTC VAD, one `VoiceDetector` kept across pushes) or the last hypothesis is not empty. Silence after everything is committed costs nothing.
 
-`pass`, with W the open window and P the previous hypothesis (times relative to W's start):
+`pass`, with W the window (left context C, then the open audio) and P the previous open hypothesis (times relative to W's start):
 
-0. If P is empty and W holds a run of at least `COMMIT_PAUSE_S` unvoiced frames followed by speech, the audio up to `LEADING_SILENCE_KEPT_S` before that speech is closed: released with no engine call when it holds no voiced frame, else transcribed by the full default pipeline (fallback included: quiet speech the timed pass heard nothing in) and committed. A long thinking pause therefore never pushes the next sentence past `MAX_WINDOW_S`.
-1. If W holds no voiced frame and P is empty, keep only its last `LEADING_SILENCE_KEPT_S` and return (no engine call).
-2. If W is longer than `MAX_WINDOW_S`: **overflow commit**. Run `Pipeline::transcribe(W)` (the full default pipeline, fallback included), commit its whole text as a forced commit, clear W and P.
-3. H = `pipeline.transcribe_timed(W)`; `None` (no timings) is treated as no stable words, so only the overflow commit can apply.
-4. `stable` = the length of the longest common prefix of H and P, comparing word texts exactly (punctuation and case included).
-5. Sentence commit: the largest `i < stable` whose text ends with `.`, `?`, `!` or `…`, and either `i + 1 < H.len()` (speech follows) or `W_s - H[i].end_s ≥ COMMIT_PAUSE_S`. A thinking pause shorter than 2 s therefore never commits a sentence end: the period stays provisional until the speaker goes on and the model, seeing the continuation, keeps or drops it.
-5b. Else, if every word of H is stable and `COMMIT_PAUSE_S` of silence follow the last one, all of H is committed as a forced (mid-sentence) commit: the model reads it as unfinished, and without this the silence would cost a pass every `PASS_EVERY_S`.
-6. Else, if `W_s ≥ FORCE_COMMIT_S`: forced commit at the `i < stable` with `i + 1 < H.len()` whose gap `H[i+1].start_s - H[i].end_s` is the largest (ties: the latest).
-7. On a commit at `i`: typed = join(H[0..=i]); the cut is the middle of the gap to `H[i+1]` when it exists, else `H[i].end_s + 0.3 s` (capped at W's end); the audio before the cut is released; P = H[i+1..] shifted by the cut. Without a commit, P = H.
+0. If P is empty and the open audio holds a run of at least `COMMIT_PAUSE_S` unvoiced frames followed by speech, the open audio up to `LEADING_SILENCE_KEPT_S` before that speech is closed: released with no engine call when it holds no voiced frame, else transcribed by the full default pipeline (fallback included: quiet speech the timed pass heard nothing in) and committed. The context goes too: what follows a long pause is heard on its own. A long thinking pause never pushes the next sentence into an overflow.
+1. If the open audio holds no voiced frame and P is empty, keep only the last `LEADING_SILENCE_KEPT_S` (no engine call).
+2. Overflow: past `MAX_WINDOW_S − 2 × PASS_EVERY_S`, the open audio goes through `Pipeline::transcribe` (fallback included) and is committed whole; W and P are cleared.
+3. H = `pipeline.transcribe_timed(W)`; the words whose middle falls in C are dropped (typed already). `None` (no timings) is no stable word, so only the overflow commits.
+4. `stable` = the longest common prefix of H and P, word texts compared exactly (punctuation and case included).
+5. Commit: the largest `i < stable` that the model has heard far enough past — `W_s − H[i].end_s ≥ LOOKAHEAD_S` and at least `LOOKAHEAD_WORDS` words after it in H, or `≥ COMMIT_PAUSE_S` of audio when it is the last word — and that is worth a paste: at least `MIN_COMMIT_WORDS` words, or ending on punctuation, or the last word. A period at a thinking pause stays provisional until the model has heard three words past it (a pause fills the seconds, not the words), or 2 s of silence.
+6. On a commit at `i`: typed = join(H[0..=i]); the boundary is `H[i].end_s + BOUNDARY_MARGIN_S` (capped at the middle of the gap to `H[i+1]`), not the middle of the gap: speech the pass has not transcribed yet may sit in that gap and must stay open (the bench lost « Euh... ça aurait » between « ça. » and « été » that way). The window then starts about `LEFT_CONTEXT_S` before the boundary, in a gap between words (`context_start`), and C = start..boundary. P = H[i+1..] shifted to the new start.
 
-Joining: the first commit of a dictation is typed as is; each next one is preceded by a space; after a forced (mid-sentence) commit, the next text's first letter is lowered unless its first word is an acronym (`join::lowercase_first`, made `pub(crate)`).
+Joining: each commit after the first is preceded by a space. After a typed `.`, `?` or `!` (not an ellipsis) the next text starts with a capital: that period may come from an earlier pass than the text, which did not hear it (« donc bon. pensez »). A text heard without context (after an overflow or a long pause) that follows a committed text ending mid-sentence has its first letter lowered unless its first word is an acronym (`join::lowercase_first`); in context, the model's own case stands (a proper noun mid-sentence keeps its capital).
 
-`finish`: the open window goes through `Pipeline::transcribe` (gates, padding, fallback, 20 s split), joined by the same rule; if it is empty and the last commit was forced, a `.` closes the dictation. The app uses `rest()` then `finish_with(text)` instead, so it keeps its own lost-clip and engine bookkeeping on the rest.
+`finish`: when there is a context, the window goes through `transcribe_timed` once more and the open words are typed (heard in context); otherwise, or when that hears nothing, the open audio goes through `Pipeline::transcribe` (gates, padding, fallback, 20 s split). `Finish::lost` carries the open audio when the gates call it speech and no text came back, for the app's lost clips.
 
 ### App wiring (`whispy2`)
 

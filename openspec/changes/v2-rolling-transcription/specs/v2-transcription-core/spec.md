@@ -9,24 +9,24 @@ Parakeet SHALL return, on request, the words of its transcript with their start 
 
 _Tier: unit when the model is on the Mac — `whispy-core` `parakeet`._
 
-### Requirement: A dictation typed while spoken is committed sentence by sentence
-While a dictation is typed while spoken, V2 SHALL re-transcribe the open window (the audio since the last commit) with timings at least every 0.6 s of new audio when it holds speech, and SHALL commit text only where two consecutive passes agree word for word. A sentence SHALL be committed when it is stable up to its final `.`, `?`, `!` or `…` and either more words follow it or 2 s of silence do; its audio SHALL then be released at the middle of the gap after its last word. A window reaching 15 s without a committable sentence SHALL be committed at its longest stable pause, and the next text SHALL continue that sentence (first letter lowered unless an acronym). No engine call SHALL receive more than 20 s: past it, the window SHALL go through the full default pipeline and be committed whole. At the stop, the open window SHALL go through the full default pipeline. Every committed text and the stop's text joined in order SHALL be the dictation's text, each audio sample transcribed into exactly one committed text. Each pass SHALL log its counts (window length, pass time, words, stable words, committed words, forced or not) and no dictated text.
+### Requirement: A dictation typed while spoken is committed word by word, in context
+While a dictation is typed while spoken, V2 SHALL re-transcribe its window, about 3 s already typed (starting in a gap between words) followed by the audio not yet typed, with timings at least every 0.6 s of new audio when it holds speech, and SHALL drop the words heard in the typed part. It SHALL commit a word only where two consecutive passes agree word for word up to it, and only once the model has heard 1.5 s of audio past it with more words following, or 2 s of silence when none follows. After a pause of 2 s or more with nothing pending, the audio before it SHALL be closed (silence with no engine call; any voiced sound through the full default pipeline, fallback included) and what follows heard without the typed context. No engine call SHALL receive more than 20 s: before that, the untyped audio SHALL go through the full default pipeline and be committed whole. At the stop, the untyped audio SHALL be transcribed once more in its context, or through the full default pipeline when there is no context or that hears nothing. Every committed text and the stop's text joined in order SHALL be the dictation's text, each word typed exactly once. Each pass SHALL log its counts (window length, pass time, words, stable words, committed words, overflow or not) and no dictated text.
 
-#### Scenario: A sentence followed by speech is committed
-- **WHEN** two passes agree on « Je vais envoyer le rapport. Pense » and the audio goes on
-- **THEN** « Je vais envoyer le rapport. » SHALL be committed and the window SHALL start in the gap before « Pense »
+#### Scenario: A word heard far enough past is committed
+- **WHEN** two passes agree on « Je vais envoyer le rapport. Pense » and the model has heard 2.1 s past « rapport. » but only 1.2 s past « Pense »
+- **THEN** « Je vais envoyer le rapport. » SHALL be committed, « Pense » SHALL stay provisional, and the next window SHALL keep the typed audio before it as context
 
 _Tier: unit — `whispy-core` `stream`, with a scripted timed engine._
 
 #### Scenario: A provisional period is not committed
-- **WHEN** a pass ends with « on pourrait faire. » and the next pass, after more speech, reads « on pourrait faire vraiment de l'affichage. »
-- **THEN** nothing up to « faire » SHALL have been committed with a period
+- **WHEN** a pass ends with « on pourrait faire. » at a 1.2 s pause and the next pass, after more speech, reads « on pourrait faire vraiment de l'affichage. »
+- **THEN** « faire. » SHALL never be committed with its period
 
 _Tier: unit — `whispy-core` `stream`._
 
-#### Scenario: A run-on window is bounded
-- **WHEN** 25 s of speech arrive without a sentence end
-- **THEN** a forced commit SHALL happen by 15 s at the longest stable pause, no engine call SHALL receive more than 20 s, and the joined text SHALL hold every word once
+#### Scenario: Every word once, in order
+- **WHEN** a 30-word dictation with pauses is streamed 50 ms at a time to an engine that hears the audio it is given
+- **THEN** the typed text SHALL be the 30 words once each in order, typed in at least five commits while spoken, and no engine call SHALL receive more than 20 s
 
 _Tier: unit — `whispy-core` `stream`._
 

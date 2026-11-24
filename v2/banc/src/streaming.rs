@@ -23,7 +23,7 @@
 //!
 //! Criteria (exit 1 when one fails), per group: 1. rolling WER ≤ block WER + 1
 //! point; 2. rolling WER ≤ pieces WER; 3. rolling has fewer extra sentence ends
-//! than pieces (none if pieces has none). Overall: 4. commit delay p95 ≤ 3 s,
+//! than pieces (none if pieces has none). Overall: 4. commit delay p95 ≤ 4 s,
 //! stop latency p95 ≤ 1 s, mean pass cost ≤ 0.5; 5. in a fresh process, a 180 s
 //! dictation through the rolling streamer peaks ≤ 1.5 GB.
 
@@ -61,7 +61,11 @@ const DICTATION_SECONDS: f32 = 180.0;
 const MEMORY_TARGET_BYTES: u64 = 1_500_000_000;
 const LABELLED_MIN_S: f32 = 8.0;
 const WER_MARGIN: f64 = 0.01;
-const COMMIT_DELAY_P95_S: f64 = 3.0;
+/// 3 s at first; raised to 4 s (2026-11-24) once a word needed three words
+/// heard after it and passages of four words per paste: those cost about a
+/// second at p95 (median 1.9 s) and removed every extra period the bench saw.
+/// The pill shows the words live meanwhile.
+const COMMIT_DELAY_P95_S: f64 = 4.0;
 const STOP_LATENCY_P95_S: f64 = 1.0;
 const PASS_COST_MAX: f64 = 0.5;
 
@@ -153,7 +157,7 @@ impl Worker for Real<'_> {
     }
     fn finish(self) -> Result<(String, f64), Error> {
         let started = Instant::now();
-        let text = self.streamer.finish(self.pipeline)?;
+        let text = self.streamer.finish(self.pipeline)?.typed;
         Ok((text, started.elapsed().as_secs_f64()))
     }
 }
@@ -161,6 +165,9 @@ impl Worker for Real<'_> {
 #[derive(Debug, Default, PartialEq)]
 struct Rolling {
     text: String,
+    /// Each commit's text, then the stop's, in typing order (for a local
+    /// `WHISPY_BANC_SHOW_LOST_TEXT=1` run only: never printed otherwise).
+    typed: Vec<String>,
     /// Per commit: typing time minus the committed audio's end, seconds.
     commit_delays: Vec<f64>,
     /// The delays of the commits cut mid-sentence (also in `commit_delays`).
@@ -192,6 +199,7 @@ fn simulate<W: Worker>(mut worker: W, samples: &[f32]) -> Result<Rolling, Error>
             run.forced += usize::from(update.stats.forced);
             if !update.typed.is_empty() {
                 run.text.push_str(&update.typed);
+                run.typed.push(update.typed.clone());
                 let delay = t + d - update.stats.audio_end_s as f64;
                 run.commit_delays.push(delay);
                 run.commit_windows.push(update.stats.window_s as f64);
@@ -203,6 +211,7 @@ fn simulate<W: Worker>(mut worker: W, samples: &[f32]) -> Result<Rolling, Error>
     }
     let (text, d_finish) = worker.finish()?;
     run.text.push_str(&text);
+    run.typed.push(text);
     run.stop_latency = f64::max(t, busy_until) - t + d_finish;
     run.audio_s = t;
     Ok(run)
@@ -296,6 +305,12 @@ fn run_clip(pipeline: &mut Pipeline, clip: &Clip) -> Result<ClipResult, String> 
         &clip.samples,
     )
     .map_err(to_string)?;
+    // The user's voice: texts only on request, in a local run (as `banc`'s lost clips).
+    if std::env::var_os("WHISPY_BANC_SHOW_LOST_TEXT").is_some() {
+        println!("  block:   {block}");
+        println!("  pieces:  {pieces}");
+        println!("  rolling: {}", run.typed.join(" ‖"));
+    }
     Ok(ClipResult {
         id: clip.id.clone(),
         audio_s: audio::seconds(&clip.samples) as f64,
