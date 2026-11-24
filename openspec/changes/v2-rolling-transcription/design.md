@@ -87,6 +87,8 @@ The first non-empty caption widens the pill from 168 to `CAPTION_PILL_WIDTH` = 5
 
 ## Risks / Trade-offs
 
+- Last words cut at a quick stop (reported once in manual testing, not reproduced). Two remedies were measured on the bench and rejected: keeping the fuller of the in-context and the stand-alone transcription of the end (6 extra periods, WER 14.7 %, stop p95 1.03 s), and 0.5 s of silence after the window for the stop's pass (3 extra periods, stop p95 0.93 s). Without the audio of the failing dictation there is nothing to fix against; keeping each dictation's audio locally is the next step.
+
 - Pass cost: about one Parakeet call per 0.6 s on a window up to 15–20 s. Measured by the bench (criterion 3); `PASS_EVERY_S` is the knob.
 - A sentence reaches the field only when the next one starts or after a 2 s pause: slower than today's pieces, by design; the pill carries the instant feedback.
 - Parakeet's times are frame-accurate (80 ms) and the cut sits in the middle of an inter-word gap, so a word is not split; a forced commit starts the next window mid-sentence without left context, as the 20 s split already does.

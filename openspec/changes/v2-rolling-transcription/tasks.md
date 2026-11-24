@@ -31,4 +31,4 @@
 ## 5. Delivery
 
 - [x] 5.1 `v2/README.md` describes the new « Type while speaking »
-- [ ] 5.2 v2/ gate green (`cargo test --release`, `cargo clippy --release --all-targets -- -D warnings`), bench criteria proven, `make v2-reinstall`, manual check in TextEdit
+- [x] 5.2 v2/ gate green (`cargo test --release`, `cargo clippy --release --all-targets -- -D warnings`), bench criteria proven, `make v2-reinstall`, manual check in TextEdit

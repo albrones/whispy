@@ -1709,14 +1709,16 @@ mod tests {
     /// A timed engine that hears the clip: each voiced run is a word, named by
     /// its length (1.5 s « Hello. », 1.2 s « there »); a run still going at the
     /// window's end is not heard yet. The plain engine (hold mode, the setting
-    /// off) says « the rest ».
+    /// off, the stop's second opinion) hears the same words.
     struct Rolling;
     impl Transcriber for Rolling {
         fn name(&self) -> &'static str {
             "rolling"
         }
-        fn transcribe(&mut self, _samples: &[f32]) -> Result<String, whispy_core::Error> {
-            Ok("the rest".into())
+        fn transcribe(&mut self, samples: &[f32]) -> Result<String, whispy_core::Error> {
+            let words = self.transcribe_timed(samples)?.unwrap_or_default();
+            let texts: Vec<String> = words.into_iter().map(|word| word.text).collect();
+            Ok(texts.join(" "))
         }
         fn transcribe_timed(
             &mut self,
@@ -1856,7 +1858,7 @@ mod tests {
             let (text, delivery) = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
             assert_eq!(
                 (text.as_str(), delivery),
-                ("the rest", Delivery::Paste),
+                ("Hello. there", Delivery::Paste),
                 "{mode:?}"
             );
             controller.stop();
@@ -2005,7 +2007,7 @@ mod tests {
             let (text, delivery) = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
             assert_eq!(
                 (text.as_str(), delivery),
-                ("the rest", Delivery::Paste),
+                ("Hello. there", Delivery::Paste),
                 "{mode:?}"
             );
             controller.stop();
