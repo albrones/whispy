@@ -12,6 +12,7 @@
 //! ```
 
 pub mod audio;
+pub mod itn;
 pub mod join;
 pub mod json;
 pub mod lazy;

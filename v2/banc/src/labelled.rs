@@ -29,9 +29,10 @@ const RECOVERY_TARGET_PERCENT: usize = 70;
 
 /// Words as V1's `quality_bench.normalize` reads them: lowercase, and every
 /// character outside `a-z 0-9 à-ÿ` becomes a space (apostrophes and hyphens
-/// split). Not `wer::normalized_words`, whose alphabet is wider.
+/// split). Not `wer::normalized_words`, whose alphabet is wider. Numbers are
+/// read in digits first ([`whispy_core::itn`]), the reference and V2's text alike.
 pub fn v1_words(text: &str) -> Vec<String> {
-    let spaced: String = text
+    let spaced: String = whispy_core::itn::normalize(text)
         .to_lowercase()
         .chars()
         .map(|c| match c {

@@ -42,6 +42,11 @@ clips=(
   "en-sentence-train-daniel|Daniel|sentence|the eight o'clock train is cancelled so I will take the next one"
   "en-long-project|Samantha|long|we finished the first version of the project last week, but several problems remain to be fixed before we show it to users, especially the speed and the reliability of the transcription"
   "en-long-holidays|Samantha|long|for the holidays we are thinking of going to the coast in August, renting a small house near the sea and taking long bike rides along the shore"
+  "fr-sentence-numbers-rdv|Thomas|sentence|ajouter trois tests sous deux secondes le douze décembre à quatorze heures trente"
+  "fr-sentence-numbers-annee|Thomas|sentence|en deux mille vingt-six nous visons dix pour cent de croissance"
+  "fr-short-numbers-compose|Thomas|short|quatre-vingt-dix-sept"
+  "fr-sentence-numbers-un-peu|Thomas|sentence|il y a un peu plus de soixante-dix personnes et une fois de plus deux ou trois choses"
+  "en-sentence-numbers|Samantha|sentence|I will buy three apples and six eggs at four o'clock"
 )
 
 : > manifest.tsv

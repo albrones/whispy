@@ -1,6 +1,7 @@
 //! PCM to text: split, gate, prepare, transcribe, fall back.
 
 use crate::audio::{self, LOUDNESS_TARGET_RMS, SILENCE_RMS_THRESHOLD};
+use crate::itn;
 use crate::lazy::{Lazy, FALLBACK_IDLE};
 use crate::parakeet::Parakeet;
 use crate::split::{self, MAX_PIECE_S};
@@ -162,7 +163,17 @@ impl Pipeline {
 
     /// Text for a whole dictation (16 kHz mono). Long audio is split into
     /// pieces of at most `MAX_PIECE_S`, so memory stays bounded.
+    /// Numbers come out in digits ([`crate::itn`]).
     pub fn transcribe(&mut self, samples: &[f32]) -> Result<Transcript, Error> {
+        let mut transcript = self.transcribe_raw(samples)?;
+        transcript.text = itn::normalize(&transcript.text);
+        Ok(transcript)
+    }
+
+    /// [`Pipeline::transcribe`] with the numbers left as the engine wrote them:
+    /// the rolling dictation joins passages first and normalises the joined
+    /// text, so a number is never cut between two of them.
+    pub fn transcribe_raw(&mut self, samples: &[f32]) -> Result<Transcript, Error> {
         let mut texts = Vec::new();
         let mut engine = None;
         for range in split::pieces(samples, MAX_PIECE_S) {
