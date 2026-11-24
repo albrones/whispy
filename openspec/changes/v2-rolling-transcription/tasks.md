@@ -25,7 +25,7 @@
 ## 4b. After the first manual tests (2026-11-24)
 
 - [x] 4b.1 The pill shows the words in every dictation (hold mode, setting off); only « Type while speaking » types them live
-- [ ] 4b.2 The caption sits under the bars, which stay centred and in place
+- [x] 4b.2 The caption sits under the bars, which stay centred and in place
 
 ## 5. Delivery
 
