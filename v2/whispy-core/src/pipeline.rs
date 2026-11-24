@@ -6,7 +6,7 @@ use crate::parakeet::Parakeet;
 use crate::split::{self, MAX_PIECE_S};
 use crate::vad;
 use crate::whisper::Whisper;
-use crate::{models, Error, Transcriber};
+use crate::{models, Error, Transcriber, Word};
 
 /// The engine the app uses, chosen by the bench (v2/bench/REPORT.md).
 pub const DEFAULT_ENGINE: EngineKind = EngineKind::Parakeet;
@@ -139,6 +139,12 @@ impl Pipeline {
         }
     }
 
+    /// The primary engine's name, for the journal of a dictation whose text came
+    /// from rolling passes (see [`Transcriber::name`]).
+    pub fn primary_name(&self) -> &'static str {
+        self.primary.name()
+    }
+
     /// The configuration the bench chose: `DEFAULT_ENGINE`, `DEFAULT_FALLBACK`, `DEFAULT_STRATEGY`.
     /// The primary engine is loaded now; the fallback only when the primary
     /// first returns nothing, and it is freed after [`FALLBACK_IDLE`] unused.
@@ -172,6 +178,27 @@ impl Pipeline {
             text: texts.join(" "),
             engine,
         })
+    }
+
+    /// The words of one window with their time in it, for the rolling
+    /// re-transcription ([`crate::stream`]): the gates of [`Strategy::prepare`]
+    /// (a window with no loud or no voiced part has no words) and the louder
+    /// copy, but neither trim nor padding, so a word's time is its time in
+    /// `window`. The primary engine only, no fallback; `None` when it has no
+    /// timings. A word without a letter or digit is dropped, as in [`worded`].
+    pub fn transcribe_timed(&mut self, window: &[f32]) -> Result<Option<Vec<Word>>, Error> {
+        if audio::peak_rms(window) < SILENCE_RMS_THRESHOLD
+            || !vad::speech_span(window).carries_speech()
+        {
+            return Ok(Some(Vec::new()));
+        }
+        let louder = audio::louder_copy(window, LOUDNESS_TARGET_RMS);
+        let input = louder.as_deref().unwrap_or(window);
+        let words = self.primary.transcribe_timed(input)?;
+        Ok(words.map(|mut words| {
+            words.retain(|word| word.text.chars().any(char::is_alphanumeric));
+            words
+        }))
     }
 
     fn transcribe_piece(&mut self, piece: &[f32]) -> Result<Transcript, Error> {
@@ -326,5 +353,83 @@ mod tests {
         assert!(lengths.len() >= 4, "{lengths:?}");
         assert!(lengths.iter().all(|&len| len <= max_len));
         assert_eq!(transcript.text.split(' ').count(), lengths.len());
+    }
+
+    /// Answers one timed word per call, and records how long each input was.
+    struct Timed {
+        seen_lengths: std::sync::Arc<std::sync::Mutex<Vec<usize>>>,
+    }
+
+    impl Transcriber for Timed {
+        fn name(&self) -> &'static str {
+            "timed"
+        }
+        fn transcribe(&mut self, _: &[f32]) -> Result<String, Error> {
+            Ok(String::new())
+        }
+        fn transcribe_timed(&mut self, samples: &[f32]) -> Result<Option<Vec<Word>>, Error> {
+            self.seen_lengths.lock().unwrap().push(samples.len());
+            let word = |text: &str| Word {
+                text: text.to_string(),
+                start_s: 0.1,
+                end_s: 0.4,
+            };
+            Ok(Some(vec![word("Oui"), word("..."), word("non.")]))
+        }
+    }
+
+    #[test]
+    fn timed_words_are_gated_but_neither_trimmed_nor_padded() {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut pipeline = Pipeline::new(
+            Box::new(Timed {
+                seen_lengths: seen.clone(),
+            }),
+            None,
+            Strategy::Padded,
+        );
+        assert_eq!(
+            pipeline.transcribe_timed(&vec![0.0; 16_000]).unwrap(),
+            Some(Vec::new())
+        );
+        assert!(seen.lock().unwrap().is_empty(), "silence is gated");
+        let mut window = vec![0.0; 16_000];
+        window.extend(voiced(1.0, 0.012));
+        window.extend(vec![0.0; 16_000]);
+        let words = pipeline.transcribe_timed(&window).unwrap().unwrap();
+        let texts: Vec<&str> = words.iter().map(|w| w.text.as_str()).collect();
+        assert_eq!(texts, ["Oui", "non."], "a word without a letter is dropped");
+        assert_eq!(*seen.lock().unwrap(), vec![window.len()]);
+    }
+
+    /// Measurement, not a check: `cargo test --release -- --ignored --nocapture timed_cost`.
+    #[test]
+    #[ignore]
+    fn timed_cost_by_window_length() {
+        let Ok(mut pipeline) = Pipeline::load_default() else {
+            eprintln!("skipped: no model on this machine");
+            return;
+        };
+        let reference = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bench/reference");
+        let mut speech = Vec::new();
+        for name in [
+            "fr-long-projet.wav",
+            "fr-long-vacances.wav",
+            "en-long-project.wav",
+            "en-long-holidays.wav",
+        ] {
+            speech.extend(audio::read_wav(&reference.join(name)).unwrap());
+        }
+        for seconds in [5, 10, 15, 20] {
+            let window = &speech[..(seconds * audio::SAMPLE_RATE as usize).min(speech.len())];
+            let mut took = Vec::new();
+            for _ in 0..4 {
+                let started = std::time::Instant::now();
+                let words = pipeline.transcribe_timed(window).unwrap().unwrap();
+                took.push((started.elapsed().as_secs_f32(), words.len()));
+            }
+            eprintln!("window {seconds:>2} s: {took:?}");
+        }
+        eprintln!("pool: {:.1} s of reference speech", audio::seconds(&speech));
     }
 }

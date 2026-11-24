@@ -20,6 +20,7 @@ pub mod models;
 pub mod parakeet;
 pub mod pipeline;
 pub mod split;
+pub mod stream;
 pub mod vad;
 pub mod whisper;
 
@@ -36,6 +37,21 @@ pub trait Transcriber: Send {
     fn name(&self) -> &'static str;
     /// Text for `samples` (16 kHz mono, -1.0..1.0); empty when the engine heard nothing.
     fn transcribe(&mut self, samples: &[f32]) -> Result<String, Error>;
+    /// The words of the transcript with their start and end time in `samples`
+    /// (seconds from its first sample), for the rolling re-transcription of
+    /// [`stream`]. `None` when the engine has no timings: it never invents them.
+    fn transcribe_timed(&mut self, _samples: &[f32]) -> Result<Option<Vec<Word>>, Error> {
+        Ok(None)
+    }
+}
+
+/// One word of a transcript and where it sits in the audio it came from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Word {
+    /// The word as the engine prints it, punctuation attached.
+    pub text: String,
+    pub start_s: f32,
+    pub end_s: f32,
 }
 
 #[derive(Debug)]

@@ -12,7 +12,7 @@ use ort::session::Session;
 use ort::value::Tensor;
 
 use crate::mel::{MelExtractor, MEL_BINS};
-use crate::{Error, Transcriber};
+use crate::{Error, Transcriber, Word};
 
 const MAX_TOKENS_PER_STEP: usize = 10;
 const WORD_START: char = '\u{2581}';
@@ -22,6 +22,16 @@ const WORD_START: char = '\u{2581}';
 /// English; 0.25 s cured that without losing a mixed-language clip. whisper
 /// needs none: it pads every input to 30 s itself.
 pub const FRAME_S: f32 = 0.25;
+/// One encoder frame: 8 mel hops of 10 ms (the encoder subsamples by 8).
+const ENCODER_FRAME_S: f32 = 0.08;
+
+/// A token the decoder emitted, with the encoder frame it was emitted at and
+/// the duration (in frames) the TDT head predicted for it.
+struct Emitted {
+    token: usize,
+    frame: usize,
+    duration: usize,
+}
 
 pub struct Parakeet {
     encoder: Session,
@@ -116,16 +126,20 @@ impl Parakeet {
         Ok((token, duration, [state_1.to_vec(), state_2.to_vec()]))
     }
 
-    fn decode(&mut self, frames: &[Vec<f32>]) -> Result<Vec<usize>, Error> {
+    fn decode(&mut self, frames: &[Vec<f32>]) -> Result<Vec<Emitted>, Error> {
         let mut states = self.zero_states();
-        let mut tokens: Vec<usize> = Vec::new();
+        let mut tokens: Vec<Emitted> = Vec::new();
         let (mut t, mut emitted) = (0, 0);
         while t < frames.len() {
-            let previous = tokens.last().copied().unwrap_or(self.blank);
+            let previous = tokens.last().map_or(self.blank, |last| last.token);
             let (token, duration, next_states) = self.step(previous, &frames[t], &states)?;
             if token != self.blank {
                 states = next_states;
-                tokens.push(token);
+                tokens.push(Emitted {
+                    token,
+                    frame: t,
+                    duration,
+                });
                 emitted += 1;
             }
             if duration > 0 {
@@ -138,6 +152,29 @@ impl Parakeet {
         }
         Ok(tokens)
     }
+
+    /// The one inference path: `samples` framed in silence, encoded, decoded.
+    /// Returns the tokens and the number of encoder frames of the framed input.
+    fn run(&mut self, samples: &[f32]) -> Result<(Vec<Emitted>, usize), Error> {
+        let framed = crate::audio::padded(samples, FRAME_S, FRAME_S);
+        let frames = self.encode(&framed)?;
+        let count = frames.len();
+        Ok((self.decode(&frames)?, count))
+    }
+
+    /// The tokens' pieces end to end, one entry per character with the index
+    /// of the token that printed it, then detokenized.
+    fn spelled(&self, tokens: &[Emitted]) -> Vec<(char, usize)> {
+        let mut joined = Vec::new();
+        for (index, emitted) in tokens.iter().enumerate() {
+            joined.extend(
+                self.vocabulary[emitted.token]
+                    .chars()
+                    .map(|character| (character, index)),
+            );
+        }
+        detokenize_owned(&joined)
+    }
 }
 
 impl Transcriber for Parakeet {
@@ -146,15 +183,40 @@ impl Transcriber for Parakeet {
     }
 
     fn transcribe(&mut self, samples: &[f32]) -> Result<String, Error> {
-        let framed = crate::audio::padded(samples, FRAME_S, FRAME_S);
-        let frames = self.encode(&framed)?;
-        let tokens = self.decode(&frames)?;
-        let joined: String = tokens
-            .iter()
-            .map(|&token| self.vocabulary[token].as_str())
-            .collect();
-        Ok(detokenize(&joined))
+        let (tokens, _) = self.run(samples)?;
+        Ok(self.spelled(&tokens).into_iter().map(|(c, _)| c).collect())
     }
+
+    fn transcribe_timed(&mut self, samples: &[f32]) -> Result<Option<Vec<Word>>, Error> {
+        let (tokens, _) = self.run(samples)?;
+        let duration_s = samples.len() as f32 / crate::audio::SAMPLE_RATE as f32;
+        Ok(Some(words_of(&self.spelled(&tokens), &tokens, duration_s)))
+    }
+}
+
+/// Seconds in the caller's samples of an encoder frame boundary: the frame
+/// clock starts `FRAME_S` before the samples, and a time is within the input.
+fn frame_time(frame: usize, duration_s: f32) -> f32 {
+    (frame as f32 * ENCODER_FRAME_S - FRAME_S).clamp(0.0, duration_s)
+}
+
+/// Splits the detokenized characters at their single spaces; a word starts at
+/// its first token's frame and ends at its last token's frame plus that
+/// token's duration (one frame at least).
+fn words_of(spelled: &[(char, usize)], tokens: &[Emitted], duration_s: f32) -> Vec<Word> {
+    spelled
+        .split(|&(character, _)| character == ' ')
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let first = &tokens[word[0].1];
+            let last = &tokens[word[word.len() - 1].1];
+            Word {
+                text: word.iter().map(|&(character, _)| character).collect(),
+                start_s: frame_time(first.frame, duration_s),
+                end_s: frame_time(last.frame + last.duration.max(1), duration_s),
+            }
+        })
+        .collect()
 }
 
 /// Memory settings measured on a 180 s dictation (v2/bench/REPORT.md):
@@ -236,19 +298,30 @@ fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
+#[cfg(test)]
 /// onnx-asr's `re.sub(r"\A\s|\s\B|(\s)\b", ...)`: drop leading whitespace and
 /// whitespace not followed by a word character, keep the rest as one space.
 fn detokenize(joined: &str) -> String {
-    let chars: Vec<char> = joined.chars().collect();
-    let mut text = String::with_capacity(joined.len());
-    for (i, &c) in chars.iter().enumerate() {
+    let owned: Vec<(char, usize)> = joined.chars().map(|c| (c, 0)).collect();
+    detokenize_owned(&owned)
+        .into_iter()
+        .map(|(c, _)| c)
+        .collect()
+}
+
+/// [`detokenize`] on characters that each remember what produced them.
+fn detokenize_owned<T: Copy>(joined: &[(char, T)]) -> Vec<(char, T)> {
+    let mut text = Vec::with_capacity(joined.len());
+    for (i, &(c, owner)) in joined.iter().enumerate() {
         if !c.is_whitespace() {
-            text.push(c);
+            text.push((c, owner));
             continue;
         }
-        let is_followed_by_word = chars.get(i + 1).is_some_and(|&next| is_word_char(next));
+        let is_followed_by_word = joined
+            .get(i + 1)
+            .is_some_and(|&(next, _)| is_word_char(next));
         if i > 0 && is_followed_by_word {
-            text.push(' ');
+            text.push((' ', owner));
         }
     }
     text
@@ -264,6 +337,80 @@ mod tests {
         assert_eq!(detokenize(" à amélior er"), "à amélior er");
         assert_eq!(detokenize(" l' équipe"), "l' équipe");
         assert_eq!(detokenize(""), "");
+    }
+
+    fn emitted(frame: usize, duration: usize) -> Emitted {
+        Emitted {
+            token: 0,
+            frame,
+            duration,
+        }
+    }
+
+    #[test]
+    fn words_take_their_time_from_their_first_and_last_token() {
+        // " Bon" "jour" "," " ça" -> "Bonjour, ça": tokens 0..=2 spell the first word.
+        let tokens = [emitted(4, 1), emitted(5, 2), emitted(7, 0), emitted(9, 3)];
+        let pieces = [" Bon", "jour", ",", " ça"];
+        let joined: Vec<(char, usize)> = pieces
+            .iter()
+            .enumerate()
+            .flat_map(|(i, piece)| piece.chars().map(move |c| (c, i)))
+            .collect();
+        let words = words_of(&detokenize_owned(&joined), &tokens, 10.0);
+        let texts: Vec<&str> = words.iter().map(|w| w.text.as_str()).collect();
+        assert_eq!(texts, ["Bonjour,", "ça"]);
+        // Frame 4 is 0.32 s into the framed input, 0.07 s after the lead silence.
+        assert!((words[0].start_s - 0.07).abs() < 1e-4, "{:?}", words[0]);
+        // The comma's duration 0 counts as one frame: frame 7 + 1.
+        assert!((words[0].end_s - (8.0 * 0.08 - FRAME_S)).abs() < 1e-4);
+        assert!((words[1].end_s - (12.0 * 0.08 - FRAME_S)).abs() < 1e-4);
+        // Times never leave the input.
+        assert_eq!(
+            words_of(&detokenize_owned(&joined), &tokens, 0.1)[1].end_s,
+            0.1
+        );
+        assert_eq!(frame_time(0, 5.0), 0.0);
+    }
+
+    /// Needs the Parakeet files on this Mac; skipped (with a note) otherwise.
+    #[test]
+    fn timed_words_match_the_plain_transcript_on_a_reference_clip() {
+        let Ok(dir) = crate::models::parakeet_dir() else {
+            eprintln!("skipped: no Parakeet model on this machine");
+            return;
+        };
+        let reference = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bench/reference");
+        let mut parakeet = Parakeet::load(&dir).unwrap();
+        for name in ["fr-sentence-rapport.wav", "fr-long-projet.wav"] {
+            let samples = crate::audio::read_wav(&reference.join(name)).unwrap();
+            let duration_s = samples.len() as f32 / crate::audio::SAMPLE_RATE as f32;
+            // One encoder frame is 80 ms: the framed input's frame count says so.
+            let (_, frames) = parakeet.run(&samples).unwrap();
+            let framed_s = duration_s + 2.0 * FRAME_S;
+            assert!(
+                (frames as f32 * ENCODER_FRAME_S - framed_s).abs() < 2.0 * ENCODER_FRAME_S,
+                "{name}: {frames} frames for {framed_s} s"
+            );
+            let text = parakeet.transcribe(&samples).unwrap();
+            let words = parakeet.transcribe_timed(&samples).unwrap().unwrap();
+            let joined: Vec<&str> = words.iter().map(|w| w.text.as_str()).collect();
+            assert_eq!(joined.join(" "), text, "{name}");
+            assert!(!words.is_empty(), "{name}");
+            let mut previous = (0.0f32, 0.0f32);
+            for word in &words {
+                assert!(
+                    word.start_s >= previous.0 && word.end_s >= previous.1,
+                    "{word:?}"
+                );
+                assert!(word.end_s >= word.start_s, "{word:?}");
+                previous = (word.start_s, word.end_s);
+            }
+            assert!(
+                previous.1 <= duration_s,
+                "{name}: {previous:?} > {duration_s}"
+            );
+        }
     }
 
     #[test]

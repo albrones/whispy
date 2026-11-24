@@ -8,7 +8,7 @@
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use crate::{Error, Transcriber};
+use crate::{Error, Transcriber, Word};
 
 /// How long the fallback engine stays loaded after its last call. A retry
 /// right after a miss (the user dictates again) finds it warm; an idle Mac
@@ -106,21 +106,17 @@ impl Lazy {
     }
 }
 
-impl Transcriber for Lazy {
-    fn name(&self) -> &'static str {
-        self.name
-    }
-
-    fn transcribe(&mut self, samples: &[f32]) -> Result<String, Error> {
+impl Lazy {
+    /// Runs `call` on the engine, loading it first if needed, and restarts the idle clock.
+    fn with_engine<T>(
+        &self,
+        call: impl FnOnce(&mut dyn Transcriber) -> Result<T, Error>,
+    ) -> Result<T, Error> {
         let mut slot = self.lock();
         if slot.engine.is_none() {
             slot.engine = Some((self.loader)()?);
         }
-        let result = slot
-            .engine
-            .as_mut()
-            .expect("loaded just above")
-            .transcribe(samples);
+        let result = call(slot.engine.as_mut().expect("loaded just above").as_mut());
         slot.last_used = Instant::now();
         if !slot.has_reaper {
             slot.has_reaper = true;
@@ -128,6 +124,20 @@ impl Transcriber for Lazy {
         }
         self.shared.used.notify_all();
         result
+    }
+}
+
+impl Transcriber for Lazy {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn transcribe(&mut self, samples: &[f32]) -> Result<String, Error> {
+        self.with_engine(|engine| engine.transcribe(samples))
+    }
+
+    fn transcribe_timed(&mut self, samples: &[f32]) -> Result<Option<Vec<Word>>, Error> {
+        self.with_engine(|engine| engine.transcribe_timed(samples))
     }
 }
 
@@ -166,6 +176,34 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         false
+    }
+
+    #[test]
+    fn timed_calls_reach_the_engine_it_wraps() {
+        struct Timed;
+        impl Transcriber for Timed {
+            fn name(&self) -> &'static str {
+                "timed"
+            }
+            fn transcribe(&mut self, _: &[f32]) -> Result<String, Error> {
+                Ok(String::new())
+            }
+            fn transcribe_timed(&mut self, samples: &[f32]) -> Result<Option<Vec<Word>>, Error> {
+                Ok(Some(vec![Word {
+                    text: "mot".to_string(),
+                    start_s: 0.0,
+                    end_s: samples.len() as f32,
+                }]))
+            }
+        }
+        let mut lazy = Lazy::new("timed", Duration::from_secs(30), || {
+            Ok(Box::new(Timed) as Box<dyn Transcriber>)
+        });
+        let words = lazy.transcribe_timed(&[0.0; 3]).unwrap().unwrap();
+        assert_eq!(words[0].end_s, 3.0);
+        // An engine without timings says so through the wrapper too.
+        let (mut untimed, _) = counted(Duration::from_secs(30));
+        assert_eq!(untimed.transcribe_timed(&[0.0]).unwrap(), None);
     }
 
     #[test]
