@@ -143,10 +143,10 @@ pub enum Input {
     /// A [`Note`](Input::Note) that is also one of V1's notifications (see [`Alert`]).
     Alert(Alert),
     /// The input level of the recording, from the capture's level sink. Also the
-    /// beat at which a dictation typed while spoken is drained and cut.
+    /// beat at which a recording is drained and cut.
     Level(f32),
-    /// The words a dictation typed while spoken has heard so far, from the worker
-    /// after each rolling pass. Shown only while recording.
+    /// The words a dictation has heard so far, from the worker after each rolling
+    /// pass. Shown only while recording.
     Caption(Caption),
     /// V1's `type_while_speaking`: in toggle mode, type each piece as soon as it
     /// is transcribed. Applies from the next dictation.
@@ -166,18 +166,21 @@ struct Dictation {
 }
 
 enum Job {
-    Transcribe(Dictation),
-    /// A dictation typed while spoken begins: a fresh [`Streamer`].
-    StartStream,
-    /// More audio of the dictation being typed while spoken.
+    /// A dictation begins: a fresh [`Streamer`], which captions every dictation
+    /// and, with `types_live`, also types it while it is spoken.
+    StartStream {
+        types_live: bool,
+    },
+    /// More audio of the dictation being heard.
     StreamAudio(Vec<f32>),
-    /// The end of a dictation typed while spoken: the open sentence goes through
-    /// the full pipeline and its text goes back through the machine.
+    /// The end of a dictation: typed live, the open sentence goes through the
+    /// full pipeline; otherwise the whole recording is transcribed as one block.
+    /// Either way its text goes back through the machine.
     FinishStream {
         dictation: Dictation,
         delivery: Delivery,
     },
-    /// The dictation typed while spoken was cancelled: forget it.
+    /// The dictation was cancelled: forget it.
     DiscardStream,
     Insert {
         text: String,
@@ -269,7 +272,7 @@ fn run(
     let mut machine = Machine::new();
     let mut recorder = Recorder {
         capture,
-        is_streaming: false,
+        is_recording: false,
         trigger: Source::Fn,
         is_typing_while_speaking: crate::settings::Settings::default().type_while_speaking,
     };
@@ -423,11 +426,11 @@ fn note_for(event: &Event) -> Option<Option<String>> {
     }
 }
 
-/// The controller's side of a recording: the microphone and, while a toggle
-/// dictation is typed as it is spoken, the audio it hands to the worker's streamer.
+/// The controller's side of a recording: the microphone and the audio it hands,
+/// beat by beat, to the worker's streamer (which captions every dictation).
 struct Recorder<C: Capture> {
     capture: C,
-    is_streaming: bool,
+    is_recording: bool,
     /// What started the current recording, for the journal.
     trigger: Source,
     is_typing_while_speaking: bool,
@@ -438,13 +441,15 @@ impl<C: Capture> Recorder<C> {
     fn perform(&mut self, action: Action, state: State, jobs: &Sender<Job>) -> Result<(), String> {
         match action {
             Action::StartCapture => {
-                self.is_streaming = false;
+                self.is_recording = false;
                 self.capture
                     .start()
                     .map_err(|error| format!("The microphone could not be opened: {error}"))?;
-                // Decided once, at the start: a setting flipped mid-dictation
-                // must not leave half of it typed live and the rest at the stop.
-                // Hold mode never types live: the trigger is held down meanwhile.
+                // Every dictation is captioned; only one in toggle mode with the
+                // setting on is also typed live. Decided once, at the start: a
+                // setting flipped mid-dictation must not leave half of it typed
+                // live and the rest at the stop. Hold mode never types live: the
+                // trigger is held down meanwhile.
                 let is_toggle = matches!(
                     state,
                     State::Recording {
@@ -452,10 +457,10 @@ impl<C: Capture> Recorder<C> {
                         ..
                     }
                 );
-                if is_toggle && self.is_typing_while_speaking {
-                    self.is_streaming = true;
-                    let _ = jobs.send(Job::StartStream);
-                }
+                self.is_recording = true;
+                let _ = jobs.send(Job::StartStream {
+                    types_live: is_toggle && self.is_typing_while_speaking,
+                });
                 Ok(())
             }
             Action::StopCaptureAndTranscribe => {
@@ -471,20 +476,16 @@ impl<C: Capture> Recorder<C> {
                     released_at,
                     trigger: self.trigger,
                 };
-                let job = if std::mem::take(&mut self.is_streaming) {
-                    Job::FinishStream {
-                        dictation,
-                        delivery,
-                    }
-                } else {
-                    Job::Transcribe(dictation)
-                };
-                let _ = jobs.send(job);
+                self.is_recording = false;
+                let _ = jobs.send(Job::FinishStream {
+                    dictation,
+                    delivery,
+                });
                 Ok(())
             }
             Action::DiscardCapture => {
                 self.capture.stop();
-                if std::mem::take(&mut self.is_streaming) {
+                if std::mem::take(&mut self.is_recording) {
                     let _ = jobs.send(Job::DiscardStream);
                 }
                 Ok(())
@@ -496,10 +497,10 @@ impl<C: Capture> Recorder<C> {
         }
     }
 
-    /// While a dictation is typed as it is spoken: drains the microphone and
-    /// queues the audio for the worker's streamer.
+    /// While recording: drains the microphone and queues the audio for the
+    /// worker's streamer.
     fn send_audio(&mut self, jobs: &Sender<Job>) {
-        if !self.is_streaming {
+        if !self.is_recording {
             return;
         }
         let samples = self.capture.take_recorded();
@@ -543,7 +544,7 @@ fn spawn_worker<I: Inserter + 'static>(
             };
             // One dictation at a time: a Transcribe with text is always followed by its Insert.
             let mut pending: Option<Pending> = None;
-            // The dictation being typed while spoken, from its first audio to its stop.
+            // The dictation being heard, from its first audio to its stop.
             let mut live = LiveDictation::default();
             // A job met while draining the audio queue: handled before blocking again.
             let mut held: Option<Job> = None;
@@ -556,8 +557,8 @@ fn spawn_worker<I: Inserter + 'static>(
                     },
                 };
                 let (done, dictation, duration_s) = match job {
-                    Job::StartStream => {
-                        live = LiveDictation::started();
+                    Job::StartStream { types_live } => {
+                        live = LiveDictation::started(types_live);
                         continue;
                     }
                     Job::StreamAudio(samples) => {
@@ -586,20 +587,22 @@ fn spawn_worker<I: Inserter + 'static>(
                         live = LiveDictation::default();
                         continue;
                     }
-                    Job::Transcribe(dictation) => {
-                        let done = transcribe(pipeline.as_mut(), &dictation, &lost_clips);
-                        let duration_s = dictation.samples.len() as f32 / SAMPLE_RATE;
-                        (done, dictation, duration_s)
-                    }
                     Job::FinishStream {
-                        dictation,
+                        mut dictation,
                         delivery,
                     } => {
                         let finished = std::mem::take(&mut live);
                         let duration_s =
                             finished.seconds + dictation.samples.len() as f32 / SAMPLE_RATE;
-                        let done =
-                            finished.finish(pipeline.as_mut(), &dictation, delivery, &lost_clips);
+                        let done = if finished.types_live {
+                            finished.finish(pipeline.as_mut(), &dictation, delivery, &lost_clips)
+                        } else {
+                            // Nothing was typed: the whole recording is one block.
+                            let mut whole = finished.heard;
+                            whole.append(&mut dictation.samples);
+                            dictation.samples = whole;
+                            transcribe(pipeline.as_mut(), &dictation, &lost_clips)
+                        };
                         (done, dictation, duration_s)
                     }
                     Job::Insert { text, delivery } => {
@@ -862,9 +865,10 @@ fn caption_tail(text: &str, max_chars: usize) -> String {
 }
 
 /// The log line of one rolling pass: counts and times only, never any dictated text.
-fn pass_line(stats: &PassStats) -> String {
+fn pass_line(stats: &PassStats, types_live: bool) -> String {
     format!(
-        "stream pass: window={:.1}s took={:.2}s words={} stable={} committed={} forced={}",
+        "stream pass: live={} window={:.1}s took={:.2}s words={} stable={} committed={} forced={}",
+        if types_live { "yes" } else { "no" },
         stats.window_s,
         stats.took_s,
         stats.words,
@@ -874,12 +878,17 @@ fn pass_line(stats: &PassStats) -> String {
     )
 }
 
-/// A dictation typed while spoken, between its first audio and its stop. Lives
-/// on the worker thread only: the [`Streamer`] is not `Send`.
+/// A dictation being heard, between its first audio and its stop. Lives on the
+/// worker thread only: the [`Streamer`] is not `Send`.
 #[derive(Default)]
 struct LiveDictation {
     /// None until the dictation starts.
     streamer: Option<Streamer>,
+    /// Whether the passes' text is typed as it is spoken; otherwise the passes
+    /// only feed the caption and the stop transcribes `heard` as one block.
+    types_live: bool,
+    /// Every sample pushed, kept only when not typing live.
+    heard: Vec<f32>,
     /// The text handed to the inserter so far (the text of a pass whose
     /// insertion failed included).
     typed: String,
@@ -893,9 +902,10 @@ struct LiveDictation {
 }
 
 impl LiveDictation {
-    fn started() -> Self {
+    fn started(types_live: bool) -> Self {
         LiveDictation {
             streamer: Some(Streamer::new()),
+            types_live,
             ..LiveDictation::default()
         }
     }
@@ -903,6 +913,9 @@ impl LiveDictation {
     fn push(&mut self, samples: &[f32]) {
         self.seconds += samples.len() as f32 / SAMPLE_RATE;
         self.peak_level = self.peak_level.max(peak_level(samples));
+        if !self.types_live {
+            self.heard.extend_from_slice(samples);
+        }
         if let Some(streamer) = self.streamer.as_mut() {
             streamer.push(samples);
         }
@@ -931,9 +944,9 @@ impl LiveDictation {
                 return (None, None);
             }
         };
-        log::line(&pass_line(&update.stats));
+        log::line(&pass_line(&update.stats, self.types_live));
         let mut failure = None;
-        if !update.typed.is_empty() {
+        if self.types_live && !update.typed.is_empty() {
             self.typed.push_str(&update.typed);
             self.engine = self.engine.or(Some(pipeline.primary_name()));
             if let Err(error) = inserter.deliver(&update.typed, Delivery::Paste) {
@@ -945,7 +958,7 @@ impl LiveDictation {
             }
         }
         let caption = Caption {
-            committed: caption_tail(&self.typed, CAPTION_COMMITTED_CHARS),
+            committed: caption_tail(streamer.committed(), CAPTION_COMMITTED_CHARS),
             provisional: update.provisional,
         };
         let changed = caption != self.last_caption;
@@ -1829,7 +1842,7 @@ mod tests {
             thread::sleep(Duration::from_millis(200));
             assert!(
                 inserted.try_recv().is_err(),
-                "{mode:?}: nothing before the stop"
+                "{mode:?}: nothing typed before the stop"
             );
             match mode {
                 TriggerMode::Hold => {
@@ -1960,27 +1973,44 @@ mod tests {
     }
 
     #[test]
-    fn hold_mode_shows_no_caption() {
+    fn hold_mode_and_the_setting_off_show_the_caption_but_type_nothing_live() {
         use crate::settings::TriggerMode;
-        let (delivered, inserted) = mpsc::channel();
-        let cues = Arc::new(Mutex::new(Vec::new()));
-        let controller = live_controller_with(
-            TriggerMode::Hold,
-            true,
-            Recorder(delivered),
-            Cues(Arc::clone(&cues)),
-        );
-        let start = Instant::now();
-        controller.send(Event::TriggerDown(start));
-        play_the_clip(&controller);
-        controller.send(Event::TriggerUp(start + Duration::from_secs(5)));
-        inserted.recv_timeout(Duration::from_secs(5)).unwrap();
-        controller.stop();
-        assert!(!cues
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|cue| matches!(cue, Cue::Caption(_))));
+        for (mode, is_on) in [(TriggerMode::Hold, true), (TriggerMode::Toggle, false)] {
+            let (delivered, inserted) = mpsc::channel();
+            let cues = Arc::new(Mutex::new(Vec::new()));
+            let controller =
+                live_controller_with(mode, is_on, Recorder(delivered), Cues(Arc::clone(&cues)));
+            let start = Instant::now();
+            controller.send(Event::TriggerDown(start));
+            play_the_clip(&controller);
+            wait_for("no caption while recording", || {
+                cues.lock().unwrap().iter().any(|cue| {
+                    matches!(cue, Cue::Caption(caption)
+                        if caption.committed == "Hello." && caption.provisional == "there")
+                })
+            });
+            assert!(
+                inserted.try_recv().is_err(),
+                "{mode:?}: nothing typed while speaking"
+            );
+            match mode {
+                TriggerMode::Hold => {
+                    controller.send(Event::TriggerUp(start + Duration::from_secs(5)))
+                }
+                TriggerMode::Toggle => {
+                    controller.send(Event::TriggerUp(start + Duration::from_millis(100)));
+                    press(&controller, start + Duration::from_secs(5));
+                }
+            }
+            let (text, delivery) = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(
+                (text.as_str(), delivery),
+                ("the rest", Delivery::Paste),
+                "{mode:?}"
+            );
+            controller.stop();
+            assert!(inserted.try_recv().is_err(), "{mode:?}: one insertion");
+        }
     }
 
     #[test]
@@ -1997,7 +2027,7 @@ mod tests {
                 clip: two_sentences(),
                 taken: 0,
             },
-            is_streaming: false,
+            is_recording: false,
             trigger: Source::Fn,
             is_typing_while_speaking: true,
         };
@@ -2012,20 +2042,25 @@ mod tests {
         let kinds: Vec<&str> = queue
             .try_iter()
             .map(|job| match job {
-                Job::StartStream => "start",
+                Job::StartStream { types_live: true } => "start-live",
+                Job::StartStream { types_live: false } => "start",
                 Job::StreamAudio(samples) if samples.len() == 800 => "audio",
                 Job::DiscardStream => "discard",
                 _ => "other",
             })
             .collect();
-        assert_eq!(kinds, ["start", "audio", "discard"]);
+        assert_eq!(kinds, ["start-live", "audio", "discard"]);
 
-        // Hold mode never streams.
+        // Hold mode is captioned but never types live.
         recorder
             .perform(Action::StartCapture, recording(Mode::Hold), &jobs)
             .unwrap();
         recorder.send_audio(&jobs);
-        assert!(queue.try_recv().is_err());
+        assert!(matches!(
+            queue.try_recv(),
+            Ok(Job::StartStream { types_live: false })
+        ));
+        assert!(matches!(queue.try_recv(), Ok(Job::StreamAudio(_))));
     }
 
     #[test]
@@ -2039,7 +2074,7 @@ mod tests {
             no_journal(),
             inputs,
         );
-        jobs.send(Job::StartStream).unwrap();
+        jobs.send(Job::StartStream { types_live: true }).unwrap();
         // The first pass: one hypothesis, nothing committed yet.
         jobs.send(Job::StreamAudio(voiced(0.6))).unwrap();
         thread::sleep(Duration::from_millis(100));
@@ -2067,14 +2102,15 @@ mod tests {
             audio_end_s: 3.0,
         };
         assert_eq!(
-            pass_line(&stats),
-            "stream pass: window=12.4s took=0.38s words=23 stable=18 committed=11 forced=no"
+            pass_line(&stats, true),
+            "stream pass: live=yes window=12.4s took=0.38s words=23 stable=18 committed=11 forced=no"
         );
         let forced = PassStats {
             forced: true,
             ..stats
         };
-        assert!(pass_line(&forced).ends_with("forced=yes"));
+        assert!(pass_line(&forced, false).starts_with("stream pass: live=no "));
+        assert!(pass_line(&forced, true).ends_with("forced=yes"));
     }
 
     #[test]
