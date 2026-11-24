@@ -12,8 +12,8 @@ Parakeet writes numbers in words. The text leaves `whispy-core` by two paths: `P
 - **Caption:** `Streamer::committed()` and the provisional words are normalised too, at no cost.
 - **Bench:** `wer::normalized_words` and `labelled::v1_words` normalise numbers on both sides, so a reference written as spoken still meets digits. Idempotent, so already-normalised text is stable.
 
-- **Guards:** « cent » and « cents » alone and « vingts » never start a number; a lone « six », « sept » or « neuf » stays in letters beside an English function word, after « tout » (« neuf »), or at the end of a clause with no French word before it (« I will take six. », « un pull neuf », « quoi de neuf ? »).
-- **Held numbers:** what a guard rejects now is still held back at the end of a passage, since the next word may change the verdict (« the cent » | « vingt »). Text already typed is never typed again.
+- **Guards:** every number is in digits unless English is around. « six », « sept », « cent », « million » stay in letters with an English function word within three tokens in the same clause (« I will take six. »); a singular « million » after a number is English (« six million dollars »); « cents » and « vingts » never start a number. The adjective « neuf » stays in letters after « tout » or « du », after « de » ending the clause, and after a noun with an article before it (« un pull neuf »).
+- **Held numbers:** what a guard rejects now is still held back at the end of a passage, and a number shared with English waits for three more words or the end of the clause, since the next words may change the verdict (« the cent » | « vingt »). Text already typed is never typed again.
 - **Stop:** the held tail is typed on every way out: a normal stop, a deaf take, no engine loaded, an engine error (the audio is then kept as a lost clip).
 - **Bench:** `numbers.rs` checks V2's own text for the digits of the number clips (and that the English clip stays in letters) and the bench exits non-zero otherwise; the WER alone cannot see it, since it reads numbers in digits on both sides.
 

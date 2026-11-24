@@ -10,11 +10,13 @@
 //! « une heure trente » (→ « 1 h 30 »).
 //!
 //! No language is passed in: only French number words trigger anything, so
-//! English text goes through untouched. Some words are also English or plain
-//! French words: « cent » and « cents » alone (a coin) and « vingts » never
-//! start a number; a lone « six », « sept » or « neuf » stays in letters beside
-//! an English function word, or at the end of a clause unless a French word
-//! comes before it (« il y a six. » but « I will take six. », « un pull neuf »).
+//! English text goes through untouched. Words English shares with French
+//! (« six », « sept », « cent », « million ») stay in letters only with
+//! English around them: an English function word within three words in the
+//! same clause (« I will take six. »), or a singular « million » after a number
+//! (« six million dollars »). « cents » and « vingts » never start a number,
+//! and the adjective « neuf » stays in letters (« un pull neuf », « du neuf »,
+//! « tout neuf », « quoi de neuf ? »).
 //!
 //! The rolling dictation types text in passages, and a number must never be
 //! split between two of them. [`stable_prefix_len`] says how much of the text so
@@ -22,23 +24,26 @@
 //! held back, even a number a guard would reject now. For any text, normalising
 //! the stable prefix gives the start of normalising the whole.
 
-/// English words that mark an English sentence around a lone « six » or « sept ».
-/// None of them is a French word.
+/// English words that mark English around a number shared with French. None
+/// of them is a French word.
 const ENGLISH_WORDS: &[&str] = &[
     "the", "of", "and", "to", "is", "are", "was", "were", "with", "for", "you", "your", "we", "i",
     "it", "this", "that", "have", "has", "had", "in", "at", "by", "from", "my", "our", "his",
-    "her", "their", "about", "will", "would", "be", "been", "not", "or", "but", "than", "only",
-    "just", "over", "under", "more", "less", "last", "next", "all", "any", "some",
+    "her", "their", "about", "will", "would", "be", "been", "not", "but", "than", "only", "just",
+    "over", "under", "more", "less", "last", "next", "all", "any", "some", "one", "two", "three",
+    "four", "five", "eight", "nine", "ten", "twenty", "thirty", "forty", "fifty", "sixty",
+    "seventy", "eighty", "ninety", "hundred", "thousand",
 ];
 
-/// French words that, before a lone « six », « sept » or « neuf » ending a
-/// clause, say it is a number (« il y a six. »).
-const FRENCH_WORDS: &[&str] = &[
-    "le", "la", "les", "des", "au", "aux", "à", "a", "ai", "as", "avons", "avez", "ont", "est",
-    "sont", "y", "en", "et", "ou", "pour", "par", "sur", "dans", "avec", "plus", "moins", "que",
-    "qui", "ce", "cette", "ces", "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses",
-    "nous", "vous", "je", "tu", "il", "elle", "ils", "elles", "pas", "ne",
+/// Words around which a lone « neuf » is read as the number: articles, so that
+/// « un pull neuf » (article, noun, « neuf ») is the adjective.
+const ARTICLES: &[&str] = &[
+    "un", "une", "le", "la", "les", "des", "ce", "cette", "ces", "mon", "ma", "mes", "ton", "ta",
+    "tes", "son", "sa", "ses", "notre", "votre", "leur", "leurs",
 ];
+
+/// Tokens looked at on each side of a number shared with English.
+const ENGLISH_WINDOW: usize = 3;
 
 /// `text` with its spoken numbers in digits. Idempotent; spacing is kept.
 pub fn normalize(text: &str) -> String {
@@ -71,24 +76,30 @@ pub fn stable_prefix_len(text: &str) -> usize {
     let Some(last) = items.len().checked_sub(1) else {
         return text.len();
     };
-    let mut last_span: Option<Span> = None;
+    let mut spans: Vec<Span> = Vec::new();
     let mut i = 0;
     while i < items.len() {
         match span_at(&items, i, false) {
             Some(span) => {
                 i = span.end;
-                last_span = Some(span);
+                spans.push(span);
             }
             None => i += 1,
         }
     }
     let mut held: Option<usize> = None;
-    if let Some(span) = last_span {
+    // A number shared with English waits for the words that decide it.
+    for span in spans.iter().filter(|span| span.ambiguous && !span.closed) {
+        if !clause_window_is_complete(&items[span.end..]) {
+            held = Some(held.map_or(span.start, |h| h.min(span.start)));
+        }
+    }
+    if let Some(span) = spans.last() {
         let can_continue = !span.closed
             && (span.end == items.len()
                 || (span.end == last && is_continuer(&parse(&items[last].text))));
         if can_continue {
-            held = Some(span.start);
+            held = Some(held.map_or(span.start, |h| h.min(span.start)));
         }
     }
     let tail = parse(&items[last].text);
@@ -257,12 +268,14 @@ struct Acc {
     used_thousand: bool,
     zero: bool,
     atoms: usize,
-    /// Every atom so far is « six », « sept » or « cent »: English has them too.
+    /// Every atom so far is « six », « sept », « cent » or « million »: English has them too.
     only_shared: bool,
     /// The last atom was « quatre » (« quatre-vingt »).
     after_four: bool,
     /// The only atom so far is « un » or « une ».
     only_un: bool,
+    /// A singular « million » followed a number above one.
+    english: bool,
 }
 
 impl Acc {
@@ -279,6 +292,7 @@ impl Acc {
             only_shared: true,
             after_four: false,
             only_un: true,
+            english: false,
         }
     }
 
@@ -320,11 +334,14 @@ impl Acc {
             Atom::Small(v) => self.push_small(v),
             Atom::Hundred => self.push_hundred(),
             Atom::Thousand => self.push_thousand(),
-            Atom::Scale(scale) => self.push_scale(scale),
+            Atom::Scale(scale) => self.push_scale(scale, word.ends_with('s')),
         };
         if ok {
             self.atoms += 1;
-            self.only_shared &= matches!(word, "six" | "sept" | "cent" | "cents");
+            self.only_shared &= matches!(
+                word,
+                "six" | "sept" | "cent" | "cents" | "million" | "millions"
+            );
             self.only_un &= matches!(word, "un" | "une") && self.atoms == 1;
             self.after_four = is_four;
         }
@@ -378,8 +395,9 @@ impl Acc {
         true
     }
 
-    fn push_scale(&mut self, scale: u64) -> bool {
+    fn push_scale(&mut self, scale: u64, is_plural: bool) -> bool {
         let group = self.group();
+        self.english |= !is_plural && group > 1;
         if group == 0 || scale >= self.last_scale {
             return false;
         }
@@ -414,6 +432,8 @@ struct Number {
     only_shared: bool,
     /// The only word of a number made of words.
     lone: Option<String>,
+    /// A singular « million » after a number: English (« six million »).
+    english: bool,
 }
 
 /// The number that starts at item `start`, as long as the words allow.
@@ -483,6 +503,7 @@ fn number_at(items: &[Item], start: usize) -> Option<Number> {
         trail,
         only_shared: acc.only_shared,
         lone: (acc.atoms == 1).then_some(first_word),
+        english: acc.english,
     })
 }
 
@@ -503,6 +524,7 @@ fn digits_at(items: &[Item], start: usize) -> Option<Number> {
         trail: token.trail,
         only_shared: false,
         lone: None,
+        english: false,
     })
 }
 
@@ -519,6 +541,7 @@ fn une_at(items: &[Item], start: usize) -> Option<Number> {
             trail: String::new(),
             only_shared: false,
             lone: None,
+            english: false,
         })
 }
 
@@ -528,6 +551,8 @@ struct Span {
     text: String,
     /// The last token ends on punctuation: nothing can carry the number on.
     closed: bool,
+    /// Made of words English shares (« six »): English around it keeps it in letters.
+    ambiguous: bool,
 }
 
 /// The rewritten number, with the units it governs, that starts at `start`.
@@ -541,6 +566,16 @@ fn span_at(items: &[Item], start: usize, strict: bool) -> Option<Span> {
     let number = number_at(items, start)
         .or_else(|| digits_at(items, start))
         .or_else(|| une_at(items, start))?;
+    // « 10% », as Parakeet writes it.
+    if number.source == Source::Digits && number.trail.starts_with('%') {
+        return Some(Span {
+            start,
+            end: number.end,
+            text: format!("{} {}", number.shown, number.trail),
+            closed: true,
+            ambiguous: false,
+        });
+    }
     if number.trail.is_empty() {
         if let Some(span) = unit_span(items, start, &number, strict) {
             return Some(span);
@@ -554,6 +589,7 @@ fn span_at(items: &[Item], start: usize, strict: bool) -> Option<Span> {
         end: number.end,
         text: format!("{}{}", number.shown, number.trail),
         closed: !number.trail.is_empty(),
+        ambiguous: number.only_shared,
     })
 }
 
@@ -573,6 +609,7 @@ fn clock_at(items: &[Item], start: usize) -> Option<Span> {
         end: start + 1,
         text: format!("{}{hours} h {minutes}{}", token.lead, token.trail),
         closed: !token.trail.is_empty(),
+        ambiguous: false,
     })
 }
 
@@ -592,6 +629,7 @@ fn unit_span(items: &[Item], start: usize, number: &Number, strict: bool) -> Opt
                 end: number.end + 2,
                 text: format!("{} %{}", number.shown, b.trail),
                 closed: !b.trail.is_empty(),
+                ambiguous: false,
             });
         }
     }
@@ -619,6 +657,7 @@ fn unit_span(items: &[Item], start: usize, number: &Number, strict: bool) -> Opt
             items[number.end].text
         ),
         closed: !a.trail.is_empty(),
+        ambiguous: false,
     })
 }
 
@@ -650,6 +689,7 @@ fn hours_at(items: &[Item], start: usize, hours: &Number, word: &Parsed) -> Opti
                 end: minutes_at + 2,
                 text: format!("{} h {minutes:02}{}", hours.shown, fraction.trail),
                 closed: !fraction.trail.is_empty(),
+                ambiguous: false,
             });
         }
     }
@@ -665,53 +705,91 @@ fn hours_at(items: &[Item], start: usize, hours: &Number, word: &Parsed) -> Opti
         end: minutes.end,
         text: format!("{} h {:02}{}", hours.shown, minutes.value, minutes.trail),
         closed: !minutes.trail.is_empty(),
+        ambiguous: false,
     })
 }
 
-/// A number made of words that stays in letters: « cent » alone; a lone
-/// « six » or « sept » beside an English function word; a lone « six »,
-/// « sept » or « neuf » ending a clause with no French word before it, or
-/// « neuf » after « tout ».
+/// A number made of words that stays in letters: one with English around it
+/// when made of words English shares, a singular « million » after a number
+/// (English), and the adjective « neuf ».
 fn is_left_in_letters(items: &[Item], start: usize, number: &Number) -> bool {
-    let lone = number.lone.as_deref();
-    if lone == Some("cent") {
+    if number.english {
         return true;
     }
-    let before = start.checked_sub(1).and_then(|i| items.get(i));
-    let after = items.get(number.end);
-    if number.only_shared {
-        let is_english = |item: &Item| ENGLISH_WORDS.contains(&parse(&item.text).core.as_str());
-        if before.is_some_and(is_english)
-            || after
-                .filter(|_| number.trail.is_empty())
-                .is_some_and(is_english)
-        {
+    if number.only_shared && has_english_around(items, start, number) {
+        return true;
+    }
+    number.lone.as_deref() == Some("neuf") && is_adjective_neuf(items, start, number)
+}
+
+/// An English function word within [`ENGLISH_WINDOW`] tokens on either side,
+/// in the same clause (a token ending on punctuation closes it).
+fn has_english_around(items: &[Item], start: usize, number: &Number) -> bool {
+    let is_english = |token: &Parsed| ENGLISH_WORDS.contains(&token.core.as_str());
+    for item in items[..start].iter().rev().take(ENGLISH_WINDOW) {
+        let token = parse(&item.text);
+        // This token closes the previous clause: it is not ours.
+        if !token.trail.is_empty() || token.core.is_empty() {
+            break;
+        }
+        if is_english(&token) {
             return true;
         }
     }
-    if !matches!(lone, Some("six" | "sept" | "neuf")) {
+    if !number.trail.is_empty() {
         return false;
     }
-    let is_neuf = lone == Some("neuf");
-    let previous = before.map(|item| parse(&item.text).core);
-    if is_neuf
-        && matches!(
-            previous.as_deref(),
-            Some("tout" | "toute" | "tous" | "toutes")
-        )
-    {
+    for item in items[number.end..].iter().take(ENGLISH_WINDOW) {
+        let token = parse(&item.text);
+        if is_english(&token) {
+            return true;
+        }
+        if !token.trail.is_empty() || token.core.is_empty() {
+            break;
+        }
+    }
+    false
+}
+
+/// Whether the tokens after a number shared with English say all that
+/// [`has_english_around`] reads: [`ENGLISH_WINDOW`] of them, or the end of the
+/// clause.
+fn clause_window_is_complete(after: &[Item]) -> bool {
+    for (seen, item) in after.iter().take(ENGLISH_WINDOW).enumerate() {
+        let token = parse(&item.text);
+        if !token.trail.is_empty() || token.core.is_empty() {
+            return true;
+        }
+        if seen + 1 == ENGLISH_WINDOW {
+            return true;
+        }
+    }
+    false
+}
+
+/// « neuf » as an adjective, not the number: after « tout » or « du »; after
+/// « de » ending the clause (« quoi de neuf ? »); after a noun that an article
+/// comes before (« un pull neuf »).
+fn is_adjective_neuf(items: &[Item], start: usize, number: &Number) -> bool {
+    let word = |k: Option<usize>| k.and_then(|k| items.get(k)).map(|item| parse(&item.text));
+    let Some(previous) = word(start.checked_sub(1)) else {
+        return false;
+    };
+    let core = previous.core.as_str();
+    if matches!(core, "tout" | "toute" | "tous" | "toutes" | "du") {
         return true;
     }
-    let is_final =
-        !number.trail.is_empty() || after.is_none_or(|item| parse(&item.text).core.is_empty());
-    if !is_final {
-        return false;
+    if core == "de" {
+        return !number.trail.is_empty()
+            || items
+                .get(number.end)
+                .is_none_or(|item| parse(&item.text).core.is_empty());
     }
-    let is_french = previous.is_some_and(|word| {
-        FRENCH_WORDS.contains(&word.as_str())
-            || (!is_neuf && matches!(word.as_str(), "de" | "d" | "du"))
-    });
-    !is_french
+    let before_noun = word(start.checked_sub(2));
+    previous.trail.is_empty()
+        && !core.is_empty()
+        && !ARTICLES.contains(&core)
+        && before_noun.is_some_and(|token| ARTICLES.contains(&token.core.as_str()))
 }
 
 #[cfg(test)]
@@ -813,18 +891,61 @@ mod tests {
     }
 
     #[test]
-    fn the_guards_keep_english_and_plain_french_words_in_letters() {
-        assert_eq!(n("quoi de neuf ?"), "quoi de neuf ?");
-        assert_eq!(n("un pull neuf"), "un pull neuf");
-        assert_eq!(n("il est tout neuf"), "il est tout neuf");
+    fn a_number_shared_with_english_is_in_digits_unless_english_is_around() {
+        for (spoken, digits) in [
+            ("il en reste six.", "il en reste 6."),
+            ("j'en ai six.", "j'en ai 6."),
+            ("nous sommes six.", "nous sommes 6."),
+            ("ça fait neuf", "ça fait 9"),
+            ("ils sont neuf", "ils sont 9"),
+            ("six", "6"),
+            ("sept", "7"),
+            ("cent", "100"),
+            ("il y a cent personnes", "il y a 100 personnes"),
+            ("cent euros", "100 euros"),
+            ("cent vingt", "120"),
+            ("il en a six.", "il en a 6."),
+            (
+                "deux millions cinq cent mille personnes",
+                "2500000 personnes",
+            ),
+            ("six millions de dollars", "6000000 de dollars"),
+        ] {
+            assert_eq!(n(spoken), digits, "{spoken}");
+        }
+        for english in [
+            "six million dollars",
+            "I paid six million.",
+            "I paid six cents.",
+            "one cent",
+            "fifty cents",
+            "I will take six.",
+            "we paid six million dollars for it",
+        ] {
+            assert_eq!(n(english), english);
+        }
+    }
+
+    #[test]
+    fn the_adjective_neuf_stays_in_letters_the_number_does_not() {
+        for text in [
+            "quoi de neuf ?",
+            "un pull neuf",
+            "un pull neuf et un jean",
+            "du neuf et du vieux",
+            "il est tout neuf",
+            "elle a acheté une voiture neuf.",
+        ] {
+            assert_eq!(n(text), text, "{text}");
+        }
         assert_eq!(n("le neuf décembre"), "le 9 décembre");
         assert_eq!(n("neuf personnes"), "9 personnes");
         assert_eq!(n("à neuf heures"), "à 9 heures");
+        assert_eq!(n("ça fait neuf"), "ça fait 9");
+        assert_eq!(n("ils sont neuf"), "ils sont 9");
         assert_eq!(n("il y a neuf."), "il y a 9.");
-        assert_eq!(n("il en a six."), "il en a 6.");
-        assert_eq!(n("cent"), "cent");
-        assert_eq!(n("cent vingt"), "120");
-        assert_eq!(n("cent euros"), "cent euros");
+        assert_eq!(n("de neuf ans"), "de 9 ans");
+        assert_eq!(n("les neuf personnes"), "les 9 personnes");
     }
 
     #[test]
@@ -841,6 +962,8 @@ mod tests {
         assert_eq!(n("14 heures"), "14 heures");
         assert_eq!(n("à 14h30."), "à 14 h 30.");
         assert_eq!(n("10 pour cent"), "10 %");
+        assert_eq!(n("10% de plus"), "10 % de plus");
+        assert_eq!(n("de 10%."), "de 10 %.");
         assert_eq!(n("14 h 30"), "14 h 30");
     }
 
@@ -919,6 +1042,9 @@ mod tests {
             "mille et une nuits et deux millions cinq cent mille personnes",
             "quoi de neuf ? un pull neuf, tout neuf, le neuf décembre, neuf personnes, il y a neuf.",
             "j'ai quatorze heures",
+            "I paid six million. we paid six cents, one cent and 10% of it",
+            "il en reste six. ça fait neuf, un pull neuf et un jean, du neuf et du vieux",
+            "il y a cent personnes et six millions de dollars, I paid six million dollars",
         ] {
             let words: Vec<&str> = sentence.split(' ').collect();
             let block = normalize(sentence);
@@ -955,6 +1081,14 @@ mod tests {
         // A number a guard rejects now is held too: what follows may change it.
         assert_eq!(held("the cent"), "the");
         assert_eq!(held("I will take six"), "I will take");
+        // A number shared with English waits for three words or the clause end.
+        assert_eq!(held("il en reste six"), "il en reste");
+        assert_eq!(held("il en reste six tests"), "il en reste");
+        assert_eq!(
+            held("il en reste six tests de plus"),
+            "il en reste six tests de plus"
+        );
+        assert_eq!(held("il en reste six, et"), "il en reste six, et");
     }
 
     #[test]

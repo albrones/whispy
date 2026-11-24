@@ -458,6 +458,7 @@ impl Streamer {
     /// proper noun mid-sentence). Returns what the field gets now (see `release_typed`).
     fn commit_text(&mut self, text: &str, in_context: bool, flush: bool) -> String {
         let text = text.trim();
+        self.last_words = 0;
         if !text.is_empty() {
             let before = self.raw.trim_end();
             let continues = !before.is_empty() && !ends_a_sentence(before);
@@ -1099,6 +1100,15 @@ mod tests {
             format!("{first}{second}{rest}"),
             itn::normalize("the cent vingt ans")
         );
+    }
+
+    #[test]
+    fn a_commit_of_nothing_counts_no_words() {
+        let mut streamer = Streamer::new();
+        streamer.commit_text("à quatorze heures", false, false);
+        assert_eq!(streamer.last_words, 3);
+        streamer.commit_text("", false, false);
+        assert_eq!(streamer.last_words, 0);
     }
 
     #[test]
