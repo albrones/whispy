@@ -61,6 +61,10 @@ pub struct PassStats {
     pub committed_words: usize,
     /// The commit was cut mid-sentence (run-on or overflow).
     pub forced: bool,
+    /// Where the committed text's audio ends, in seconds since the stream
+    /// began (its last word's end, or the released audio's end when the text
+    /// has no timings); 0 when nothing was committed. The bench's commit delay.
+    pub audio_end_s: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -156,6 +160,7 @@ impl Streamer {
         };
         if !closed.is_empty() {
             stats.committed_words = closed.split_whitespace().count();
+            stats.audio_end_s = seconds(self.window_start);
             return Ok(Update {
                 typed: closed,
                 provisional: String::new(),
@@ -183,6 +188,7 @@ impl Streamer {
             stats.committed_words = text.split_whitespace().count();
             stats.forced = true;
             self.release(self.window.len());
+            stats.audio_end_s = seconds(self.window_start);
             self.previous.clear();
             return Ok(Update {
                 typed: self.commit_text(&text, true),
@@ -242,6 +248,7 @@ impl Streamer {
             None => hypothesis[i].end_s + TAIL_KEPT_S,
         }
         .clamp(0.0, window_s);
+        stats.audio_end_s = seconds(self.window_start) + hypothesis[i].end_s;
         self.release((cut_s * SAMPLE_RATE as f32) as usize);
         let mut rest = hypothesis.split_off(i + 1);
         for word in &mut rest {
@@ -528,6 +535,8 @@ mod tests {
         assert_eq!(second.provisional, "Pense");
         assert_eq!(second.stats.committed_words, 5);
         assert!(!second.stats.forced);
+        // « rapport. » ends 2.5 s into the stream.
+        assert!((second.stats.audio_end_s - 2.5).abs() < 1e-3);
         assert_eq!(streamer.committed(), "Je vais envoyer le rapport.");
 
         // The window restarts in the middle of the gap (2.5 .. 3.0): 2.75 s are released.
