@@ -153,6 +153,15 @@ sudo pacman -S portaudio         # Arch</code></pre></div>
 <p class="confirm">Run <code>make doctor</code> to confirm.</p>
 </details>
 </details>
+<details class="symptom" id="tray-icon" data-os="linux">
+<summary>Linux: Whispy does not start, or the tray icon does not show or crashes</summary>
+<p>Under X11 the tray icon is optional. If it cannot start, Whispy keeps running without it and posts one notification; errors then show as notifications.</p>
+<details class="cause" data-check="tray" data-os="linux">
+<summary>Tray icon</summary>
+<div class="fix" data-os="linux"><p>Run <code>whispy --doctor</code> to see whether the tray backend loads. To run without the tray, set <code>"tray_icon": false</code> in <code>~/.config/whispy/config.json</code> (see <a href="config.html#cfg-tray_icon"><code>tray_icon</code></a>), then run <code>systemctl --user restart whispy.service</code>. Dictation works the same; only the icon is gone. If Whispy crashes outright when the tray starts, this setting is the way out.</p></div>
+<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+</details>
+</details>
 </div>
 
 <p>Still stuck? Read <code>~/.whispy.log</code> and <code>~/.whispy-error.log</code>, or <a href="https://github.com/albrones/whispy/issues">open an issue</a>.</p>

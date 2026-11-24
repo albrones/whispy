@@ -19,7 +19,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from .core.config import get_default_config_path
+from .core.config import get_default_config_path, read_config
 from .platform.linux.session import is_wayland_session
 
 OK = "ok"
@@ -90,6 +90,29 @@ def check_display() -> CheckResult:
     if not display:
         return CheckResult("X11 session", FAIL, "DISPLAY is not set — no X server to capture the trigger key")
     return CheckResult("X11 session", OK, f"DISPLAY={display}")
+
+
+@check("tray", "tray icon", ("linux",))
+def check_tray() -> CheckResult:
+    """The X11 tray icon is optional: a broken one is a warning, never a failure."""
+    if sys.platform != "linux":
+        return CheckResult("tray icon", OK, "not required on this platform")
+    if is_wayland_session():
+        return CheckResult("tray icon", OK, "Wayland: no tray, errors show as notifications")
+    if not read_config(get_default_config_path()).get("tray_icon", True):
+        return CheckResult("tray icon", OK, "off in config — dictation runs without it")
+    try:
+        import pystray
+
+        backend = pystray.Icon.__module__
+    except Exception as exc:
+        return CheckResult(
+            "tray icon",
+            WARN,
+            f'pystray unavailable ({exc}) — Whispy runs without the tray; set "tray_icon": false '
+            "in ~/.config/whispy/config.json to silence this",
+        )
+    return CheckResult("tray icon", OK, f"pystray ({backend})")
 
 
 def _check_binary(binary: str, install_hint: str) -> CheckResult:

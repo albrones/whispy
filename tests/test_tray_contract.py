@@ -6,6 +6,7 @@
 path -- died on an AttributeError inside the signal handler.
 """
 
+import threading
 from pathlib import Path
 
 from whispy.platform.ports import TrayUI
@@ -44,6 +45,8 @@ def test_quitting_the_linux_tray_stops_the_icon(mocker):
 
     app = PystrayApp.__new__(PystrayApp)
     app._icon = mocker.MagicMock()
+    app._fallback = None
+    app._quit_requested = threading.Event()
 
     app.quit()
 
@@ -55,5 +58,7 @@ def test_quitting_before_the_icon_exists_is_a_no_op():
 
     app = PystrayApp.__new__(PystrayApp)
     app._icon = None
+    app._fallback = None
+    app._quit_requested = threading.Event()
 
     app.quit()  # SIGTERM can arrive before run() built the icon

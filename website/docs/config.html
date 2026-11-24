@@ -69,6 +69,7 @@
 <tbody>
 <tr class="group-row"><th colspan="4" scope="colgroup">Startup</th></tr>
 <tr id="cfg-start_at_login"><td><code>start_at_login</code></td><td><code>false</code></td><td>true / false</td><td>Start Whispy automatically when you log in (macOS app only).</td></tr>
+<tr id="cfg-tray_icon"><td><code>tray_icon</code></td><td><code>true</code></td><td>true / false</td><td>On Linux under X11, show Whispy&#x27;s icon in the system tray; turn it off if the tray does not work on your desktop — dictation keeps working and errors show as notifications.</td></tr>
 </tbody>
 <tbody>
 <tr class="group-row"><th colspan="4" scope="colgroup">Recording</th></tr>
@@ -119,6 +120,19 @@
     "default": false,
     "kind": "bool",
     "description": "Start Whispy automatically when you log in (macOS app only).",
+    "group": "Startup",
+    "ge": null,
+    "gt": null,
+    "le": null,
+    "gt_key": null,
+    "choices": null,
+    "unit": null,
+    "step": null
+  },
+  "tray_icon": {
+    "default": true,
+    "kind": "bool",
+    "description": "On Linux under X11, show Whispy's icon in the system tray; turn it off if the tray does not work on your desktop — dictation keeps working and errors show as notifications.",
     "group": "Startup",
     "ge": null,
     "gt": null,

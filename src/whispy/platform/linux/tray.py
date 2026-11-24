@@ -8,12 +8,21 @@ regardless of overlay presence.
 
 pystray/Pillow are imported lazily inside ``run`` so importing this module never
 requires the Linux GUI stack to be installed.
+
+The tray must never block dictation: if it cannot start (no pystray backend, no
+X display, a GTK error...), ``PystrayApp.run`` logs the reason, posts one
+desktop notification and falls back to ``NotificationOnlyTray``. Setting
+``"tray_icon": false`` in the config skips the tray entirely.
 """
 
 from __future__ import annotations
 
+import logging
 import sys
+import threading
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Tray colours by state: idle (grey), recording (red), busy/loading (amber).
 _IDLE_RGB = (120, 120, 120)
@@ -27,6 +36,8 @@ class PystrayApp:
     def __init__(self, engine: Any) -> None:
         self.engine = engine
         self._icon = None
+        self._fallback: NotificationOnlyTray | None = None
+        self._quit_requested = threading.Event()
         self._pystray = None
         self._Image = None
 
@@ -121,13 +132,28 @@ class PystrayApp:
         update path (`systemctl --user restart whispy`). Without it the handler
         raised AttributeError and the process died on a traceback.
         """
+        self._quit_requested.set()
         if self._icon is not None:
             self._icon.stop()
+        if self._fallback is not None:
+            self._fallback.quit()
 
     # -- Lifecycle ---------------------------------------------------------
 
     def run(self) -> None:
-        """Build the tray icon and run the pystray loop (blocks)."""
+        """Build the tray icon and run the pystray loop (blocks).
+
+        If the tray cannot start, keep the daemon alive in notification-only
+        mode instead of raising. This only catches Python exceptions: a
+        segfault inside GTK/appindicator kills the process, which is what the
+        ``"tray_icon": false`` config opt-out is for.
+        """
+        try:
+            self._run_icon()
+        except Exception as exc:
+            self._fall_back(exc)
+
+    def _run_icon(self) -> None:
         import pystray
         from PIL import Image
 
@@ -151,6 +177,24 @@ class PystrayApp:
         )
         self._icon = pystray.Icon("whispy", self._make_image(), "Whispy", menu)
         self._icon.run()
+
+    def _fall_back(self, exc: Exception) -> None:
+        """The tray failed to start: warn once, then run notification-only."""
+        self._icon = None
+        logger.warning(
+            'Tray icon unavailable (%s: %s); dictation keeps working. Set "tray_icon": false in '
+            "~/.config/whispy/config.json to silence this.",
+            type(exc).__name__,
+            exc,
+        )
+        post_desktop_notification(
+            "Whispy: no tray icon",
+            f"Dictation still works; errors will show as notifications. Tray failed: {type(exc).__name__}.",
+        )
+        self._fallback = NotificationOnlyTray(self.engine)
+        if self._quit_requested.is_set():
+            return
+        self._fallback.run()
 
 
 def post_desktop_notification(title: str, body: str) -> None:
@@ -178,11 +222,12 @@ class NotificationOnlyTray:
     already gives the user the start/stop feedback, so this surface only has to
     keep the daemon's main thread alive and report what would otherwise fail
     unseen.
+
+    X11 uses it too, in two cases: ``"tray_icon": false`` in the config, and as
+    the automatic fallback when ``PystrayApp`` cannot start its tray icon.
     """
 
     def __init__(self, engine: Any) -> None:
-        import threading
-
         self.engine = engine
         self._stopped = threading.Event()
         engine.on_recording_limit_reached(lambda message: post_desktop_notification("Whispy", message))

@@ -88,6 +88,19 @@ CONFIG_SCHEMA: dict[str, ConfigKey] = {
         group="Startup",
         description="Start Whispy automatically when you log in (macOS app only).",
     ),
+    # Linux X11 only: whether the pystray tray icon is started. Wayland never has
+    # a tray, and macOS ignores it (the menu bar is the only way to reach
+    # settings there). Turn it off when the tray backend is broken: dictation
+    # keeps working and errors show as desktop notifications.
+    "tray_icon": ConfigKey(
+        default=True,
+        kind="bool",
+        group="Startup",
+        description=(
+            "On Linux under X11, show Whispy's icon in the system tray; turn it off if the tray does not work "
+            "on your desktop \u2014 dictation keeps working and errors show as notifications."
+        ),
+    ),
     "min_recording_duration": ConfigKey(
         default=0.3,
         kind="number",

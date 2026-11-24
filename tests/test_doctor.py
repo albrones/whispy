@@ -1,5 +1,6 @@
 """Tests for the `whispy doctor` environment diagnostic."""
 
+import sys
 import urllib.error
 
 from whispy import doctor
@@ -204,7 +205,7 @@ class TestDoctorOnLinux:
 
 class TestCheckMetadata:
     def test_static_metadata_without_running_checks(self):
-        assert len(doctor.CHECKS) == 9
+        assert len(doctor.CHECKS) == 10
         ids = [c.check_id for c in doctor.CHECKS]
         assert len(set(ids)) == len(ids)
         for c in doctor.CHECKS:
@@ -212,3 +213,38 @@ class TestCheckMetadata:
             assert c.check_name
             assert isinstance(c.platforms, tuple) and c.platforms
             assert set(c.platforms) <= {"macos", "linux"}
+
+
+class TestTrayCheck:
+    def _linux(self, mocker, env, config=None):
+        mocker.patch("whispy.doctor.sys.platform", "linux")
+        mocker.patch.dict(doctor.os.environ, env, clear=True)
+        mocker.patch("whispy.doctor.read_config", return_value=config or {})
+
+    def test_wayland_has_no_tray(self, mocker):
+        self._linux(mocker, {"XDG_SESSION_TYPE": "wayland"})
+        result = doctor.check_tray()
+        assert result.status == OK
+        assert "Wayland" in result.detail
+
+    def test_off_in_config_is_ok(self, mocker):
+        self._linux(mocker, {"DISPLAY": ":0"}, {"tray_icon": False})
+        result = doctor.check_tray()
+        assert result.status == OK
+        assert "off in config" in result.detail
+
+    def test_broken_pystray_warns_with_the_remedy(self, mocker, monkeypatch):
+        self._linux(mocker, {"DISPLAY": ":0"})
+        monkeypatch.setitem(sys.modules, "pystray", None)
+        result = doctor.check_tray()
+        assert result.status == WARN
+        assert '"tray_icon": false' in result.detail
+
+    def test_working_pystray_names_the_backend(self, mocker, monkeypatch):
+        self._linux(mocker, {"DISPLAY": ":0"})
+        fake = mocker.Mock()
+        fake.Icon.__module__ = "pystray._xorg"
+        monkeypatch.setitem(sys.modules, "pystray", fake)
+        result = doctor.check_tray()
+        assert result.status == OK
+        assert "pystray._xorg" in result.detail

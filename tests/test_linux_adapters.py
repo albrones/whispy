@@ -163,6 +163,22 @@ class TestWaylandAdapterSelection:
         assert isinstance(adapters.make_text_injector(), XdotoolInjector)
         assert isinstance(adapters.make_tray(mocker.Mock()), tray.PystrayApp)
 
+    def test_x11_tray_icon_off_in_config_uses_notification_only(self, mocker):
+        from whispy.platform.linux import tray
+
+        adapters = self._adapters(mocker, wayland=False)
+        engine = mocker.Mock()
+        engine.state.config = {"tray_icon": False}
+        assert isinstance(adapters.make_tray(engine), tray.NotificationOnlyTray)
+
+    def test_x11_tray_icon_default_keeps_pystray(self, mocker):
+        from whispy.platform.linux import tray
+
+        adapters = self._adapters(mocker, wayland=False)
+        engine = mocker.Mock()
+        engine.state.config = {}
+        assert isinstance(adapters.make_tray(engine), tray.PystrayApp)
+
 
 class TestWtypeInjector:
     def _injector(self, mocker, copy_to_clipboard, tools=("wtype", "wl-copy")):
@@ -356,3 +372,66 @@ class TestPynputCombinationTrigger:
         listener._held_modifiers = frozenset({"ctrl"})  # simulate a missed release
         listener.start()
         assert listener._held_modifiers == frozenset()
+
+
+class TestPystrayFallback:
+    """The tray must never block dictation: a tray that cannot start degrades to notifications."""
+
+    def _run_with_quit(self, app, timeout=3.0):
+        timer = threading.Timer(0.2, app.quit)
+        timer.start()
+        runner = threading.Thread(target=app.run, daemon=True)
+        runner.start()
+        runner.join(timeout=timeout)
+        timer.cancel()
+        return runner
+
+    def test_missing_pystray_falls_back_and_quit_ends_run(self, mocker, monkeypatch):
+        from whispy.platform.linux import tray
+
+        monkeypatch.setitem(sys.modules, "pystray", None)
+        notify = mocker.patch.object(tray, "post_desktop_notification")
+        engine = mocker.Mock()
+        app = tray.PystrayApp(engine)
+        runner = self._run_with_quit(app)
+        assert not runner.is_alive()
+        assert notify.call_count == 1
+        assert notify.call_args.args[0] == "Whispy: no tray icon"
+        # The fallback registered the notification callbacks.
+        engine.on_capture_failed.assert_called_once()
+
+    def test_icon_run_raising_falls_back(self, mocker, monkeypatch):
+        from whispy.platform.linux import tray
+
+        fake_pystray = mocker.Mock()
+        fake_pystray.Icon.return_value.run.side_effect = RuntimeError("no backend")
+        fake_pil = mocker.Mock()
+        monkeypatch.setitem(sys.modules, "pystray", fake_pystray)
+        monkeypatch.setitem(sys.modules, "PIL", fake_pil)
+        monkeypatch.setitem(sys.modules, "PIL.Image", fake_pil.Image)
+        monkeypatch.setitem(sys.modules, "PIL.ImageDraw", fake_pil.ImageDraw)
+        notify = mocker.patch.object(tray, "post_desktop_notification")
+        app = tray.PystrayApp(mocker.Mock())
+        runner = self._run_with_quit(app)
+        assert not runner.is_alive()
+        assert notify.call_count == 1
+        assert "RuntimeError" in notify.call_args.args[1]
+
+    def test_icon_run_returning_normally_returns_without_fallback(self, mocker, monkeypatch):
+        from whispy.platform.linux import tray
+
+        fake_pystray = mocker.Mock()
+        fake_pil = mocker.Mock()
+        monkeypatch.setitem(sys.modules, "pystray", fake_pystray)
+        monkeypatch.setitem(sys.modules, "PIL", fake_pil)
+        monkeypatch.setitem(sys.modules, "PIL.Image", fake_pil.Image)
+        monkeypatch.setitem(sys.modules, "PIL.ImageDraw", fake_pil.ImageDraw)
+        notify = mocker.patch.object(tray, "post_desktop_notification")
+        app = tray.PystrayApp(mocker.Mock())
+        app.run()
+        notify.assert_not_called()
+
+    def test_quit_before_run_does_not_raise(self, mocker):
+        from whispy.platform.linux import tray
+
+        tray.PystrayApp(mocker.Mock()).quit()
