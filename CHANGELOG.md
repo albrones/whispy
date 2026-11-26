@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-11-26
+
+### Features
+
+- **v2-linux:** whispy2 sous X11 et Wayland (1/3) (#59)
+
 ## [2.1.0] — 2026-11-26
 
 ### Added
