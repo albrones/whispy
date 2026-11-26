@@ -1,6 +1,7 @@
 //! The default input device, opened for each dictation (like V1), so a
 //! microphone plugged in or chosen since the last one is the one used, and
-//! macOS shows its recording indicator only while dictating.
+//! the system shows its recording indicator only while dictating. cpal: CoreAudio
+//! on macOS, ALSA on Linux (PipeWire and PulseAudio answer through it).
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;

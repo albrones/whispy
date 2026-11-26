@@ -390,6 +390,20 @@ impl Alert {
         Alert::new("Dictation stopped", message.to_string(), None)
     }
 
+    /// Linux: the trigger key cannot be listened to; `message` says why and what still works.
+    pub fn trigger_key_unavailable(message: &str) -> Alert {
+        Alert::new("Trigger key unavailable", message.to_string(), None)
+    }
+
+    /// Linux: the tray icon could not start; Whispy runs on without it.
+    pub fn tray_unavailable(reason: &str) -> Alert {
+        Alert::new(
+            "Tray icon unavailable",
+            format!("Whispy keeps running without its icon ({reason}). Notifications tell you what goes wrong."),
+            None,
+        )
+    }
+
     pub fn model_still_loading() -> Alert {
         Alert::new(
             "Model still loading",

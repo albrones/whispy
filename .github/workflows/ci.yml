@@ -108,6 +108,30 @@ jobs:
       - name: Clippy
         run: cargo clippy --release --locked --all-targets -- -D warnings
 
+  # Whispy V2 under Linux: the app (`whispy2`, its X11/Wayland layer) and the
+  # core. The bench (`banc`) measures macOS memory and is not built here.
+  v2-linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake clang libclang-dev pkg-config libasound2-dev libxkbcommon-dev
+
+      - name: Toolchain
+        run: rustup update stable && rustup default stable && rustup component add clippy
+
+      - name: Cargo test
+        run: cargo test --release --locked -p whispy2 -p whispy-core
+
+      - name: Clippy
+        run: cargo clippy --release --locked -p whispy2 -p whispy-core --all-targets -- -D warnings
+
   test-linux:
     runs-on: ubuntu-latest
     strategy:

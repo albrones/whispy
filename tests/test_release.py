@@ -39,7 +39,7 @@ def _git(root: Path, *args: str) -> str:
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A checkout shaped like Whispy's, tagged v2.0.0."""
-    for rel in ("v2/whispy2", "website"):
+    for rel in ("v2/whispy2", "website", "packaging/macos"):
         (tmp_path / rel).mkdir(parents=True)
     (tmp_path / "v2/whispy2/Cargo.toml").write_text(
         '[package]\nname = "whispy2"\nversion = "2.0.0"\nedition = "2021"\n'
@@ -48,6 +48,7 @@ def repo(tmp_path: Path) -> Path:
         '[[package]]\nname = "whispy-core"\nversion = "0.1.0"\n\n[[package]]\nname = "whispy2"\nversion = "2.0.0"\n'
     )
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "whispy"\nversion = "2.0.0"\n')
+    (tmp_path / "packaging/macos/setup_app.py").write_text('APP_NAME = "Whispy"\nVERSION = "2.0.0"\n')
     (tmp_path / "website/index.html").write_text('<div class="dd-header">Whispy 2.0.0 · voice dictation</div>\n')
     (tmp_path / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\n### Added\n- Hand-written note.\n\n## [2.0.0] — 2026-10-06\n\nOld.\n"

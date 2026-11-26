@@ -66,7 +66,10 @@ def test_ci_workflow_does_not_install_sox(ci_workflow: str):
     # their clips with numpy for exactly this reason.
     assert "command -v sox" not in ci_workflow
     assert "brew install sox" not in ci_workflow
-    assert "apt-get install" not in ci_workflow or "sox" not in ci_workflow
+    # A job may install other system libraries (the V2 Linux job needs ALSA and
+    # xkbcommon headers); no apt-get line may install sox.
+    install_lines = [line for line in ci_workflow.splitlines() if "apt-get install" in line]
+    assert not any(re.search(r"\bsox\b", line) for line in install_lines)
 
 
 def test_real_seam_job_excludes_the_tts_module(ci_workflow: str):

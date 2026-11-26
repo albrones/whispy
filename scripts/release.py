@@ -129,6 +129,7 @@ VERSION_SITES: list[tuple[str, re.Pattern[str]]] = [
     ("v2/whispy2/Cargo.toml", re.compile(r'^\[package\]\nname = "whispy2"\nversion = "([^"]+)"', re.MULTILINE)),
     ("v2/Cargo.lock", re.compile(r'^name = "whispy2"\nversion = "([^"]+)"', re.MULTILINE)),
     ("pyproject.toml", re.compile(r'^version = "([^"]+)"', re.MULTILINE)),
+    ("packaging/macos/setup_app.py", re.compile(r'^VERSION = "([^"]+)"', re.MULTILINE)),
     ("website/index.html", re.compile(r'<div class="dd-header">Whispy (\S+) · voice dictation</div>')),
 ]
 
