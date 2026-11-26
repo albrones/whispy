@@ -24,6 +24,8 @@
 //! held back, even a number a guard would reject now. For any text, normalising
 //! the stable prefix gives the start of normalising the whole.
 
+use std::cell::Cell;
+
 /// English words that mark English around a number shared with French. None
 /// of them is a French word.
 const ENGLISH_WORDS: &[&str] = &[
@@ -47,20 +49,21 @@ const ENGLISH_WINDOW: usize = 3;
 
 /// `text` with its spoken numbers in digits. Idempotent; spacing is kept.
 pub fn normalize(text: &str) -> String {
-    let items = items(text);
+    let list = items(text);
+    let items = Items::new(&list);
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
-    while i < items.len() {
-        if let Some(separator) = items[i].before {
+    while let Some(item) = list.get(i) {
+        if let Some(separator) = item.before {
             out.push(separator);
         }
-        match span_at(&items, i, true) {
+        match span_at(&items, i) {
             Some(span) => {
                 out.push_str(&span.text);
                 i = span.end;
             }
             None => {
-                out.push_str(&items[i].text);
+                out.push_str(&item.text);
                 i += 1;
             }
         }
@@ -71,73 +74,69 @@ pub fn normalize(text: &str) -> String {
 /// Bytes of `text` (a whole-token prefix, without its trailing separator) that
 /// can be typed for good: what remains after it is a number being spoken, or a
 /// word that may continue one. `text.len()` when nothing is held.
+///
+/// [`normalize`] reads the text left to right, deciding at each token whether a
+/// number starts there and how far it goes. A decision is final when every
+/// token it looked at is known: the words after the text cannot change it. The
+/// prefix stops before the first decision that looked past what is known, and
+/// on a boundary no earlier decision looked beyond, so normalising it reads it
+/// the same way as normalising the whole.
 pub fn stable_prefix_len(text: &str) -> usize {
-    let items = items(text);
-    let Some(last) = items.len().checked_sub(1) else {
-        return text.len();
+    let list = items(text);
+    // The last token may still grow: « quatre-vingt » then « -dix ».
+    let known = match list.last() {
+        Some(last) if is_number_token(&last.text, false) => list.len() - 1,
+        _ => list.len(),
     };
-    let mut spans: Vec<Span> = Vec::new();
-    let mut i = 0;
-    while i < items.len() {
-        match span_at(&items, i, false) {
-            Some(span) => {
-                i = span.end;
-                spans.push(span);
-            }
-            None => i += 1,
+    let items = Items::new(&list);
+    let (mut i, mut reach, mut cut) = (0, 0, 0);
+    while i < known {
+        items.reach.set(i);
+        let end = span_at(&items, i).map_or(i + 1, |span| span.end);
+        reach = reach.max(items.reach.get());
+        if reach >= known {
+            break;
+        }
+        i = end;
+        if reach < i {
+            cut = i;
         }
     }
-    let mut held: Option<usize> = None;
-    // A number shared with English waits for the words that decide it.
-    for span in spans.iter().filter(|span| span.ambiguous && !span.closed) {
-        if !clause_window_is_complete(&items[span.end..]) {
-            held = Some(held.map_or(span.start, |h| h.min(span.start)));
-        }
-    }
-    if let Some(span) = spans.last() {
-        let can_continue = !span.closed
-            && (span.end == items.len()
-                || (span.end == last && is_continuer(&parse(&items[last].text))));
-        if can_continue {
-            held = Some(held.map_or(span.start, |h| h.min(span.start)));
-        }
-    }
-    let tail = parse(&items[last].text);
-    if tail.trail.is_empty() && tail.lead.is_empty() {
-        // A lone « un » / « une » may be the hour of « une heure trente »;
-        // digits may be followed by « heures » or « pour cent ».
-        let after_digits = last
-            .checked_sub(1)
-            .is_some_and(|k| digits_at(&items, k).is_some_and(|d| d.trail.is_empty()));
-        let is_digits = digits_at(&items, last).is_some();
-        if is_digits
-            || matches!(tail.core.as_str(), "un" | "une")
-            || (tail.core == "pour" && after_digits)
-        {
-            let from = if tail.core == "pour" { last - 1 } else { last };
-            held = Some(held.map_or(from, |h| h.min(from)));
-        }
-    }
-    // A number shared with English whose window reaches the held zone would
-    // be read without those words in the typed prefix: hold it too, and any
-    // number whose window reaches it in turn.
-    if let Some(mut h) = held {
-        while let Some(span) = spans.iter().find(|span| {
-            span.ambiguous && !span.closed && span.start < h && window_reaches(&items, span.end, h)
-        }) {
-            h = span.start;
-        }
-        held = Some(h);
-    }
-    match held {
-        Some(h) => items[h].start - items[h].before.map_or(0, char::len_utf8),
+    match list.get(cut) {
+        Some(item) => item.start - item.before.map_or(0, char::len_utf8),
         None => text.len(),
     }
 }
 
-/// A word that, after a number, may start what the number is part of.
-fn is_continuer(token: &Parsed) -> bool {
-    token.lead.is_empty() && token.trail.is_empty() && matches!(token.core.as_str(), "et" | "pour")
+/// The items of a text, as the decisions of [`normalize`] read them: it keeps
+/// the highest index looked at, past the end included.
+struct Items<'a> {
+    list: &'a [Item],
+    reach: Cell<usize>,
+}
+
+impl<'a> Items<'a> {
+    fn new(list: &'a [Item]) -> Items<'a> {
+        Items {
+            list,
+            reach: Cell::new(0),
+        }
+    }
+
+    fn get(&self, k: usize) -> Option<&'a Item> {
+        self.reach.set(self.reach.get().max(k));
+        self.list.get(k)
+    }
+
+    fn word(&self, k: usize) -> Option<Parsed> {
+        self.get(k).map(|item| parse(&item.text))
+    }
+
+    /// The items before `k`, nearest first. Looking back reads only tokens
+    /// already decided, so it is not recorded.
+    fn before(&self, k: usize) -> impl Iterator<Item = &'a Item> {
+        self.list[..k].iter().rev()
+    }
 }
 
 struct Item {
@@ -448,22 +447,20 @@ struct Number {
 }
 
 /// The number that starts at item `start`, as long as the words allow.
-fn number_at(items: &[Item], start: usize) -> Option<Number> {
+fn number_at(items: &Items, start: usize) -> Option<Number> {
     let mut acc = Acc::new();
     let (mut end, mut k) = (start, start);
     let (mut lead, mut trail) = (String::new(), String::new());
     let mut first_word = String::new();
-    while k < items.len() {
-        let token = parse(&items[k].text);
+    while let Some(token) = items.word(k) {
         if token.core.is_empty() || (k > start && !token.lead.is_empty()) {
             break;
         }
         if token.core == "et" {
             // « vingt et un »: the « et » only counts with the word after it.
-            let next = items.get(k + 1).map(|item| parse(&item.text));
             let fits = k > start
                 && token.trail.is_empty()
-                && next.is_some_and(|next| {
+                && items.word(k + 1).is_some_and(|next| {
                     next.lead.is_empty()
                         && acc.can_et(next.core.split('-').next().unwrap_or_default())
                 });
@@ -519,8 +516,8 @@ fn number_at(items: &[Item], start: usize) -> Option<Number> {
 }
 
 /// Digits the engine wrote (« 14 »), as a number for the units after it.
-fn digits_at(items: &[Item], start: usize) -> Option<Number> {
-    let token = parse(&items.get(start)?.text);
+fn digits_at(items: &Items, start: usize) -> Option<Number> {
+    let token = items.word(start)?;
     if token.core.is_empty()
         || token.core.len() > 9
         || !token.core.bytes().all(|b| b.is_ascii_digit())
@@ -540,37 +537,32 @@ fn digits_at(items: &[Item], start: usize) -> Option<Number> {
 }
 
 /// « une » before « heure » (« une heure trente »).
-fn une_at(items: &[Item], start: usize) -> Option<Number> {
-    let token = parse(&items.get(start)?.text);
-    let next = parse(&items.get(start + 1)?.text);
-    (token.core == "une" && token.trail.is_empty() && next.lead.is_empty() && is_hours(&next.core))
-        .then(|| Number {
-            source: Source::Une,
-            end: start + 1,
-            value: 1,
-            shown: format!("{}1", token.lead),
-            trail: String::new(),
-            only_shared: false,
-            lone: None,
-            english: false,
-        })
+fn une_at(items: &Items, start: usize) -> Option<Number> {
+    let token = items.word(start)?;
+    if token.core != "une" || !token.trail.is_empty() {
+        return None;
+    }
+    let next = items.word(start + 1)?;
+    (next.lead.is_empty() && is_hours(&next.core)).then(|| Number {
+        source: Source::Une,
+        end: start + 1,
+        value: 1,
+        shown: format!("{}1", token.lead),
+        trail: String::new(),
+        only_shared: false,
+        lone: None,
+        english: false,
+    })
 }
 
+/// A rewritten number: items `start..end` become `text`.
 struct Span {
-    start: usize,
     end: usize,
     text: String,
-    /// The last token ends on punctuation: nothing can carry the number on.
-    closed: bool,
-    /// Made of words English shares (« six »): English around it keeps it in letters.
-    ambiguous: bool,
 }
 
 /// The rewritten number, with the units it governs, that starts at `start`.
-/// Not `strict`, the guards that leave a number in letters are off and a
-/// number that only gets digits when something follows is still a span: that
-/// is what [`stable_prefix_len`] holds back.
-fn span_at(items: &[Item], start: usize, strict: bool) -> Option<Span> {
+fn span_at(items: &Items, start: usize) -> Option<Span> {
     if let Some(span) = clock_at(items, start) {
         return Some(span);
     }
@@ -580,33 +572,27 @@ fn span_at(items: &[Item], start: usize, strict: bool) -> Option<Span> {
     // « 10% », as Parakeet writes it.
     if number.source == Source::Digits && number.trail.starts_with('%') {
         return Some(Span {
-            start,
             end: number.end,
             text: format!("{} {}", number.shown, number.trail),
-            closed: true,
-            ambiguous: false,
         });
     }
     if number.trail.is_empty() {
-        if let Some(span) = unit_span(items, start, &number, strict) {
+        if let Some(span) = unit_span(items, &number) {
             return Some(span);
         }
     }
-    if number.source != Source::Words || (strict && is_left_in_letters(items, start, &number)) {
+    if number.source != Source::Words || is_left_in_letters(items, start, &number) {
         return None;
     }
     Some(Span {
-        start,
         end: number.end,
         text: format!("{}{}", number.shown, number.trail),
-        closed: !number.trail.is_empty(),
-        ambiguous: number.only_shared,
     })
 }
 
 /// « 14h30 », as Parakeet writes it.
-fn clock_at(items: &[Item], start: usize) -> Option<Span> {
-    let token = parse(&items.get(start)?.text);
+fn clock_at(items: &Items, start: usize) -> Option<Span> {
+    let token = items.word(start)?;
     let (hours, minutes) = token.core.split_once('h')?;
     let digits = |s: &str, n: usize| s.len() <= n && s.bytes().all(|b| b.is_ascii_digit());
     if hours.is_empty() || minutes.len() != 2 || !digits(hours, 2) || !digits(minutes, 2) {
@@ -616,59 +602,39 @@ fn clock_at(items: &[Item], start: usize) -> Option<Span> {
         return None;
     }
     Some(Span {
-        start,
         end: start + 1,
         text: format!("{}{hours} h {minutes}{}", token.lead, token.trail),
-        closed: !token.trail.is_empty(),
-        ambiguous: false,
     })
 }
 
 /// « pour cent » and « heures » after a number.
-fn unit_span(items: &[Item], start: usize, number: &Number, strict: bool) -> Option<Span> {
-    let after = |offset: usize| items.get(number.end + offset).map(|item| parse(&item.text));
-    let (first, second) = (after(0), after(1));
+fn unit_span(items: &Items, number: &Number) -> Option<Span> {
+    let first = items.word(number.end)?;
     // « dix pour cent ».
-    if let (Some(a), Some(b)) = (&first, &second) {
-        if number.source != Source::Une
-            && is_bare(a, "pour")
-            && b.lead.is_empty()
-            && b.core == "cent"
-        {
-            return Some(Span {
-                start,
-                end: number.end + 2,
-                text: format!("{} %{}", number.shown, b.trail),
-                closed: !b.trail.is_empty(),
-                ambiguous: false,
-            });
+    if number.source != Source::Une && is_bare(&first, "pour") {
+        if let Some(b) = items.word(number.end + 1) {
+            if b.lead.is_empty() && b.core == "cent" {
+                return Some(Span {
+                    end: number.end + 2,
+                    text: format!("{} %{}", number.shown, b.trail),
+                });
+            }
         }
     }
     // « quatorze heures trente ».
-    let a = first.filter(|a| a.lead.is_empty() && is_hours(&a.core))?;
-    if number.value > 24 {
+    if !first.lead.is_empty() || !is_hours(&first.core) || number.value > 24 {
         return None;
     }
-    if let Some(span) = hours_at(items, start, number, &a) {
+    if let Some(span) = hours_at(items, number, &first) {
         return Some(span);
     }
-    if number.source == Source::Une && strict {
+    // « une heure » without minutes stays in letters.
+    if number.source == Source::Une {
         return None;
     }
     Some(Span {
-        start,
         end: number.end + 1,
-        text: format!(
-            "{} {}",
-            if number.source == Source::Une {
-                items[start].text.clone()
-            } else {
-                number.shown.clone()
-            },
-            items[number.end].text
-        ),
-        closed: !a.trail.is_empty(),
-        ambiguous: false,
+        text: format!("{} {}", number.shown, items.get(number.end)?.text),
     })
 }
 
@@ -681,49 +647,48 @@ fn is_hours(word: &str) -> bool {
 }
 
 /// « quatorze heures » followed by minutes: « 14 h 30 ».
-fn hours_at(items: &[Item], start: usize, hours: &Number, word: &Parsed) -> Option<Span> {
+fn hours_at(items: &Items, hours: &Number, word: &Parsed) -> Option<Span> {
     if !word.trail.is_empty() {
         return None;
     }
     let minutes_at = hours.end + 1;
-    let at = |offset: usize| items.get(minutes_at + offset).map(|item| parse(&item.text));
     // « et demie », « et quart ».
-    if let (Some(and), Some(fraction)) = (at(0), at(1)) {
-        let minutes = match fraction.core.as_str() {
-            "demie" | "demi" => Some(30),
-            "quart" => Some(15),
-            _ => None,
-        };
-        if let (true, Some(minutes)) = (is_bare(&and, "et") && fraction.lead.is_empty(), minutes) {
-            return Some(Span {
-                start,
-                end: minutes_at + 2,
-                text: format!("{} h {minutes:02}{}", hours.shown, fraction.trail),
-                closed: !fraction.trail.is_empty(),
-                ambiguous: false,
-            });
+    if items
+        .word(minutes_at)
+        .is_some_and(|and| is_bare(&and, "et"))
+    {
+        if let Some(fraction) = items.word(minutes_at + 1) {
+            let minutes = match fraction.core.as_str() {
+                "demie" | "demi" => Some(30),
+                "quart" => Some(15),
+                _ => None,
+            };
+            if let (true, Some(minutes)) = (fraction.lead.is_empty(), minutes) {
+                return Some(Span {
+                    end: minutes_at + 2,
+                    text: format!("{} h {minutes:02}{}", hours.shown, fraction.trail),
+                });
+            }
         }
     }
     let minutes = number_at(items, minutes_at).or_else(|| digits_at(items, minutes_at))?;
-    let lead_free = items[minutes_at]
+    let lead_free = items
+        .get(minutes_at)?
         .text
         .starts_with(|c: char| c.is_alphanumeric());
     if !lead_free || !(1..60).contains(&minutes.value) {
         return None;
     }
     Some(Span {
-        start,
         end: minutes.end,
         text: format!("{} h {:02}{}", hours.shown, minutes.value, minutes.trail),
-        closed: !minutes.trail.is_empty(),
-        ambiguous: false,
     })
 }
 
 /// A number made of words that stays in letters: one with English around it
 /// when made of words English shares, a singular « million » after a number
 /// (English), and the adjective « neuf ».
-fn is_left_in_letters(items: &[Item], start: usize, number: &Number) -> bool {
+fn is_left_in_letters(items: &Items, start: usize, number: &Number) -> bool {
     if number.english {
         return true;
     }
@@ -735,9 +700,9 @@ fn is_left_in_letters(items: &[Item], start: usize, number: &Number) -> bool {
 
 /// An English function word within [`ENGLISH_WINDOW`] tokens on either side,
 /// in the same clause (a token ending on punctuation closes it).
-fn has_english_around(items: &[Item], start: usize, number: &Number) -> bool {
+fn has_english_around(items: &Items, start: usize, number: &Number) -> bool {
     let is_english = |token: &Parsed| ENGLISH_WORDS.contains(&token.core.as_str());
-    for item in items[..start].iter().rev().take(ENGLISH_WINDOW) {
+    for item in items.before(start).take(ENGLISH_WINDOW) {
         let token = parse(&item.text);
         // This token closes the previous clause: it is not ours.
         if !token.trail.is_empty() || token.core.is_empty() {
@@ -750,8 +715,10 @@ fn has_english_around(items: &[Item], start: usize, number: &Number) -> bool {
     if !number.trail.is_empty() {
         return false;
     }
-    for item in items[number.end..].iter().take(ENGLISH_WINDOW) {
-        let token = parse(&item.text);
+    for k in number.end..number.end + ENGLISH_WINDOW {
+        let Some(token) = items.word(k) else {
+            break;
+        };
         if is_english(&token) {
             return true;
         }
@@ -762,43 +729,12 @@ fn has_english_around(items: &[Item], start: usize, number: &Number) -> bool {
     false
 }
 
-/// Whether the tokens after a number shared with English say all that
-/// [`has_english_around`] reads: [`ENGLISH_WINDOW`] of them, or the end of the
-/// clause.
-fn clause_window_is_complete(after: &[Item]) -> bool {
-    for (seen, item) in after.iter().take(ENGLISH_WINDOW).enumerate() {
-        let token = parse(&item.text);
-        if !token.trail.is_empty() || token.core.is_empty() {
-            return true;
-        }
-        if seen + 1 == ENGLISH_WINDOW {
-            return true;
-        }
-    }
-    false
-}
-
-/// Whether the tokens [`has_english_around`] reads after a number ending at
-/// `end` include the token at `held` or a later one.
-fn window_reaches(items: &[Item], end: usize, held: usize) -> bool {
-    for (k, item) in items.iter().enumerate().skip(end).take(ENGLISH_WINDOW) {
-        if k >= held {
-            return true;
-        }
-        let token = parse(&item.text);
-        if !token.trail.is_empty() || token.core.is_empty() {
-            return false;
-        }
-    }
-    false
-}
-
 /// « neuf » as an adjective, not the number: after « tout » or « du »; after
 /// « de » ending the clause (« quoi de neuf ? »); after a noun that an article
 /// comes before (« un pull neuf »).
-fn is_adjective_neuf(items: &[Item], start: usize, number: &Number) -> bool {
-    let word = |k: Option<usize>| k.and_then(|k| items.get(k)).map(|item| parse(&item.text));
-    let Some(previous) = word(start.checked_sub(1)) else {
+fn is_adjective_neuf(items: &Items, start: usize, number: &Number) -> bool {
+    let mut before = items.before(start).map(|item| parse(&item.text));
+    let Some(previous) = before.next() else {
         return false;
     };
     let core = previous.core.as_str();
@@ -811,7 +747,7 @@ fn is_adjective_neuf(items: &[Item], start: usize, number: &Number) -> bool {
                 .get(number.end)
                 .is_none_or(|item| parse(&item.text).core.is_empty());
     }
-    let before_noun = word(start.checked_sub(2));
+    let before_noun = before.next();
     previous.trail.is_empty()
         && !core.is_empty()
         && !ARTICLES.contains(&core)
@@ -1095,6 +1031,72 @@ mod tests {
         }
     }
 
+    /// Every way to cut `words` into passages gives the block's text. `None`
+    /// when it does, the first diverging cut set otherwise.
+    fn first_divergence(words: &[&str]) -> Option<Vec<usize>> {
+        let block = normalize(&words.join(" "));
+        let positions = words.len().saturating_sub(1);
+        (0u32..1 << positions).find_map(|mask| {
+            let cuts: Vec<usize> = (1..words.len())
+                .filter(|k| mask & (1 << (k - 1)) != 0)
+                .collect();
+            let typed = std::panic::catch_unwind(|| live(words, &cuts));
+            (typed.as_deref().ok() != Some(block.as_str())).then_some(cuts)
+        })
+    }
+
+    #[test]
+    fn million_and_hours_type_live_as_in_one_block() {
+        for (sentence, cut) in [
+            ("cent cent million un million cent pull", 5),
+            ("but chats neuf million vingt heures six", 6),
+        ] {
+            let words: Vec<&str> = sentence.split(' ').collect();
+            assert_eq!(live(&words, &[cut]), normalize(sentence), "{sentence}");
+            assert_eq!(first_divergence(&words), None, "{sentence}");
+        }
+    }
+
+    /// Random sentences of the words that numbers share with English or that
+    /// hold a number back, typed with every set of cuts: live never differs
+    /// from one block. Fixed seed, so a failure always reproduces.
+    #[test]
+    fn fuzzed_sentences_type_live_as_in_one_block() {
+        const VOCABULARY: &[&str] = &[
+            "six", "sept", "cent", "cents", "million", "millions", "neuf", "vingt", "un", "une",
+            "heures", "heure", "four", "but", "et", "pour", "I", "the", "will", "one", "il",
+            "chats", "pull", "trente", "six.", "cent,",
+        ];
+        const SENTENCES: usize = 40_000;
+        let mut state: u64 = 0x5eed_0057;
+        let mut next = |bound: usize| {
+            // xorshift64*: deterministic, no dependency.
+            state ^= state >> 12;
+            state ^= state << 25;
+            state ^= state >> 27;
+            (state.wrapping_mul(0x2545_f491_4f6c_dd1d) >> 33) as usize % bound
+        };
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let mut divergences = Vec::new();
+        for _ in 0..SENTENCES {
+            let length = 2 + next(7);
+            let words: Vec<&str> = (0..length)
+                .map(|_| VOCABULARY[next(VOCABULARY.len())])
+                .collect();
+            if let Some(cuts) = first_divergence(&words) {
+                divergences.push(format!("{:?} cut at {cuts:?}", words.join(" ")));
+            }
+        }
+        std::panic::set_hook(hook);
+        assert!(
+            divergences.is_empty(),
+            "{} live≠block divergences, first ones: {:#?}",
+            divergences.len(),
+            &divergences[..divergences.len().min(10)]
+        );
+    }
+
     #[test]
     fn a_number_is_held_until_what_follows_is_known() {
         let held = |text: &str| text[..stable_prefix_len(text)].to_string();
@@ -1123,11 +1125,16 @@ mod tests {
             held("il en reste six tests de plus"),
             "il en reste six tests de plus"
         );
-        assert_eq!(held("il en reste six, et"), "il en reste six, et");
+        assert_eq!(held("il en reste six, et"), "il en reste six,");
+        assert_eq!(held("il en reste six, et puis"), "il en reste six, et puis");
         // A number whose window reaches a held number waits with it: the typed
         // prefix must not lose the words that decide it.
         assert_eq!(held("il y a six chats six"), "il y a");
-        assert_eq!(held("cent cent I il"), "");
+        // Once an English word is in the window, the numbers before it are decided.
+        assert_eq!(held("cent cent I il"), "cent cent I il");
+        // A number read past a held one waits for it (« vingt million vingt »
+        // stays in letters, « vingt millions six » may still grow).
+        assert_eq!(held("vingt million vingt millions"), "");
     }
 
     #[test]
