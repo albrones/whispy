@@ -415,3 +415,43 @@ def test_stale_build_can_be_forced_on_purpose(tmp_path):
     result = _run_build_guard(tmp_path, behind_main=True, extra_env={"WHISPY_ALLOW_STALE_BUILD": "1"})
     assert "[stale build]" in result.stdout
     assert "building anyway" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# scripts/bootstrap.sh: one command per OS (issue #49)
+# ---------------------------------------------------------------------------
+
+
+def test_bootstrap_installs_linux_packages_with_each_package_manager(bootstrap: str):
+    # A clean Linux box must not need a manual `sudo apt install` first.
+    assert "apt-get install -y" in bootstrap
+    assert "dnf install -y" in bootstrap
+    assert "pacman -S --needed --noconfirm" in bootstrap
+    # Debian's python3 has no venv; pip builds evdev from source.
+    for package in ("python3-venv", "gcc", "python3-dev", "linux-libc-dev"):
+        assert package in bootstrap, f"bootstrap.sh must install {package} when missing"
+    assert "WHISPY_SKIP_SYSTEM_PACKAGES" in bootstrap
+
+
+def test_bootstrap_package_manager_never_reads_the_piped_script(bootstrap: str):
+    # Under `curl | bash` stdin is the script itself: a package manager reading
+    # it would swallow the rest of the installer.
+    assert '"$@" </dev/null' in bootstrap
+
+
+def test_bootstrap_installs_v2_on_macos(bootstrap: str):
+    assert "packaging/macos-v2/reinstall.sh" in bootstrap
+    assert "sh.rustup.rs" in bootstrap and "cmake" in bootstrap
+    # V1 must not linger: its login item would bring it back and keep the key.
+    assert "retire_v1" in bootstrap and ".Trash" in bootstrap
+    # The macOS route no longer builds V1.
+    assert 'make -C "$WHISPY_HOME" app' not in bootstrap
+
+
+def test_website_install_section_says_what_each_os_gets():
+    site = (ROOT / "website" / "index.html").read_text(encoding="utf-8")
+    install = site[site.index('id="install"') :]
+    assert "Whispy V2.app" in install
+    assert "apt" in install and "dnf" in install and "pacman" in install
+    # The manual Linux pre-step is gone: one command on each OS.
+    assert "sudo apt install" not in install

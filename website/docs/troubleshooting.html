@@ -45,8 +45,9 @@
     <main id="content" class="docs-main">
 <h1>Troubleshooting</h1>
 <p class="lede">Choose what you see, then open the likely causes. Each cause matches a check in <code>make doctor</code>, so you can confirm the fix.</p>
-<p>From the Whispy source folder, run the full diagnostic at any time:</p>
-<pre data-copy><code>make doctor</code></pre>
+<p data-os="macos">On macOS, Whispy V2 has no <code>make doctor</code> yet: its menu names the missing permission, and <code>~/.whispy/v2/whispy2.log</code> says what went wrong. The causes below that mention a port, a token or <code>~/.whispy.log</code> are V1's and apply to Linux.</p>
+<p data-os="linux">From the Whispy source folder, run the full diagnostic at any time:</p>
+<pre data-os="linux" data-copy><code>make doctor</code></pre>
 
 <div class="symptoms">
 <details class="symptom" id="trigger-does-nothing">
@@ -164,7 +165,7 @@ sudo pacman -S portaudio         # Arch</code></pre></div>
 </details>
 </div>
 
-<p>Still stuck? Read <code>~/.whispy.log</code> and <code>~/.whispy-error.log</code>, or <a href="https://github.com/albrones/whispy/issues">open an issue</a>.</p>
+<p>Still stuck? Read <span data-os="macos"><code>~/.whispy/v2/whispy2.log</code></span><span data-os="linux"><code>~/.whispy.log</code> and <code>~/.whispy-error.log</code></span>, or <a href="https://github.com/albrones/whispy/issues">open an issue</a>.</p>
 
     </main>
   </div>

@@ -1,5 +1,6 @@
 <h1>Configuration</h1>
 <p class="lede">Whispy reads <code>~/.config/whispy/config.json</code>. Every key is optional: anything missing falls back to its default, and an invalid value is replaced by the default with a warning in the log.</p>
+<div class="note" data-os="macos"><p>On macOS, Whispy V2 reads four keys of this file: <code>copy_to_clipboard</code>, <code>trigger_mode</code>, <code>trigger</code> and <code>type_while_speaking</code>, all of them also in its menu. It leaves every other key as it found it. The other keys below apply to Linux (Whispy V1).</p></div>
 
 <h2>Config builder</h2>
 <p>Set the values you want and copy the result. Only the keys you changed are shown; merge them into your existing <code>config.json</code>, then restart Whispy.</p>

@@ -40,7 +40,14 @@ the models are the files already downloaded, and the V1 replay runs with
 | Parakeet TDT 0.6b v3, int8 ONNX | the Hugging Face cache V1 filled (`~/.cache/huggingface/hub/models--istupakov--parakeet-tdt-0.6b-v3-onnx`) | `WHISPY_PARAKEET_DIR` |
 | whisper small (`ggml-small.bin`) | `~/.whispy/models/`, then `~/.jarvis/models/` | `WHISPY_WHISPER_MODEL` |
 
-A missing model is an error naming the paths looked at; V2 never downloads one.
+Looking a model up never downloads: a missing one is an error naming the
+paths looked at (the bench relies on this). The app (`whispy2`) downloads the
+missing ones at launch, before it loads them: the three Parakeet files into
+`~/.whispy/models/parakeet-tdt-0.6b-v3-int8/` and `ggml-small.bin` into
+`~/.whispy/models/`, from pinned Hugging Face revisions, each checked against
+its SHA-256 (`whispy_core::models::download_missing`, through the system
+`curl`). Check it for real, once, with
+`cargo test --release -p whispy-core -- --ignored --exact models::network::a_fresh_home_downloads_both_models_and_the_pipeline_loads`.
 
 ## The app: `whispy2`
 

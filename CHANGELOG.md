@@ -3,6 +3,18 @@
 ## [Unreleased]
 
 ### Added
+- **One command installs Whispy V2 on macOS.** `scripts/bootstrap.sh` now
+  installs Rust (rustup) and cmake when they are missing, builds and signs
+  `Whispy V2.app`, installs it to `/Applications` and launches it; an older
+  `Whispy.app` (V1) is quit and moved to the Trash. Linux keeps V1 until V2
+  reaches it. Whispy V2 downloads its models at first launch (Parakeet and
+  whisper small, pinned revisions, SHA-256 checked) into `~/.whispy/models`,
+  and still reuses the Parakeet cache V1 filled.
+- **One command on Linux too.** `scripts/bootstrap.sh` installs the missing
+  system packages with apt, dnf or pacman through sudo (typing and clipboard
+  tools for the session, PortAudio, git, python3-venv, and what pip needs to
+  build evdev); `WHISPY_SKIP_SYSTEM_PACKAGES=1` opts out.
+
 - **The Linux tray never blocks dictation.** If the X11 tray icon cannot start
   (no pystray backend, no display, a GTK error), Whispy now logs the reason,
   posts one notification and keeps running with notification-only feedback
@@ -56,6 +68,12 @@
   config builder read the same declaration. No behavior change.
 
 ### Fixed
+- **The signing certificate is created on a Mac without Homebrew's OpenSSL.**
+  `create_signing_cert.sh` passed `-legacy`, which the LibreSSL shipped with
+  macOS rejects, so a fresh Mac fell back to ad-hoc signing and lost its
+  permissions at every rebuild.
+- **The V2 bundle builds from a fresh clone.** `build_bundle.sh` generates the
+  app icon when it is missing instead of failing on it.
 - **Quiet dictation is no longer dropped.** When the model returns nothing
   twice for a clip that cleared every gate, Whispy now tries once more on the
   clip scaled to a normal loudness. On 20 real lost clips this recovered all 4

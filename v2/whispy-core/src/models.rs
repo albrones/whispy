@@ -315,3 +315,38 @@ mod tests {
         assert!(!dir.join("out/bad.bin.part").exists());
     }
 }
+
+/// The real thing, once, by hand: a fresh home gets both models from the
+/// network, checked, and the default pipeline loads from them.
+/// `cargo test --release -p whispy-core -- --ignored --exact models::network::a_fresh_home_downloads_both_models_and_the_pipeline_loads`
+#[cfg(test)]
+mod network {
+    use super::*;
+
+    #[test]
+    #[ignore = "downloads about 1.2 GB"]
+    fn a_fresh_home_downloads_both_models_and_the_pipeline_loads() {
+        let home = env::temp_dir().join(format!("whispy-fresh-home-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&home);
+        fs::create_dir_all(&home).unwrap();
+        // Run alone, by name: it owns the environment.
+        env::set_var("HOME", &home);
+        env::set_var("HF_HUB_CACHE", home.join("hf"));
+        env::remove_var("HF_HOME");
+        env::remove_var("WHISPY_PARAKEET_DIR");
+        env::remove_var("WHISPY_WHISPER_MODEL");
+        assert_eq!(missing_downloads().len(), 4);
+        download_missing().unwrap();
+        assert!(missing_downloads().is_empty());
+        assert_eq!(
+            parakeet_dir().unwrap(),
+            home.join(".whispy/models").join(PARAKEET_DOWNLOAD_DIR)
+        );
+        assert_eq!(
+            whisper_model().unwrap(),
+            home.join(".whispy/models/ggml-small.bin")
+        );
+        crate::Pipeline::load_default().unwrap();
+        let _ = fs::remove_dir_all(&home);
+    }
+}

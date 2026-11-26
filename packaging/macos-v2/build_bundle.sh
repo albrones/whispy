@@ -27,11 +27,27 @@ echo -e "${YELLOW}Building whispy2 (cargo, release)...${NC}"
 (cd "$REPO_ROOT/v2" && cargo build --release -p whispy2)
 [ -x "$TARGET_DIR/$BIN_NAME" ] || die "$TARGET_DIR/$BIN_NAME not found after build."
 
+# 1b. The app icon is generated, not committed: V1's build makes it, and a
+#     fresh clone (scripts/bootstrap.sh) has none. Pillow comes from the
+#     repository venv when there is one, else from a throwaway venv.
+ICNS="$V1_PKG/whispy.icns"
+if [ ! -f "$ICNS" ]; then
+    echo -e "${YELLOW}Generating the app icon...${NC}"
+    ICON_PY="$REPO_ROOT/.venv/bin/python3"
+    if ! { [ -x "$ICON_PY" ] && "$ICON_PY" -c "import PIL" 2>/dev/null; }; then
+        ICON_VENV="$REPO_ROOT/v2/target/icon-venv"
+        [ -x "$ICON_VENV/bin/python3" ] || python3 -m venv "$ICON_VENV"
+        "$ICON_VENV/bin/pip" install --quiet Pillow
+        ICON_PY="$ICON_VENV/bin/python3"
+    fi
+    "$ICON_PY" "$V1_PKG/make_icns.py"
+fi
+
 # 2. Layout.
 rm -rf "$APP"
 mkdir -p "$MACOS_DIR" "$APP/Contents/Resources"
 cp "$SCRIPT_DIR/Info.plist" "$APP/Contents/Info.plist"
-cp "$V1_PKG/whispy.icns" "$APP/Contents/Resources/whispy.icns"
+cp "$ICNS" "$APP/Contents/Resources/whispy.icns"
 cp "$TARGET_DIR/$BIN_NAME" "$MACOS_DIR/$BIN_NAME"
 # The commit this bundle was built from, sealed by the signature below:
 # scripts/bootstrap.sh skips the rebuild when it matches the checkout.

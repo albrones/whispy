@@ -48,38 +48,34 @@
 
 <h2>One-line installer</h2>
 <pre data-copy id="bootstrap-cmd"><code>curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash</code></pre>
-<p data-os="macos">On macOS it builds and installs the signed <code>Whispy.app</code> into <code>/Applications</code>. Source lives in <code>~/.local/share/whispy</code>.</p>
+<p data-os="macos">On macOS it installs <strong>Whispy V2</strong>, the native rewrite in Rust: it installs Rust and cmake if they are missing, builds and signs <code>Whispy V2.app</code> into <code>/Applications</code>, and launches it. An older <code>Whispy.app</code> (V1) is quit and moved to the Trash, since V2 replaces it. Source lives in <code>~/.local/share/whispy</code>. Run the command again to update.</p>
 <p data-os="linux">Under X11 the tray icon is optional: if your desktop has no working tray, Whispy runs without it (see <a href="troubleshooting.html#tray-icon">troubleshooting</a>).</p>
-<p data-os="linux">On Linux it sets up a virtualenv and a <code>systemd --user</code> service. Source lives in <code>~/.local/share/whispy</code>.</p>
+<p data-os="linux">On Linux it installs the system packages Whispy needs with <code>apt</code>, <code>dnf</code> or <code>pacman</code> (sudo asks for your password), then sets up a virtualenv and a <code>systemd --user</code> service. Source lives in <code>~/.local/share/whispy</code>. Run the command again to update. Linux runs Whispy V1 (Python) until V2 reaches Linux, which is coming soon.</p>
 
 <h2>Checklist</h2>
 
 <div data-os="macos">
 <ol class="checklist">
-  <li><input type="checkbox" id="step-mac-clt" data-step="mac-clt" aria-labelledby="lbl-mac-clt"><div class="step-body" id="lbl-mac-clt">Install the Xcode Command Line Tools, needed to build the app. <pre data-copy><code>xcode-select --install</code></pre></div></li>
-  <li><input type="checkbox" id="step-mac-install" data-step="mac-install" aria-labelledby="lbl-mac-install"><div class="step-body" id="lbl-mac-install">Run the one-line installer above. If the Command Line Tools are missing it prints the manual steps instead. To do it by hand: <pre data-copy><code>git clone https://github.com/albrones/whispy.git
-cd whispy &amp;&amp; ./install.sh   # creates the .venv
-make app                    # builds and signs dist/Whispy.app
-cp -R dist/Whispy.app /Applications/
-open /Applications/Whispy.app</code></pre></div></li>
-  <li><input type="checkbox" id="step-mac-mic" data-step="mac-mic" aria-labelledby="lbl-mac-mic"><div class="step-body" id="lbl-mac-mic"><strong>Microphone.</strong> On first launch macOS shows a <strong>Whispy</strong> prompt: click <strong>Allow</strong>.</div></li>
-  <li><input type="checkbox" id="step-mac-ax" data-step="mac-ax" aria-labelledby="lbl-mac-ax"><div class="step-body" id="lbl-mac-ax"><strong>Accessibility.</strong> System Settings → Privacy &amp; Security → Accessibility → enable <strong>Whispy</strong>. Without it the text is transcribed but never typed.</div></li>
-  <li><input type="checkbox" id="step-mac-im" data-step="mac-im" aria-labelledby="lbl-mac-im"><div class="step-body" id="lbl-mac-im"><strong>Input Monitoring.</strong> System Settings → Privacy &amp; Security → Input Monitoring → enable <strong>Whispy</strong>. It is needed to detect the <kbd>Fn</kbd> key.</div></li>
+  <li><input type="checkbox" id="step-mac-install" data-step="mac-install" aria-labelledby="lbl-mac-install"><div class="step-body" id="lbl-mac-install">Run the one-line installer above. If the Xcode Command Line Tools are missing, it opens their installer: let it finish, then run the command again. The first build takes a few minutes. To do it by hand (with Rust and cmake installed): <pre data-copy><code>git clone https://github.com/albrones/whispy.git
+cd whispy &amp;&amp; make v2-reinstall   # builds, signs, installs and launches Whispy V2.app</code></pre></div></li>
+  <li><input type="checkbox" id="step-mac-models" data-step="mac-models" aria-labelledby="lbl-mac-models"><div class="step-body" id="lbl-mac-models"><strong>Models.</strong> On first launch Whispy V2 downloads its speech models, about 1.2 GB (a notification says so). The menu says <strong>Ready</strong> when you can dictate.</div></li>
+  <li><input type="checkbox" id="step-mac-mic" data-step="mac-mic" aria-labelledby="lbl-mac-mic"><div class="step-body" id="lbl-mac-mic"><strong>Microphone.</strong> At your first dictation macOS shows a <strong>Whispy V2</strong> prompt: click <strong>Allow</strong>.</div></li>
+  <li><input type="checkbox" id="step-mac-ax" data-step="mac-ax" aria-labelledby="lbl-mac-ax"><div class="step-body" id="lbl-mac-ax"><strong>Accessibility.</strong> System Settings → Privacy &amp; Security → Accessibility → enable <strong>Whispy V2</strong>. Without it the text is transcribed but never typed.</div></li>
+  <li><input type="checkbox" id="step-mac-im" data-step="mac-im" aria-labelledby="lbl-mac-im"><div class="step-body" id="lbl-mac-im"><strong>Input Monitoring.</strong> System Settings → Privacy &amp; Security → Input Monitoring → enable <strong>Whispy V2</strong>. It is needed to detect the <kbd>Fn</kbd> key.</div></li>
+  <li><input type="checkbox" id="step-mac-fn" data-step="mac-fn" aria-labelledby="lbl-mac-fn"><div class="step-body" id="lbl-mac-fn">With <kbd>Fn</kbd> as the trigger, set System Settings → Keyboard → <strong>Press 🌐 key to</strong> → <strong>Do Nothing</strong>, or every tap also opens the emoji picker.</div></li>
   <li><input type="checkbox" id="step-mac-restart" data-step="mac-restart" aria-labelledby="lbl-mac-restart"><div class="step-body" id="lbl-mac-restart">Restart Whispy from its menu bar icon (<strong>Restart</strong>) so the new permissions apply.</div></li>
-  <li><input type="checkbox" id="step-mac-login" data-step="mac-login" aria-labelledby="lbl-mac-login"><div class="step-body" id="lbl-mac-login">Optional: switch on <strong>Start at login</strong> in the menu bar menu. No LaunchAgent is used.</div></li>
-  <li><input type="checkbox" id="step-mac-legacy" data-step="mac-legacy" aria-labelledby="lbl-mac-legacy"><div class="step-body" id="lbl-mac-legacy">Remove any old LaunchAgents (the older <code>com.whisper-dictation</code> and the <code>com.whispy</code> ones) so the daemon does not run twice: <pre data-copy><code>./install.sh --uninstall</code></pre></div></li>
+  <li><input type="checkbox" id="step-mac-login" data-step="mac-login" aria-labelledby="lbl-mac-login"><div class="step-body" id="lbl-mac-login">Switch on <strong>Start at login</strong> in the menu bar menu.</div></li>
 </ol>
-<div class="note"><p>Whispy is signed with a free, local self-signed certificate, so macOS remembers the permissions across relaunches. After a fresh <code>make app</code> build macOS may ask you to approve them again.</p></div>
+<div class="note"><p>Whispy V2 is signed with a free, local self-signed certificate, so macOS remembers the permissions across updates. It keeps your settings from <code>~/.config/whispy/config.json</code> and reuses the model V1 already downloaded, if any.</p></div>
 </div>
 
 <div data-os="linux">
 <ol class="checklist">
   <li><input type="checkbox" id="step-lin-x11" data-step="lin-x11" aria-labelledby="lbl-lin-x11"><div class="step-body" id="lbl-lin-x11">Know your session. <strong>X11</strong>: Whispy listens to the trigger key itself. <strong>Wayland</strong>: your compositor's key binding calls the API (<code>POST /start</code> on press, <code>POST /stop</code> on release); there is no tray icon and errors arrive as notifications.</div></li>
-  <li><input type="checkbox" id="step-lin-deps" data-step="lin-deps" aria-labelledby="lbl-lin-deps"><div class="step-body" id="lbl-lin-deps">Install the typing and clipboard tools for your session and the PortAudio runtime. X11: <code>xdotool</code>, <code>xclip</code> or <code>xsel</code>. Wayland: <code>wtype</code>, <code>wl-clipboard</code>. <pre data-copy><code>sudo apt install xdotool xclip libportaudio2   # Debian/Ubuntu, X11
-sudo dnf install xdotool xclip portaudio       # Fedora, X11
-sudo pacman -S xdotool xclip portaudio         # Arch, X11
-sudo pacman -S wtype wl-clipboard portaudio    # Arch / Omarchy, Wayland</code></pre></div></li>
-  <li><input type="checkbox" id="step-lin-install" data-step="lin-install" aria-labelledby="lbl-lin-install"><div class="step-body" id="lbl-lin-install">Run the one-line installer above. It creates a virtualenv and a <code>systemd --user</code> service that starts at login.</div></li>
+  <li><input type="checkbox" id="step-lin-install" data-step="lin-install" aria-labelledby="lbl-lin-install"><div class="step-body" id="lbl-lin-install">Run the one-line installer above. It installs the missing system packages (the typing and clipboard tools for your session, PortAudio, and what pip needs to build), then a virtualenv and a <code>systemd --user</code> service that starts at login. Without <code>apt</code>, <code>dnf</code> or <code>pacman</code>, or to install them yourself (then set <code>WHISPY_SKIP_SYSTEM_PACKAGES=1</code>): <pre data-copy><code>sudo apt install git python3-venv python3-dev gcc xdotool xclip libportaudio2   # Debian/Ubuntu, X11
+sudo dnf install git python3-devel gcc xdotool xclip portaudio                  # Fedora, X11
+sudo pacman -S git python gcc xdotool xclip portaudio                           # Arch, X11
+sudo pacman -S git python gcc wtype wl-clipboard portaudio                      # Arch / Omarchy, Wayland</code></pre></div></li>
   <li><input type="checkbox" id="step-lin-status" data-step="lin-status" aria-labelledby="lbl-lin-status"><div class="step-body" id="lbl-lin-status">Check that it is running: <pre data-copy><code>systemctl --user status whispy.service</code></pre></div></li>
   <li><input type="checkbox" id="step-lin-omarchy" data-step="lin-omarchy" aria-labelledby="lbl-lin-omarchy"><div class="step-body" id="lbl-lin-omarchy">On <strong>Omarchy</strong> (Hyprland): the installer links the <code>omarchy-dictation-whispy</code> backend into <code>~/.local/bin</code>. It also links the Whispy bar widget into <code>~/.config/omarchy/plugins</code> and puts its icon on the right of the bar. Select the backend once, then hold the dictation key (Right Alt by default; pick another in the Whispy panel). If Whispy is not running, the key shows « Whispy ne répond pas ». <pre data-copy><code>omarchy-dictation-use whispy &amp;&amp; hyprctl reload</code></pre></div></li>
 </ol>
@@ -87,9 +83,9 @@ sudo pacman -S wtype wl-clipboard portaudio    # Arch / Omarchy, Wayland</code><
 </div>
 
 <h2>First run: the model</h2>
-<p>Whispy uses one model, <code>nvidia/parakeet-tdt-0.6b-v3</code>, run on your CPU. The first time you dictate it downloads about <strong>639 MB</strong>, once, and caches it. It uses about 1.4 GB of memory while loaded.</p>
+<p>Whispy uses one model, <code>nvidia/parakeet-tdt-0.6b-v3</code>, run on your CPU. It is downloaded once and cached: on Linux, about <strong>639 MB</strong> the first time you dictate; on macOS, Whispy V2 downloads it at first launch with whisper small, which retries a dictation Parakeet heard nothing in (about <strong>1.2 GB</strong> together, in <code>~/.whispy/models</code>). It uses about 1.4 GB of memory while loaded.</p>
 <p>It transcribes 25 languages and detects the language automatically: Bulgarian, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French, German, Greek, Hungarian, Italian, Latvian, Lithuanian, Maltese, Polish, Portuguese, Romanian, Slovak, Slovenian, Spanish, Swedish, Russian and Ukrainian. Other languages will not transcribe.</p>
-<p>Not working? Run <code>make doctor</code> from the source folder, or see <a href="troubleshooting.html">Troubleshooting</a>.</p>
+<p>Not working? <span data-os="linux">Run <code>make doctor</code> from the source folder, or see</span><span data-os="macos">Read <code>~/.whispy/v2/whispy2.log</code>, or see</span> <a href="troubleshooting.html">Troubleshooting</a>.</p>
 
 <h2>Uninstall</h2>
 <pre data-copy><code>curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash -s -- --uninstall</code></pre>
