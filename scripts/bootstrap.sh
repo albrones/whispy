@@ -6,15 +6,22 @@ set -euo pipefail
 #   curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash
 #
 # Clones (or updates) Whispy into a managed directory, then routes by OS:
-#   Linux  -> install.sh (venv + systemd --user unit), unchanged.
-#   macOS  -> install.sh (venv) + `make app` + install Whispy.app to
-#             /Applications. The source must persist at a stable path because
-#             install.sh performs an editable install the .app build reads.
+#   macOS  -> Whispy V2 (Rust): installs the Rust toolchain and cmake when they
+#             are missing, builds and signs "Whispy V2.app", installs it to
+#             /Applications and launches it. The app downloads its speech
+#             models on first launch. A V1 Whispy.app is quit and moved to the
+#             Trash: V2 is the only macOS version.
+#   Linux  -> Whispy V1 (Python) until V2 reaches Linux: installs the missing
+#             system packages (apt, dnf or pacman, through sudo), then
+#             install.sh (venv + systemd --user unit).
+#
+# Rerunning it updates an existing install.
 #
 # Environment overrides:
 #   WHISPY_HOME    install location (default: ~/.local/share/whispy)
 #   WHISPY_REPO    git URL (default: https://github.com/albrones/whispy.git)
 #   WHISPY_REF     branch/tag to check out (default: main)
+#   WHISPY_SKIP_SYSTEM_PACKAGES=1   Linux: never call the package manager
 #
 # Uninstall:
 #   curl -fsSL .../bootstrap.sh | bash -s -- --uninstall
@@ -28,15 +35,29 @@ NC='\033[0m'
 WHISPY_HOME="${WHISPY_HOME:-$HOME/.local/share/whispy}"
 WHISPY_REPO="${WHISPY_REPO:-https://github.com/albrones/whispy.git}"
 WHISPY_REF="${WHISPY_REF:-main}"
+OS="$(uname -s)"
+
+V2_APP="/Applications/Whispy V2.app"
+V2_BUNDLE_ID="com.whispy.v2"
+V1_APP="/Applications/Whispy.app"
 
 echo -e "${YELLOW}=== Whispy bootstrap ===${NC}"
 echo ""
 
-# Uninstall path: delegate to install.sh, then remove the managed source tree.
+# --- Uninstall ---------------------------------------------------------------
 # install.sh also offers to remove user data (config incl. API token, logs,
-# and the downloaded model cache) -- interactively only, so this
-# stays safe to pipe via `curl | bash` with no TTY (see install.sh).
+# and the downloaded model cache) -- interactively only, so this stays safe to
+# pipe via `curl | bash` with no TTY (see install.sh).
 if [[ "${1:-}" == "--uninstall" ]]; then
+    if [ "$OS" = "Darwin" ] && [ -d "$V2_APP" ]; then
+        echo -e "${YELLOW}Quitting and removing $V2_APP...${NC}"
+        if pgrep -f "$V2_APP/Contents/MacOS/whispy2" >/dev/null 2>&1; then
+            osascript -e "tell application id \"$V2_BUNDLE_ID\" to quit" >/dev/null 2>&1 \
+                || pkill -f "$V2_APP/Contents/MacOS/whispy2" || true
+        fi
+        rm -rf "$V2_APP"
+        echo "Its models stay in ~/.whispy/models (delete that folder to get the space back)."
+    fi
     if [ -x "$WHISPY_HOME/install.sh" ]; then
         echo -e "${YELLOW}Running Whispy uninstall...${NC}"
         "$WHISPY_HOME/install.sh" --uninstall || true
@@ -47,23 +68,110 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     exit 0
 fi
 
-# Check for git
+# --- Linux: system packages ----------------------------------------------------
+# Runs as root directly, else through sudo. sudo asks for the password on the
+# terminal (/dev/tty), which works under `curl | bash`; the package manager's
+# own stdin is /dev/null so it never eats the rest of this script.
+as_root() {
+    if [ "$(id -u)" = "0" ]; then
+        "$@" </dev/null
+    else
+        sudo "$@" </dev/null
+    fi
+}
+
+linux_session() {
+    if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        echo wayland
+    else
+        echo x11
+    fi
+}
+
+has_portaudio() {
+    { command -v ldconfig >/dev/null 2>&1 && ldconfig -p 2>/dev/null | grep -q 'libportaudio\.so'; } \
+        || compgen -G "/usr/lib*/libportaudio.so*" >/dev/null \
+        || compgen -G "/usr/lib/*/libportaudio.so*" >/dev/null
+}
+
+# Prints the packages this machine lacks, named for package manager $1.
+linux_missing_packages() {
+    local manager="$1" session missing=()
+    session="$(linux_session)"
+    command -v git >/dev/null 2>&1 || missing+=(git)
+    if ! command -v python3 >/dev/null 2>&1; then
+        case "$manager" in pacman) missing+=(python) ;; *) missing+=(python3) ;; esac
+    elif [ "$manager" = "apt" ] && ! python3 -c 'import ensurepip, venv' >/dev/null 2>&1; then
+        # Debian and Ubuntu ship python3 without venv/ensurepip.
+        missing+=(python3-venv)
+    fi
+    if [ "$session" = "wayland" ]; then
+        command -v wtype >/dev/null 2>&1 || missing+=(wtype)
+        command -v wl-copy >/dev/null 2>&1 || missing+=(wl-clipboard)
+    else
+        command -v xdotool >/dev/null 2>&1 || missing+=(xdotool)
+        { command -v xclip >/dev/null 2>&1 || command -v xsel >/dev/null 2>&1; } || missing+=(xclip)
+    fi
+    if ! has_portaudio; then
+        case "$manager" in apt) missing+=(libportaudio2) ;; *) missing+=(portaudio) ;; esac
+    fi
+    echo "${missing[*]:-}"
+}
+
+install_linux_packages() {
+    local manager="" packages
+    if command -v apt-get >/dev/null 2>&1; then manager=apt
+    elif command -v dnf >/dev/null 2>&1; then manager=dnf
+    elif command -v pacman >/dev/null 2>&1; then manager=pacman
+    fi
+    if [ -z "$manager" ]; then
+        echo -e "${YELLOW}[!] No apt, dnf or pacman here: install.sh will list what is missing.${NC}"
+        return 0
+    fi
+    packages="$(linux_missing_packages "$manager")"
+    if [ -z "$packages" ]; then
+        echo -e "${GREEN}[OK] System packages present${NC}"
+        return 0
+    fi
+    if [ "${WHISPY_SKIP_SYSTEM_PACKAGES:-}" = "1" ]; then
+        echo -e "${YELLOW}[!] Missing system packages (not installed, WHISPY_SKIP_SYSTEM_PACKAGES=1): $packages${NC}"
+        return 0
+    fi
+    echo -e "${YELLOW}Installing system packages with $manager (sudo may ask for your password): $packages${NC}"
+    # shellcheck disable=SC2086
+    if case "$manager" in
+        apt) as_root apt-get update -qq && as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y $packages ;;
+        dnf) as_root dnf install -y $packages ;;
+        pacman) as_root pacman -S --needed --noconfirm $packages ;;
+    esac; then
+        echo -e "${GREEN}[OK] System packages installed${NC}"
+    else
+        echo -e "${RED}[!] Could not install: $packages${NC}"
+        echo "    Install them yourself, then rerun this command."
+    fi
+}
+
+if [ "$OS" = "Linux" ]; then
+    install_linux_packages
+    echo ""
+fi
+
+# --- Prerequisites ---------------------------------------------------------------
+if [ "$OS" = "Darwin" ] && ! xcode-select -p >/dev/null 2>&1; then
+    # git, the compiler, codesign and install_name_tool all come with them.
+    echo -e "${YELLOW}Whispy is built on this Mac and needs the Xcode Command Line Tools.${NC}"
+    xcode-select --install >/dev/null 2>&1 || true
+    echo "A dialog to install them has opened. Once it is done, rerun:"
+    echo "  curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash"
+    exit 1
+fi
+
 if ! command -v git &>/dev/null; then
-    echo -e "${RED}Error: git is not installed. Install it (e.g. xcode-select --install) and rerun.${NC}"
+    echo -e "${RED}Error: git is not installed. Install it and rerun.${NC}"
     exit 1
 fi
 
-# Check for python3
-if ! command -v python3 &>/dev/null; then
-    echo -e "${RED}Error: python3 is not installed. Please install it and rerun this script.${NC}"
-    exit 1
-fi
-
-# Audio capture uses sounddevice/PortAudio (a Python dependency) — no sox or
-# other system audio package is required, so there is no blocking prompt here
-# (this script is commonly piped from curl with no TTY).
-
-# Clone or update the source tree.
+# --- Source ------------------------------------------------------------------------
 if [ -d "$WHISPY_HOME/.git" ]; then
     echo -e "${YELLOW}Updating existing install at $WHISPY_HOME...${NC}"
     git -C "$WHISPY_HOME" fetch --depth 1 origin "$WHISPY_REF"
@@ -77,63 +185,109 @@ fi
 echo -e "${GREEN}[OK] Source ready at $WHISPY_HOME${NC}"
 echo ""
 
-# Route by OS.
-case "$(uname -s)" in
+# --- macOS: Whispy V2 ----------------------------------------------------------------
+ensure_rust() {
+    [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+    if command -v cargo >/dev/null 2>&1; then
+        echo -e "${GREEN}[OK] Rust $(cargo --version | awk '{print $2}')${NC}"
+        return 0
+    fi
+    echo -e "${YELLOW}Installing the Rust toolchain (rustup, into ~/.cargo)...${NC}"
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+    . "$HOME/.cargo/env"
+    echo -e "${GREEN}[OK] Rust $(cargo --version | awk '{print $2}')${NC}"
+}
+
+# cmake builds whisper.cpp. Homebrew's when there is a Homebrew, else the
+# cmake wheel in a private venv (python3 comes with the Command Line Tools).
+ensure_cmake() {
+    local tools="$WHISPY_HOME/.tools"
+    [ -x "$tools/bin/cmake" ] && export PATH="$tools/bin:$PATH"
+    if command -v cmake >/dev/null 2>&1; then
+        echo -e "${GREEN}[OK] cmake $(cmake --version | awk 'NR==1{print $3}')${NC}"
+        return 0
+    fi
+    echo -e "${YELLOW}Installing cmake...${NC}"
+    if command -v brew >/dev/null 2>&1; then
+        brew install cmake
+    else
+        python3 -m venv "$tools"
+        "$tools/bin/pip" install --quiet cmake
+        export PATH="$tools/bin:$PATH"
+    fi
+    echo -e "${GREEN}[OK] cmake $(cmake --version | awk 'NR==1{print $3}')${NC}"
+}
+
+# V2 is the only macOS version: a V1 left running would keep the trigger key,
+# and its login item would start it again. Removing the bundle drops that
+# login item; the Trash keeps it recoverable.
+retire_v1() {
+    for id in com.whisper-dictation com.whispy; do
+        local plist="$HOME/Library/LaunchAgents/$id.plist"
+        if [ -f "$plist" ]; then
+            echo -e "${YELLOW}Removing legacy $id LaunchAgent...${NC}"
+            launchctl bootout "gui/$(id -u)/$id" 2>/dev/null || true
+            launchctl unload "$plist" 2>/dev/null || true
+            rm -f "$plist"
+        fi
+    done
+    [ -d "$V1_APP" ] || return 0
+    echo -e "${YELLOW}Retiring Whispy V1 ($V1_APP)...${NC}"
+    if pgrep -f "$V1_APP/Contents/MacOS/" >/dev/null 2>&1; then
+        osascript -e 'tell application "Whispy" to quit' >/dev/null 2>&1 \
+            || pkill -f "$V1_APP/Contents/MacOS/" || true
+        sleep 2
+    fi
+    local trashed
+    trashed="$HOME/.Trash/Whispy V1 $(date +%Y%m%d-%H%M%S).app"
+    if mv "$V1_APP" "$trashed" 2>/dev/null; then
+        echo -e "${GREEN}[OK] Whispy V1 moved to the Trash${NC}"
+    else
+        echo -e "${YELLOW}[!] Could not move $V1_APP to the Trash: quit it and delete it yourself.${NC}"
+    fi
+}
+
+install_macos() {
+    ensure_rust
+    ensure_cmake
+    retire_v1
+
+    local current installed=""
+    current="$(git -C "$WHISPY_HOME" rev-parse HEAD)"
+    [ -f "$V2_APP/Contents/Resources/.whispy-build-hash" ] \
+        && installed="$(cat "$V2_APP/Contents/Resources/.whispy-build-hash")"
+    if [ "$current" = "$installed" ]; then
+        echo -e "${GREEN}[OK] $V2_APP is up to date ($current)${NC}"
+        open "$V2_APP"
+    else
+        echo -e "${YELLOW}Building and installing Whispy V2 (the first build takes a few minutes)...${NC}"
+        # Builds, quits the running V2, replaces it, launches it, waits for it.
+        "$WHISPY_HOME/packaging/macos-v2/reinstall.sh"
+    fi
+    echo ""
+    echo -e "${GREEN}Whispy is installed.${NC} Look for its waveform in the menu bar."
+    echo "First launch downloads the speech models (about 1.2 GB); the menu says"
+    echo "Ready when you can dictate. Then, once:"
+    echo "  - grant Whispy V2 Microphone, Input Monitoring and Accessibility"
+    echo "    (System Settings → Privacy & Security);"
+    echo "  - set Keyboard → \"Press 🌐 key to\" → Do Nothing, to dictate with Fn;"
+    echo "  - check \"Start at login\" in its menu."
+}
+
+case "$OS" in
 Linux)
-    # Linux: venv + systemd --user unit (unchanged).
+    if ! command -v python3 &>/dev/null; then
+        echo -e "${RED}Error: python3 is not installed. Please install it and rerun this script.${NC}"
+        exit 1
+    fi
+    # Linux runs V1 (venv + systemd --user unit) until V2 reaches Linux.
     exec "$WHISPY_HOME/install.sh"
     ;;
 Darwin)
-    # macOS: install.sh provisions the venv; the supported install is the
-    # signed Whispy.app, autostart is the in-app "Start at login" toggle.
-    "$WHISPY_HOME/install.sh"
-
-    # Migrate upgraders: a legacy LaunchAgent would fight the .app for :9090.
-    # Two pre-rebrand ids exist — com.whisper-dictation (oldest, "Whisper
-    # Dictation") and com.whispy (intermediate). Remove both before launching
-    # the app; keep $WHISPY_HOME (it is the current install's clone).
-    for id in com.whisper-dictation com.whispy; do
-        LEGACY_PLIST="$HOME/Library/LaunchAgents/$id.plist"
-        if [ -f "$LEGACY_PLIST" ]; then
-            echo -e "${YELLOW}Removing legacy $id LaunchAgent...${NC}"
-            launchctl bootout "gui/$(id -u)/$id" 2>/dev/null || true
-            launchctl unload "$LEGACY_PLIST" 2>/dev/null || true
-            rm -f "$LEGACY_PLIST"
-        fi
-    done
-
-    # Building Whispy.app needs the Xcode Command Line Tools (py2app + codesign).
-    # If absent, print the manual steps instead of failing opaquely.
-    if ! xcode-select -p >/dev/null 2>&1; then
-        echo -e "${YELLOW}Xcode Command Line Tools not found — finish manually:${NC}"
-        echo "  xcode-select --install        # then re-run, or:"
-        echo "  cd \"$WHISPY_HOME\" && make app"
-        echo "  cp -R dist/Whispy.app /Applications/ && open /Applications/Whispy.app"
-        exit 0
-    fi
-
-    # Skip rebuild when the installed app already matches the current source.
-    CURRENT_HASH=$(git -C "$WHISPY_HOME" rev-parse HEAD)
-    INSTALLED_HASH=""
-    HASH_FILE="/Applications/Whispy.app/Contents/Resources/.whispy-build-hash"
-    [ -f "$HASH_FILE" ] && INSTALLED_HASH=$(cat "$HASH_FILE")
-
-    if [ "$CURRENT_HASH" = "$INSTALLED_HASH" ]; then
-        echo -e "${GREEN}[OK] /Applications/Whispy.app is up to date ($CURRENT_HASH)${NC}"
-    else
-        echo -e "${YELLOW}Building Whispy.app...${NC}"
-        make -C "$WHISPY_HOME" app
-        rm -rf /Applications/Whispy.app
-        cp -R "$WHISPY_HOME/dist/Whispy.app" /Applications/
-        echo -e "${GREEN}[OK] Installed /Applications/Whispy.app${NC}"
-    fi
-    open /Applications/Whispy.app
-    echo ""
-    echo "Grant the Whispy microphone prompt on first launch; enable autostart"
-    echo "with the in-app \"Start at login\" toggle."
+    install_macos
     ;;
 *)
-    echo -e "${RED}Unsupported OS: $(uname -s). Whispy supports macOS and Linux (X11).${NC}"
+    echo -e "${RED}Unsupported OS: $OS. Whispy supports macOS and Linux.${NC}"
     exit 1
     ;;
 esac

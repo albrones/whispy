@@ -352,6 +352,15 @@ impl Alert {
         )
     }
 
+    /// First launch: the models are being fetched, dictation waits for them.
+    pub fn downloading_models(megabytes: u64) -> Alert {
+        Alert::new(
+            "Downloading the speech models",
+            format!("First launch: Whispy is downloading its models ({megabytes} MB). Dictation works as soon as the menu says Ready."),
+            None,
+        )
+    }
+
     pub fn model_failed(message: &str) -> Alert {
         Alert::new(
             "Model failed to load",
@@ -501,6 +510,15 @@ mod tests {
             permission_warning: false,
             dark: true,
         }
+    }
+
+    #[test]
+    fn the_first_launch_download_says_its_size_and_when_dictation_works() {
+        let alert = Alert::downloading_models(1158);
+        assert_eq!(alert.subtitle, "Downloading the speech models");
+        assert!(alert.message.contains("1158 MB"));
+        assert!(alert.message.contains("Ready"));
+        assert_eq!(alert.pane, None);
     }
 
     #[test]

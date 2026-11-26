@@ -33,6 +33,23 @@ const HOUSEKEEPING_PERIOD: Duration = Duration::from_secs(1);
 /// How often V1 is looked for: a V1 started after V2 takes Fn back within this.
 const V1_CHECK_EVERY: u32 = 2;
 
+/// The worker's loader: the models a fresh install lacks are downloaded first
+/// (a notification says so, it takes minutes), then the pipeline is loaded.
+fn load_models() -> Result<whispy_core::Pipeline, whispy_core::Error> {
+    let downloads = whispy_core::models::missing_downloads();
+    if !downloads.is_empty() {
+        let megabytes = downloads.iter().map(|d| d.bytes).sum::<u64>() / 1_000_000;
+        log::line(&format!(
+            "downloading {} model file(s), {megabytes} MB",
+            downloads.len()
+        ));
+        notify::post(&Alert::downloading_models(megabytes));
+        whispy_core::models::download_missing()?;
+        log::line("models downloaded");
+    }
+    whispy_core::Pipeline::load_default()
+}
+
 fn main() {
     let v2_dir = home().map(|home| home.join(".whispy/v2"));
     if let Some(directory) = &v2_dir {
@@ -94,7 +111,7 @@ fn main() {
     inserter::warm_up();
     let controller = Controller::start(
         Microphone::new,
-        whispy_core::Pipeline::load_default,
+        load_models,
         PasteInserter::new(Arc::clone(&typed)),
         LostClips {
             directory: home().map(|home| home.join(".whispy/v2-lost")),

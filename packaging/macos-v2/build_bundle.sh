@@ -33,6 +33,9 @@ mkdir -p "$MACOS_DIR" "$APP/Contents/Resources"
 cp "$SCRIPT_DIR/Info.plist" "$APP/Contents/Info.plist"
 cp "$V1_PKG/whispy.icns" "$APP/Contents/Resources/whispy.icns"
 cp "$TARGET_DIR/$BIN_NAME" "$MACOS_DIR/$BIN_NAME"
+# The commit this bundle was built from, sealed by the signature below:
+# scripts/bootstrap.sh skips the rebuild when it matches the checkout.
+git -C "$REPO_ROOT" rev-parse HEAD > "$APP/Contents/Resources/.whispy-build-hash" 2>/dev/null || true
 BIN="$MACOS_DIR/$BIN_NAME"
 
 # 3. Dylibs. `ort` with copy-dylibs drops libonnxruntime*.dylib next to the
