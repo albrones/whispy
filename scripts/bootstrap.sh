@@ -183,9 +183,10 @@ fi
 # --- Source ------------------------------------------------------------------------
 if [ -d "$WHISPY_HOME/.git" ]; then
     echo -e "${YELLOW}Updating existing install at $WHISPY_HOME...${NC}"
+    # FETCH_HEAD, not origin/<ref>: a clone made with --branch main --depth 1
+    # tracks main only, so another branch or a tag never gets a remote ref.
     git -C "$WHISPY_HOME" fetch --depth 1 origin "$WHISPY_REF"
-    git -C "$WHISPY_HOME" checkout "$WHISPY_REF"
-    git -C "$WHISPY_HOME" reset --hard "origin/$WHISPY_REF"
+    git -C "$WHISPY_HOME" checkout --quiet --force --detach FETCH_HEAD
 else
     echo -e "${YELLOW}Cloning Whispy into $WHISPY_HOME...${NC}"
     mkdir -p "$(dirname "$WHISPY_HOME")"
