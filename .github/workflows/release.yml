@@ -1,32 +1,70 @@
 name: Release
 
-# Fires ONLY on a version tag push (e.g. v0.1.1). Website pushes carry no tag,
-# so a website edit never triggers a Homebrew build. Pushing a tag is the
-# manual "ship the app" trigger.
+# Every push to main runs the full CI, then publishes the next version without
+# anyone's gesture: scripts/release.py reads the conventional commits since the
+# last vX.Y.Z tag (fix -> patch, feat -> minor, `!`/BREAKING CHANGE -> major;
+# chore, docs, test... alone -> no release), stamps the version into the
+# sources and the CHANGELOG, and this job commits that as
+# `chore(release): vX.Y.Z`, tags the commit and creates the GitHub release.
+#
+# The push uses GITHUB_TOKEN, so the release commit and its tag start no
+# workflow of their own (no loop). A tag is never pushed by hand.
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   ci:
-    # Runs the full CI suite (lint + all test jobs) against the exact tagged
-    # commit in this same workflow run, so a release can't ship from a commit
-    # whose CI is red or that was never tested at all.
+    # The full CI suite (lint + all test jobs) on the pushed commit, so a
+    # version is never published from a commit whose CI is red.
     uses: ./.github/workflows/ci.yml
 
   release:
     needs: [ci]
     runs-on: ubuntu-latest
+    # One release at a time; a run waiting here is replaced by a newer one,
+    # which releases everything the older one would have.
+    concurrency:
+      group: release
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-
-      - name: Create GitHub release
-        # GitHub auto-attaches the source tarball at
-        # /archive/refs/tags/<tag>.tar.gz — no artifact to build ourselves.
-        uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          fetch-depth: 0 # the tags and the commits since the last one
+
+      - name: Release only the tip of main
+        # If main moved on while CI ran, the newer push's run (CI included)
+        # releases these commits with its own.
+        id: tip
+        run: |
+          git fetch --quiet origin main
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo "::notice::main moved past $GITHUB_SHA; the newer push releases it."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute the version and stamp it
+        id: version
+        if: steps.tip.outputs.skip != 'true'
+        run: |
+          VERSION="$(python3 scripts/release.py --notes "$RUNNER_TEMP/notes.md")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ -n "$VERSION" ]; then git diff --stat; else echo "No feat or fix since the last tag: no release."; fi
+
+      - name: Commit, tag and publish
+        if: steps.version.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git commit --quiet --all --message "chore(release): v$VERSION"
+          git tag --annotate "v$VERSION" --message "Whispy $VERSION"
+          # Atomic: the commit lands on main only together with its tag. A
+          # rejected push means main moved on; the newer run releases.
+          git push --atomic origin "HEAD:refs/heads/main" "refs/tags/v$VERSION"
+          gh release create "v$VERSION" --verify-tag --title "Whispy $VERSION" --notes-file "$RUNNER_TEMP/notes.md"

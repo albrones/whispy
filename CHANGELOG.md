@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Added
+- **Every merged feat or fix is a version.** On each push to `main`, the
+  release workflow runs the CI, then publishes the next semantic version from
+  the conventional commits since the last tag (`fix` → patch, `feat` → minor;
+  `chore` or `docs` alone → none): tag, GitHub release and CHANGELOG entry,
+  with no manual step. Whispy V2's menu header now shows it
+  (« Whispy 2.1.0 · voice dictation »), as does the bundle's version.
 - **One command installs Whispy V2 on macOS.** `scripts/bootstrap.sh` now
   installs Rust (rustup) and cmake when they are missing, builds and signs
   `Whispy V2.app`, installs it to `/Applications` and launches it; an older

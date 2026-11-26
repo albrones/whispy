@@ -16,10 +16,11 @@
     <string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
+    <!-- Both versions are set by build_bundle.sh from v2/whispy2/Cargo.toml. -->
     <key>CFBundleVersion</key>
-    <string>0.1.0</string>
+    <string>0.0.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>0.0.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <!-- Agent app: menu bar icon, no Dock icon. -->

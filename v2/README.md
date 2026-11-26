@@ -113,7 +113,8 @@ V1's noise floor) inserts nothing, plays the Basso sound and posts
 the current default input device, so a change in System Settings applies to
 the next one.
 
-**The menu is V1's**, top to bottom: « Whispy · voice dictation », the status
+**The menu is V1's**, top to bottom: « Whispy 2.1.0 · voice dictation » (the
+version of the last release, stamped by `scripts/release.py`), the status
 line (« ●  Ready », « Recording », « Transcribing… », or the last problem), the
 « ⚠ Missing permission — fix in System Settings… » item (shown only after a
 permission alert; it opens the right Privacy pane), then under **SETTINGS**:

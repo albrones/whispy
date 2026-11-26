@@ -47,6 +47,11 @@ fi
 rm -rf "$APP"
 mkdir -p "$MACOS_DIR" "$APP/Contents/Resources"
 cp "$SCRIPT_DIR/Info.plist" "$APP/Contents/Info.plist"
+# The version the last release stamped into the crate (scripts/release.py),
+# the one the menu shows too.
+VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$REPO_ROOT/v2/whispy2/Cargo.toml" | head -n 1)"
+[ -n "$VERSION" ] || die "no version in v2/whispy2/Cargo.toml."
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 cp "$ICNS" "$APP/Contents/Resources/whispy.icns"
 cp "$TARGET_DIR/$BIN_NAME" "$MACOS_DIR/$BIN_NAME"
 # The commit this bundle was built from, sealed by the signature below:
