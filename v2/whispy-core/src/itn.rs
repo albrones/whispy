@@ -29,10 +29,10 @@
 const ENGLISH_WORDS: &[&str] = &[
     "the", "of", "and", "to", "is", "are", "was", "were", "with", "for", "you", "your", "we", "i",
     "it", "this", "that", "have", "has", "had", "in", "at", "by", "from", "my", "our", "his",
-    "her", "their", "about", "will", "would", "be", "been", "not", "but", "than", "only", "just",
-    "over", "under", "more", "less", "last", "next", "all", "any", "some", "one", "two", "three",
-    "four", "five", "eight", "nine", "ten", "twenty", "thirty", "forty", "fifty", "sixty",
-    "seventy", "eighty", "ninety", "hundred", "thousand",
+    "her", "their", "about", "will", "would", "be", "been", "not", "than", "only", "just", "over",
+    "under", "more", "less", "last", "next", "all", "any", "some", "one", "two", "three", "five",
+    "eight", "nine", "ten", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty",
+    "ninety", "hundred", "thousand",
 ];
 
 /// Words around which a lone « neuf » is read as the number: articles, so that
@@ -117,6 +117,17 @@ pub fn stable_prefix_len(text: &str) -> usize {
             let from = if tail.core == "pour" { last - 1 } else { last };
             held = Some(held.map_or(from, |h| h.min(from)));
         }
+    }
+    // A number shared with English whose window reaches the held zone would
+    // be read without those words in the typed prefix: hold it too, and any
+    // number whose window reaches it in turn.
+    if let Some(mut h) = held {
+        while let Some(span) = spans.iter().find(|span| {
+            span.ambiguous && !span.closed && span.start < h && window_reaches(&items, span.end, h)
+        }) {
+            h = span.start;
+        }
+        held = Some(h);
     }
     match held {
         Some(h) => items[h].start - items[h].before.map_or(0, char::len_utf8),
@@ -767,6 +778,21 @@ fn clause_window_is_complete(after: &[Item]) -> bool {
     false
 }
 
+/// Whether the tokens [`has_english_around`] reads after a number ending at
+/// `end` include the token at `held` or a later one.
+fn window_reaches(items: &[Item], end: usize, held: usize) -> bool {
+    for (k, item) in items.iter().enumerate().skip(end).take(ENGLISH_WINDOW) {
+        if k >= held {
+            return true;
+        }
+        let token = parse(&item.text);
+        if !token.trail.is_empty() || token.core.is_empty() {
+            return false;
+        }
+    }
+    false
+}
+
 /// « neuf » as an adjective, not the number: after « tout » or « du »; after
 /// « de » ending the clause (« quoi de neuf ? »); after a noun that an article
 /// comes before (« un pull neuf »).
@@ -910,6 +936,12 @@ mod tests {
                 "2500000 personnes",
             ),
             ("six millions de dollars", "6000000 de dollars"),
+            // « four » and « but » are French words too: they do not mark English.
+            ("six pains au four", "6 pains au four"),
+            (
+                "dans le but de dormir six heures",
+                "dans le but de dormir 6 heures",
+            ),
         ] {
             assert_eq!(n(spoken), digits, "{spoken}");
         }
@@ -1045,6 +1077,9 @@ mod tests {
             "I paid six million. we paid six cents, one cent and 10% of it",
             "il en reste six. ça fait neuf, un pull neuf et un jean, du neuf et du vieux",
             "il y a cent personnes et six millions de dollars, I paid six million dollars",
+            "il y a six chats six the",
+            "cent cent I il et I",
+            "six pains au four, dans le but de dormir six heures",
         ] {
             let words: Vec<&str> = sentence.split(' ').collect();
             let block = normalize(sentence);
@@ -1089,6 +1124,10 @@ mod tests {
             "il en reste six tests de plus"
         );
         assert_eq!(held("il en reste six, et"), "il en reste six, et");
+        // A number whose window reaches a held number waits with it: the typed
+        // prefix must not lose the words that decide it.
+        assert_eq!(held("il y a six chats six"), "il y a");
+        assert_eq!(held("cent cent I il"), "");
     }
 
     #[test]
