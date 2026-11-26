@@ -258,6 +258,23 @@ impl Controller {
 
 pub const LOADING_NOTE: &str = "Loading the models…";
 
+/// The worker's loader: the models a fresh install lacks are downloaded first
+/// (`announce` tells the user, it takes minutes), then the pipeline is loaded.
+pub fn load_models(announce: impl Fn(&Alert)) -> Result<Pipeline, whispy_core::Error> {
+    let downloads = whispy_core::models::missing_downloads();
+    if !downloads.is_empty() {
+        let megabytes = downloads.iter().map(|d| d.bytes).sum::<u64>() / 1_000_000;
+        log::line(&format!(
+            "downloading {} model file(s), {megabytes} MB",
+            downloads.len()
+        ));
+        announce(&Alert::downloading_models(megabytes));
+        whispy_core::models::download_missing()?;
+        log::line("models downloaded");
+    }
+    Pipeline::load_default()
+}
+
 fn run(
     mut capture: impl Capture,
     receiver: Receiver<Input>,

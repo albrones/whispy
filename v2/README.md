@@ -5,7 +5,8 @@ replaces anything. V1 (the Python app at the repository root) stays installed
 and untouched.
 
 It holds the transcription engines and the audio pipeline (`whispy-core`),
-the bench (`banc`), and the macOS app built on them (`whispy2`).
+the bench (`banc`), and the app built on them (`whispy2`): macOS, and Linux
+under X11 and Wayland (see [Under Linux](#under-linux)).
 
 ```
 v2/
@@ -233,6 +234,50 @@ back to back): **p50 0.31 s, p95 0.32 s, max 0.32 s** (target p95 < 1.5 s); the
 first dictation after loading 0.32 s (2026-10-17, before Parakeet's 0.25 s frame:
 p95 0.37 s). The real paste adds `pbpaste` + `pbcopy`
 (~0.01 s each) and `osascript` (~0.06 s to start, plus System Events' keystroke).
+
+### Under Linux
+
+The same binary, built on Linux (`cargo build --release -p whispy2`), with a
+Linux layer next to `src/mac` (`src/linux`). Not installed by
+`scripts/bootstrap.sh` yet: Linux users run V1 until the installation card
+lands. Build needs `cmake`, `clang`, `pkg-config` and the ALSA and xkbcommon
+headers (`libasound2-dev libxkbcommon-dev` on Debian/Ubuntu, `alsa-lib
+libxkbcommon` on Arch). Logs, journal, models, settings and the control
+socket are the macOS ones, under `~/.whispy/` and `~/.config/whispy/`.
+
+- **X11**: hold **Right Ctrl** (V1's Linux default) to dictate, release to
+  insert; toggle mode works as on macOS. The key is read from XInput 2 raw
+  events on the root window: nothing is grabbed, Right Ctrl keeps working as a
+  modifier, and Right Ctrl + another key is a shortcut, not a dictation. If the
+  key cannot be listened to (no X server, no XInput 2, no Right Ctrl in the
+  layout) Whispy says so in a notification and in the status, and keeps running:
+  the socket still drives it. The `trigger` key of the settings file is a macOS
+  keycode and is ignored here.
+- **Wayland** (Omarchy/Hyprland, sway): no client may listen to a global key,
+  so the compositor's binding drives the control socket:
+  `echo start | socat - UNIX-CONNECT:$HOME/.whispy/v2/control.sock`, then `stop`
+  (or `toggle`).
+- **Typing**: [enigo](https://crates.io/crates/enigo), one key at a time: XTest
+  under X11, the virtual-keyboard protocol under Wayland (as `wtype`), so the
+  text reaches terminals too. « Copy to clipboard » is ignored: Linux always
+  types. Only the 5-minute watchdog uses the clipboard (`wl-copy`, else `xclip`
+  or `xsel`).
+- **Tray icon (X11)**: a grey ring at rest, a red dot while listening; its menu
+  shows the status line and **Quit**. It needs a StatusNotifierItem host in the
+  panel (KDE, XFCE, most bars). Without one Whispy posts one notification
+  (« Tray icon unavailable ») and runs on without it. No icon under Wayland:
+  the Omarchy bar panel comes with the next card.
+- **Notifications**: every alert goes through `notify-send` (libnotify).
+- **No network port**: the control socket is the only way in. Not ported:
+  `custom_vocabulary`, V1's `/transcribe` and `/level`.
+
+**End-to-end checks** (Docker, any host): `whispy2/linux-e2e/run.sh <models-dir>`
+builds the Linux binary in a container and runs a real dictation of « Ajouter
+trois tests » (a `say` clip played into a PulseAudio null sink) under X11
+(Xvfb, Right Ctrl through XTest, a fake panel for the icon) and under Wayland
+(sway headless, the socket), plus the two degraded starts (no tray host, no X
+server). `<models-dir>` holds `parakeet/` and `ggml-small.bin`; nothing is
+downloaded.
 
 ## The interface the app uses
 
