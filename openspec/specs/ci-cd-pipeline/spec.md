@@ -79,23 +79,38 @@ CI SHALL run the default (mocked/unit) test tier on a Linux runner, in addition 
   stays local-only, per `openspec/specs/TESTING-TIERS.md`'s `linux-real`
   definition
 
-### Requirement: Release creation is gated on CI passing
+### Requirement: Every feat or fix merged to main publishes a version
 
-The release workflow (`.github/workflows/release.yml`) SHALL NOT create a GitHub release for a pushed tag unless the full CI suite (lint + all test jobs) passes for that exact tagged commit, verified within the same workflow run.
+The release workflow (`.github/workflows/release.yml`) SHALL run on every push to `main`, run the full CI suite (lint + all test jobs) on the pushed commit within the same workflow run, and only then publish the next semantic version computed by `scripts/release.py` from the conventional commits since the last `vX.Y.Z` tag: a tag, a GitHub release and a CHANGELOG entry, with no version PR to merge and no tag pushed by hand.
 
-#### Scenario: Tag push runs the full CI suite before releasing
+#### Scenario: A fix publishes a patch, a feat a minor
 
-- **WHEN** a `v*` tag is pushed
-- **THEN** the release workflow SHALL execute the CI workflow's jobs
-  (lint and all test jobs) against the tagged commit before the release
-  job runs, via a reusable-workflow (`workflow_call`) invocation with a
-  `needs` dependency
+- **WHEN** a push to `main` brings a `fix(...)` commit since the last tag
+- **THEN** the workflow SHALL commit `chore(release): vX.Y.Z` (the version
+  stamped into `v2/whispy2/Cargo.toml`, its `v2/Cargo.lock` entry,
+  `pyproject.toml`, the website's menu demo, and the CHANGELOG), tag it
+  `vX.Y.Z` and create the GitHub release, the patch number bumped
+- **AND** a `feat(...)` commit SHALL bump the minor number instead, and a
+  `!` or `BREAKING CHANGE:` footer the major
+
+#### Scenario: Chores alone publish nothing
+
+- **WHEN** the commits since the last tag are only `chore`, `docs`, `test`
+  or other non-feat, non-fix commits
+- **THEN** no tag, release or CHANGELOG entry SHALL be created
 
 #### Scenario: A failing CI job blocks the release
 
 - **WHEN** any job invoked by the release workflow's CI gate fails
-- **THEN** the `release` job SHALL NOT run, and no GitHub release SHALL be
-  created for that tag
+- **THEN** the `release` job SHALL NOT run, and no version SHALL be
+  published for that push
+
+#### Scenario: The V2 app knows its version
+
+- **WHEN** Whispy V2 is built
+- **THEN** its menu header SHALL read « Whispy X.Y.Z · voice dictation »
+  and its bundle's `CFBundleShortVersionString` SHALL be X.Y.Z, X.Y.Z being
+  the version of the last release tag in the checkout
 
 ### Requirement: Coverage has an enforced floor
 

@@ -21,6 +21,15 @@ pub const TRIGGER_PRESETS: [(&str, Option<i64>); 4] = [
 /// The Fn key's keycode, what the unset trigger means.
 pub const FN_KEYCODE: i64 = 63;
 
+/// Whispy's version, as the last release tag stamped it into Cargo.toml
+/// (scripts/release.py, run by the release workflow on every feat or fix).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The menu's first row: « Whispy 2.1.0 · voice dictation ».
+pub fn header_title() -> String {
+    format!("Whispy {VERSION} \u{b7} voice dictation")
+}
+
 /// What a menu item does when chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
@@ -178,11 +187,7 @@ pub fn keycode_to_name(keycode: i64) -> String {
 pub fn build(input: &MenuInput) -> Vec<MenuRow> {
     let _ = input.dark; // The colour is applied by the renderer from `theme::accent`.
     let mut rows = vec![
-        MenuRow::new(
-            RowKind::Header,
-            Title::plain("Whispy \u{b7} voice dictation"),
-            false,
-        ),
+        MenuRow::new(RowKind::Header, Title::plain(header_title()), false),
         MenuRow::new(RowKind::Status, status_title(&input.status_text), false),
         MenuRow::new(
             RowKind::PermissionWarning {
@@ -522,13 +527,30 @@ mod tests {
     }
 
     #[test]
+    fn the_header_names_the_version_of_the_last_release() {
+        // scripts/release.py stamps the same version into the crate and the V1
+        // package on each release; the menu shows the crate's.
+        let pyproject = include_str!("../../../pyproject.toml");
+        let stamped = pyproject
+            .lines()
+            .find_map(|l| l.strip_prefix("version = \""))
+            .and_then(|v| v.strip_suffix('"'))
+            .expect("pyproject.toml has a version");
+        assert_eq!(VERSION, stamped);
+        assert_eq!(
+            build(&idle_input())[0].title.text,
+            format!("Whispy {stamped} \u{b7} voice dictation")
+        );
+    }
+
+    #[test]
     fn menu_matches_v1() {
         let rows = build(&idle_input());
         let titles: Vec<&str> = rows.iter().map(|r| r.title.text.as_str()).collect();
         assert_eq!(
             titles,
             [
-                "Whispy \u{b7} voice dictation",
+                header_title().as_str(),
                 "●  Ready",
                 "\u{26a0} Missing permission \u{2014} fix in System Settings\u{2026}",
                 "",

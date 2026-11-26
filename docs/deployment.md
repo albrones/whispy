@@ -86,6 +86,12 @@ commit it).
 
 ## Related pipelines
 
-- [`ci.yml`](../.github/workflows/ci.yml) — lint + test the Python app.
-- [`release.yml`](../.github/workflows/release.yml) — on `v*` tag push, create a
-  GitHub release (source tarball auto-attached).
+- [`ci.yml`](../.github/workflows/ci.yml) — lint + test V1 (Python) and V2
+  (Rust) on every pull request.
+- [`release.yml`](../.github/workflows/release.yml) — on every push to `main`,
+  runs `ci.yml`, then publishes the next version without any manual step:
+  `scripts/release.py` reads the conventional commits since the last `vX.Y.Z`
+  tag (`fix` → patch, `feat` → minor, `!`/`BREAKING CHANGE` → major; `chore`,
+  `docs`… alone → no release), stamps the version into the sources and the
+  CHANGELOG, and the workflow commits `chore(release): vX.Y.Z`, tags it and
+  creates the GitHub release. Never push a version tag by hand.

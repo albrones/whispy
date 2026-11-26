@@ -1,8 +1,8 @@
 name: CI
 
+# Pushes to main run this suite through release.yml (which then publishes the
+# version), so it is not triggered here a second time.
 on:
-  push:
-    branches: [main, master]
   pull_request:
     branches: [main, master]
   workflow_call:
