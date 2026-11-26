@@ -14,9 +14,14 @@ field, or switch on toggle mode to press once to start and once to stop.
 curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash
 ```
 
-On macOS this builds and installs the signed `Whispy.app`. On Linux, install the
-system packages first (see the install guide below). If something does not
-work afterwards, run `make doctor` from the repository for a diagnosis.
+On macOS this installs **Whispy V2**, the native rewrite in Rust (`v2/`): it
+installs Rust and cmake if they are missing, builds and signs
+`Whispy V2.app` into `/Applications` and launches it; the app downloads its
+models (about 1.2 GB) on first launch. On Linux it installs the system packages
+it needs (apt, dnf or pacman, through sudo), then Whispy V1 (Python) and a
+`systemd --user` service; V2 is coming to Linux. Run the command again to
+update. If something does not work on Linux, run `make doctor` from the
+repository for a diagnosis.
 
 ## Documentation
 

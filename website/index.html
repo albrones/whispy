@@ -78,7 +78,7 @@
           <a class="btn btn-primary" href="#install">Install Whispy</a>
           <a class="btn btn-ghost" href="https://github.com/albrones/whispy">View source</a>
         </div>
-        <p class="hero-note">Free &amp; open source · macOS (Apple Silicon &amp; Intel) and Linux (X11 &amp; Wayland)</p>
+        <p class="hero-note">Free &amp; open source · macOS (Apple Silicon &amp; Intel) and Linux (X11 &amp; Wayland) · macOS runs Whispy V2, a native rewrite in Rust; V2 is coming to Linux soon</p>
       </div>
 
       <div class="hero-visual">
@@ -188,7 +188,7 @@
       <div class="grid">
         <article class="card">
           <h3>100% local</h3>
-          <p>Audio is transcribed on-device with Parakeet. Your voice never touches a server. Numbers dictated in French are written in digits (&laquo;&nbsp;14&nbsp;h&nbsp;30&nbsp;&raquo;, &laquo;&nbsp;10&nbsp;%&nbsp;&raquo;).</p>
+          <p>Audio is transcribed on-device with Parakeet. Your voice never touches a server. On macOS, numbers dictated in French are written in digits (&laquo;&nbsp;14&nbsp;h&nbsp;30&nbsp;&raquo;, &laquo;&nbsp;10&nbsp;%&nbsp;&raquo;); Linux gets it with V2.</p>
         </article>
         <article class="card">
           <h3>One key, anywhere</h3>
@@ -200,7 +200,7 @@
         </article>
         <article class="card">
           <h3>macOS &amp; Linux</h3>
-          <p>Native on macOS and Linux (X11 and Wayland). OS-specific seams sit behind a ports-and-adapters layer bound at runtime.</p>
+          <p>On macOS, Whispy V2: a native app written in Rust, built on your Mac by the installer. On Linux (X11 and Wayland), Whispy V1 in Python until V2 reaches Linux, which is coming soon.</p>
         </article>
         <article class="card">
           <h3>Knows what you're speaking</h3>
@@ -212,7 +212,7 @@
         </article>
         <article class="card">
           <h3>Fast enough to forget</h3>
-          <p>A two-second phrase transcribes in about 75&nbsp;ms on an M1 Pro. Text lands as you release the key. In toggle mode, text is typed after each pause while you're still speaking.</p>
+          <p>A two-second phrase transcribes in about 75&nbsp;ms on an M1 Pro. Text lands as you release the key. In toggle mode, text is typed while you're still speaking; on macOS the pill shows the words as they are heard.</p>
         </article>
         <article class="card">
           <h3>Quiet when you are</h3>
@@ -220,7 +220,7 @@
         </article>
         <article class="card">
           <h3>Your names, spelled right</h3>
-          <p>List the names, brands and jargon you actually say in <code>custom_vocabulary</code>, and a near miss is corrected after transcription — <em>wispy</em> comes out as <em>Whispy</em>. Still on-device, like everything else.</p>
+          <p>On Linux, list the names, brands and jargon you actually say in <code>custom_vocabulary</code>, and a near miss is corrected after transcription — <em>wispy</em> comes out as <em>Whispy</em>. Still on-device, like everything else. Not in V2 on macOS yet.</p>
         </article>
       </div>
     </section>
@@ -283,12 +283,12 @@
         <table class="models">
           <tbody>
             <tr><td>Model</td><td><code>nvidia/parakeet-tdt-0.6b-v3</code>, int8 ONNX, CPU</td></tr>
-            <tr><td>Download</td><td>639 MB, automatic on first run</td></tr>
+            <tr><td>Download</td><td>Automatic on first run: 639 MB on Linux; about 1.2 GB on macOS, where V2 also fetches whisper small to retry a dictation Parakeet heard nothing in</td></tr>
             <tr><td>Speed</td><td>~75 ms for a 2-second phrase (Apple M1 Pro)</td></tr>
             <tr><td>Memory</td><td>~1.4 GB resident while loaded</td></tr>
             <tr><td>Languages</td><td>25, detected automatically — Bulgarian, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French, German, Greek, Hungarian, Italian, Latvian, Lithuanian, Maltese, Polish, Portuguese, Romanian, Slovak, Slovenian, Spanish, Swedish, Russian, Ukrainian</td></tr>
             <tr><td>Non-speech</td><td>Discarded before the model — needs both loudness and detected voice</td></tr>
-            <tr><td>Vocabulary</td><td>Names and terms you list in <code>custom_vocabulary</code> are corrected after transcription</td></tr>
+            <tr><td>Vocabulary</td><td>Linux: names and terms you list in <code>custom_vocabulary</code> are corrected after transcription</td></tr>
           </tbody>
         </table>
       </div>
@@ -299,27 +299,29 @@
     <!-- Install -->
     <section id="install" class="section section-install">
       <h2>Install in one line</h2>
-      <p class="section-lede">Runs on macOS and Linux (X11 and Wayland). Audio capture uses
-        <code>sounddevice</code>/PortAudio — no <code>sox</code> needed.</p>
+      <p class="section-lede">One command on macOS and on Linux (X11 and Wayland). Run it
+        again later to update.</p>
 
       <div class="install-block">
         <pre class="codeblock" id="install-curl"><code>curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash</code></pre>
         <button class="btn btn-copy" type="button" data-copy-target="install-curl" aria-label="Copy install command">Copy</button>
       </div>
 
-      <p class="install-alt">On macOS this builds and installs the signed
-        <code>Whispy.app</code> (needs the Xcode Command Line Tools). Autostart
-        is the in-app "Start at login" toggle.</p>
+      <p class="install-alt"><strong>macOS</strong> — builds Whispy V2 on your Mac and
+        installs <code>Whispy V2.app</code>. It needs the Xcode Command Line Tools (the
+        command opens their installer if they are missing) and installs Rust and cmake
+        when they are not there. The first build takes a few minutes; the first launch
+        downloads the speech models (about 1.2&nbsp;GB). Then grant Whispy V2
+        Microphone, Input Monitoring and Accessibility, and switch on
+        "Start at login" in its menu. An older <code>Whispy.app</code> (V1) goes
+        to the Trash: V2 replaces it.</p>
 
-      <p class="install-alt">On Linux, install the system deps first (X11 shown;
-        under Wayland install <code>wtype wl-clipboard</code> instead — on Omarchy,
-        then run <code>omarchy-dictation-use whispy</code> and <code>hyprctl reload</code>; the Whispy icon appears on the right of the bar, where you pick the dictation key):</p>
-      <div class="install-block">
-        <pre class="codeblock" id="install-linux"><code># Debian/Ubuntu — xdotool (text injection), xclip (clipboard delivery), PortAudio
-sudo apt install xdotool xclip libportaudio2
-curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash</code></pre>
-        <button class="btn btn-copy" type="button" data-copy-target="install-linux" aria-label="Copy Linux install command">Copy</button>
-      </div>
+      <p class="install-alt"><strong>Linux</strong> — installs the system packages
+        it needs with <code>apt</code>, <code>dnf</code> or <code>pacman</code> (sudo asks
+        for your password), then Whispy and a user service that starts at login.
+        On Omarchy, then run <code>omarchy-dictation-use whispy</code> and
+        <code>hyprctl reload</code>; the Whispy icon appears on the right of the bar,
+        where you pick the dictation key. Linux runs Whispy V1 until V2 reaches it.</p>
 
       <div class="hero-actions">
         <a class="btn btn-ghost" href="docs/install.html">Step-by-step install guide</a>

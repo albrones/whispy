@@ -40,9 +40,15 @@ openssl req -x509 -newkey rsa:2048 -keyout "$TMP/key.pem" -out "$TMP/cert.pem" \
     -days 3650 -nodes -config "$TMP/cfg" >/dev/null 2>&1
 
 # Legacy PKCS12 algorithms (SHA1/3DES): OpenSSL 3's modern defaults fail macOS
-# `security import` with "MAC verification failed".
+# `security import` with "MAC verification failed". OpenSSL 3 needs -legacy
+# for them; the LibreSSL that ships with macOS has no such flag (and rejects
+# it), so a fresh Mac without Homebrew's openssl must go without it.
+LEGACY=""
+PKCS12_HELP="$(openssl pkcs12 -help 2>&1 || true)"
+case "$PKCS12_HELP" in *-legacy*) LEGACY="-legacy" ;; esac
+# shellcheck disable=SC2086
 openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" -out "$TMP/id.p12" \
-    -passout pass:whispy -legacy -macalg sha1 \
+    -passout pass:whispy $LEGACY -macalg sha1 \
     -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -name "$CERT_NAME" >/dev/null 2>&1
 
 # -A lets codesign use the key without a per-sign keychain prompt.
