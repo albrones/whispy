@@ -101,8 +101,9 @@ linux_missing_packages() {
     command -v git >/dev/null 2>&1 || missing+=(git)
     if ! command -v python3 >/dev/null 2>&1; then
         case "$manager" in pacman) missing+=(python) ;; *) missing+=(python3) ;; esac
-    elif [ "$manager" = "apt" ] && ! python3 -c 'import ensurepip, venv' >/dev/null 2>&1; then
-        # Debian and Ubuntu ship python3 without venv/ensurepip.
+    fi
+    # Debian and Ubuntu ship python3 without venv/ensurepip.
+    if [ "$manager" = "apt" ] && ! python3 -c 'import ensurepip, venv' >/dev/null 2>&1; then
         missing+=(python3-venv)
     fi
     if [ "$session" = "wayland" ]; then
