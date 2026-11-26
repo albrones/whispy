@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-11-26
+
 ### Added
 - **Every merged feat or fix is a version.** On each push to `main`, the
   release workflow runs the CI, then publishes the next semantic version from
@@ -103,6 +105,41 @@
   it, so every HTTPS request failed with a bare `[Errno 2] No such file or
   directory` and the menu bar stayed on "Model not loaded" whenever the model
   was not already cached. A missing CA path is now replaced with certifi's.
+
+### Features
+
+- **audio:** keep lost speech for replay and log successes
+- **audio:** say when the microphone heard nothing
+- **docs:** interactive docs site + fix macOS model download (SSL) (#30)
+- **v2:** Rust transcription core, Parakeet and whisper engines, and a bench against V1 (#31)
+- **v2:** macOS app — Fn to dictate, text inserted, menu bar, V1 cohabitation (#32)
+- **v2:** lazy whisper fallback and an oracle for the lost clips that hold speech (#33)
+- **v2:** banc --labelled scores criterion 3 on the user's labelled clips (#34)
+- **v2:** frame Parakeet's input with silence so criterion 3 holds (#35)
+- **linux:** Wayland sessions, Omarchy F9 backend and POST /transcribe (#36)
+- **v2:** make V2 trial-ready — installable app, control socket, trial report (#38)
+- **omarchy:** bar panel, dictation key picker and waveform pill (#39)
+- **v2:** l'interface de la V1 dans l'app Rust — touche, mode, pastille, menu, notifications (#41)
+- **v2:** Type while speaking — le texte s'écrit pendant la dictée, en mode bascule (#42)
+- **linux:** the X11 tray icon is optional and can no longer stop Whispy (#44)
+- **v2:** Type while speaking re-transcribes in context and the pill shows the words live (#45)
+- **v2:** spoken French numbers are written in digits (#46)
+- **install:** one command installs Whispy V2 on macOS and Whispy on Linux; website updated (#52)
+- **release:** every feat or fix merged to main publishes a version (#56) (#58)
+
+### Fixes
+
+- **doctor:** stop giving a Linux user macOS advice, and check what Linux needs
+- **menu:** show Type while speaking as off when streaming is disabled
+- keep Type while speaking alive across stale configs and stale builds
+- **build:** declare certifi, which the macOS bundle force-includes
+- **build:** cap setuptools below 84, which py2app 0.28 cannot build with
+- **tests:** run the default tier under a throwaway HOME
+- **audio:** give quiet speech a louder last try before calling it lost
+- **install:** put a whispy command on PATH so Omarchy binds F9 (#37)
+- **omarchy:** no idle polling; install restores the dictation key file (#40)
+- **v2:** the bench ranks its pick on the user's labelled clips (criterion 7 holds again) (#43)
+- **v2:** « four »/« but » are French, and live dictation holds a number whose window reaches the held zone (#55)
 
 ## [2.0.0] — 2026-10-06
 
