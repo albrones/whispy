@@ -113,6 +113,14 @@ linux_missing_packages() {
         command -v xdotool >/dev/null 2>&1 || missing+=(xdotool)
         { command -v xclip >/dev/null 2>&1 || command -v xsel >/dev/null 2>&1; } || missing+=(xclip)
     fi
+    # pip builds evdev (pynput's Linux backend) from source: no wheel exists.
+    command -v gcc >/dev/null 2>&1 || missing+=(gcc)
+    if ! python3 -c 'import os, sysconfig; raise SystemExit(not os.path.exists(os.path.join(sysconfig.get_paths()["include"], "Python.h")))' >/dev/null 2>&1; then
+        case "$manager" in apt) missing+=(python3-dev) ;; dnf) missing+=(python3-devel) ;; esac
+    fi
+    if [ ! -f /usr/include/linux/input.h ]; then
+        case "$manager" in apt) missing+=(linux-libc-dev) ;; dnf) missing+=(kernel-headers) ;; pacman) missing+=(linux-api-headers) ;; esac
+    fi
     if ! has_portaudio; then
         case "$manager" in apt) missing+=(libportaudio2) ;; *) missing+=(portaudio) ;; esac
     fi
