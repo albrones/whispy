@@ -1,6 +1,9 @@
 #!/bin/bash
 # Builds whispy2 for Linux in a container and runs the end-to-end checks of
-# the Linux app: X11 (Xvfb) and Wayland (sway, headless). See README.md.
+# the Linux app: X11 (Xvfb) and Wayland (sway, headless); then the Omarchy
+# checks (omarchy.sh: the dictation keys and the bar panel's Service.qml under
+# Quickshell, on the control socket), in their own image (omarchy/Dockerfile).
+# See README.md.
 #
 #   v2/whispy2/linux-e2e/run.sh <models-dir>
 #
@@ -28,3 +31,8 @@ run '/e2e/x11-degraded.sh'
 echo "### Wayland: the control socket and enigo (criterion 2)"
 # sway refuses to run as root.
 run 'useradd -m e2e && su e2e -c /e2e/wayland.sh'
+echo "### Omarchy: the dictation keys and the bar panel on the control socket (card 2/3)"
+docker build -q -t whispy2-omarchy-e2e "$here/omarchy" >/dev/null
+docker run --rm -v "$repo":/src:ro -v "$here":/e2e:ro -v "$models":/models:ro \
+  -v whispy2-e2e-target:/target:ro -e LC_ALL=C.UTF-8 \
+  whispy2-omarchy-e2e bash -c 'useradd -m e2e && su e2e -c /e2e/omarchy.sh'

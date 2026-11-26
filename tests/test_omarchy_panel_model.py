@@ -20,16 +20,18 @@ MODEL = PLUGIN / "Model.js"
 
 NODE_SCRIPT = r"""
 const m = require(process.argv[1]);
-const ready = {is_recording: false, is_transcribing: false, model_loading: false, model_loaded: true};
+const ready = {state: "idle", models_loaded: true, yielded: false, last_problem: null, trigger_mode: "hold", level: 0};
 const out = {
-  stopped: m.phase(false, null, false),
-  ready: m.phase(true, ready, false),
-  recording: m.phase(true, {...ready, is_recording: true}, false),
-  // The backend says /stop is running while /status still says recording.
-  hinted: m.phase(true, {...ready, is_recording: true}, true),
-  transcribing: m.phase(true, {...ready, is_transcribing: true}, false),
-  loading: m.phase(true, {...ready, model_loaded: false, model_loading: true}, false),
-  noModel: m.phase(true, {...ready, model_loaded: false}, false),
+  stopped: m.phase(false, null),
+  ready: m.phase(true, ready),
+  recording: m.phase(true, {...ready, state: "recording", level: 0.4}),
+  transcribing: m.phase(true, {...ready, state: "transcribing"}),
+  inserting: m.phase(true, {...ready, state: "inserting"}),
+  yielded: m.phase(true, {...ready, state: "yielded", yielded: true}),
+  loading: m.phase(true, {...ready, models_loaded: false}),
+  noModel: m.phase(true, {...ready, models_loaded: false, last_problem: "The models could not be loaded"}),
+  yieldedLabel: m.phaseLabel("yielded"),
+  yieldedIsRest: m.isActive("yielded"),
   stoppedTooltip: m.tooltip("stopped"),
   listeningTooltip: m.tooltip("recording"),
   idleFrames: [m.frame("ready", 0), m.frame("ready", 5), m.frame("stopped", 3)],
@@ -56,12 +58,16 @@ def model() -> dict:
     return json.loads(result.stdout)
 
 
-def test_phase_follows_the_daemon(model):
+def test_phase_follows_the_v2_status(model):
     assert model["stopped"] == "stopped"
     assert model["ready"] == "ready"
     assert model["recording"] == "recording"
-    assert model["hinted"] == "transcribing"
     assert model["transcribing"] == "transcribing"
+    # Typing the text is still the end of the dictation, not rest.
+    assert model["inserting"] == "transcribing"
+    assert model["yielded"] == "yielded"
+    assert model["yieldedLabel"] == "Whispy V1 is running"
+    assert model["yieldedIsRest"] is False
     assert model["loading"] == "loading"
     assert model["noModel"] == "no-model"
 
@@ -106,3 +112,14 @@ def test_manifest_points_at_the_entry_point():
     manifest = json.loads((PLUGIN / "manifest.json").read_text())
     assert manifest["id"] == "whispy.panel"
     assert (PLUGIN / manifest["entryPoints"]["barWidget"]).is_file()
+
+
+def test_the_panel_reads_the_v2_socket_and_no_network_port():
+    """Whispy V2 opens no port: the panel talks to its control socket only."""
+    for path in [*PLUGIN.glob("*.qml"), MODEL]:
+        source = path.read_text()
+        for gone in ("XMLHttpRequest", "http://", "9090", "config.token", "systemctl"):
+            assert gone not in source, f"{path.name} still uses {gone}"
+    service = (PLUGIN / "Service.qml").read_text()
+    assert "/.whispy/v2/control.sock" in service
+    assert 'request: "status"' in service and 'request: "last"' in service

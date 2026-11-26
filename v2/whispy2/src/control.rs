@@ -5,7 +5,8 @@
 //! in a 0700 directory: the directory is the real guard, since permissions on a
 //! socket file are not honoured alike on BSD and Linux. No TCP port is opened.
 //! Line protocol, one request and one reply line per connection: `start`,
-//! `stop`, `toggle`, `status`.
+//! `stop`, `toggle`, `status`, `last`. The Omarchy bar panel reads `status`
+//! (which carries the input level) and `last` straight from the socket.
 //!
 //! The socket produces the events the trigger key produces and the machine never
 //! learns where an edge came from: that is why a `stop` while idle, or a
@@ -25,7 +26,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::controller::{Input, Source, Status};
+use crate::controller::{Input, Live, Source, Status};
 use crate::journal::json_string;
 use crate::log;
 use crate::machine::{Event, Mode, State, MIN_HOLD};
@@ -46,6 +47,8 @@ pub enum Request {
     Stop,
     Toggle,
     Status,
+    /// The whole text of the last dictation, kept in memory only.
+    Last,
 }
 
 pub fn parse(line: &str) -> Result<Request, String> {
@@ -54,8 +57,9 @@ pub fn parse(line: &str) -> Result<Request, String> {
         "stop" => Ok(Request::Stop),
         "toggle" => Ok(Request::Toggle),
         "status" => Ok(Request::Status),
+        "last" => Ok(Request::Last),
         other => Err(format!(
-            "error: unknown request {:?}; expected start, stop, toggle or status",
+            "error: unknown request {:?}; expected start, stop, toggle, status or last",
             other.chars().take(32).collect::<String>()
         )),
     }
@@ -175,6 +179,25 @@ fn answer(stream: UnixStream, handle: &dyn Fn(Request) -> String) {
     let _ = (&stream).write_all(format!("{reply}\n").as_bytes());
 }
 
+/// The client side, for `whispy2 send <request>`: one request, its reply line.
+/// What the Omarchy dictation keys call, so they need no `socat` or `nc`.
+pub fn send(path: &Path, request: &str) -> std::io::Result<String> {
+    let mut stream = UnixStream::connect(path)?;
+    stream.set_read_timeout(Some(SEND_TIMEOUT))?;
+    stream.write_all(format!("{}\n", request.trim()).as_bytes())?;
+    let mut reply = String::new();
+    BufReader::new(&stream).read_line(&mut reply)?;
+    Ok(reply.trim_end().to_string())
+}
+
+/// What `send` waits for a reply: a status query takes up to [`QUERY_TIMEOUT`].
+const SEND_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Whether a reply line reports a refusal or an error rather than an answer.
+pub fn is_failure(reply: &str) -> bool {
+    reply.starts_with("error") || reply.starts_with("refused")
+}
+
 /// Turns a request into controller inputs and its reply line.
 ///
 /// `start` and `toggle` are refused while V2 yields to V1: the key belongs to
@@ -186,7 +209,8 @@ pub fn dispatch(inputs: &Sender<Input>, request: Request) -> String {
     };
     let send = |event: Event| inputs.send(Input::Event(event, Source::Socket)).is_ok();
     match request {
-        Request::Status => status_json(&status),
+        Request::Status => status_json(&status, live(inputs).unwrap_or_default().level),
+        Request::Last => last_json(live(inputs).and_then(|live| live.last_text).as_deref()),
         Request::Start | Request::Toggle if status.state == State::Yielded => {
             "refused: Whispy V1 is running and holds the trigger".into()
         }
@@ -245,22 +269,48 @@ fn query(inputs: &Sender<Input>) -> Option<Status> {
     answer.recv_timeout(QUERY_TIMEOUT).ok()
 }
 
-/// The `status` reply: one line of JSON.
-pub fn status_json(status: &Status) -> String {
+fn live(inputs: &Sender<Input>) -> Option<Live> {
+    let (reply, answer) = mpsc::channel();
+    inputs.send(Input::Live(reply)).ok()?;
+    answer.recv_timeout(QUERY_TIMEOUT).ok()
+}
+
+/// The `last` reply: `{"text":"…"}`, or `{"text":null}` before any dictation.
+pub fn last_json(text: Option<&str>) -> String {
+    match text {
+        Some(text) => format!("{{\"text\":{}}}", json_string(text)),
+        None => "{\"text\":null}".to_string(),
+    }
+}
+
+/// The `status` reply: one line of JSON. `level` is the input level of the
+/// recording (V1's scale, 0 when nothing records), for the Omarchy pill.
+pub fn status_json(status: &Status, level: f32) -> String {
     let problem = match status.last_problem() {
         Some(problem) => json_string(problem),
         None => "null".to_string(),
     };
     format!(
-        "{{\"state\":{},\"models_loaded\":{},\"yielded\":{},\"last_problem\":{problem},\"trigger_mode\":\"{}\"}}",
+        "{{\"state\":{},\"models_loaded\":{},\"yielded\":{},\"last_problem\":{problem},\"trigger_mode\":\"{}\",\"level\":{}}}",
         json_string(status.state_name()),
         status.models_loaded,
         status.state == State::Yielded,
         match status.trigger_mode {
             TriggerMode::Hold => "hold",
             TriggerMode::Toggle => "toggle",
-        }
+        },
+        json_number(level)
     )
+}
+
+/// A level as JSON: finite, never negative, three decimals.
+fn json_number(level: f32) -> String {
+    let level = if level.is_finite() {
+        level.max(0.0)
+    } else {
+        0.0
+    };
+    format!("{level:.3}")
 }
 
 #[cfg(test)]
@@ -290,6 +340,7 @@ mod tests {
         assert_eq!(parse(" stop "), Ok(Request::Stop));
         assert_eq!(parse("toggle"), Ok(Request::Toggle));
         assert_eq!(parse("status"), Ok(Request::Status));
+        assert_eq!(parse("last"), Ok(Request::Last));
         assert!(parse("record").unwrap_err().starts_with("error"));
         assert!(parse("").unwrap_err().starts_with("error"));
     }
@@ -313,6 +364,21 @@ mod tests {
         control.serve(|request| format!("{request:?}"));
         assert_eq!(ask(&path, "toggle"), "Toggle");
         assert!(ask(&path, "record").starts_with("error"));
+    }
+
+    #[test]
+    fn send_asks_one_request_and_reads_its_reply() {
+        let path = temp_dir("control-send").join("control.sock");
+        let control = listening(&path);
+        control.serve(|request| format!("{request:?}"));
+        assert_eq!(send(&path, "last\n").unwrap(), "Last");
+        assert!(is_failure(&send(&path, "record").unwrap()));
+        assert!(!is_failure("ok") && is_failure("refused: Whispy V1 is running"));
+        drop(control);
+        assert!(
+            send(&path, "status").is_err(),
+            "nothing listens once dropped"
+        );
     }
 
     #[test]
@@ -409,8 +475,8 @@ mod tests {
             permission_pane: None,
         };
         assert_eq!(
-            status_json(&status),
-            "{\"state\":\"idle\",\"models_loaded\":true,\"yielded\":false,\"last_problem\":\"Microphone heard nothing (\\\"Mic\\\")\",\"trigger_mode\":\"hold\"}"
+            status_json(&status, 0.0),
+            "{\"state\":\"idle\",\"models_loaded\":true,\"yielded\":false,\"last_problem\":\"Microphone heard nothing (\\\"Mic\\\")\",\"trigger_mode\":\"hold\",\"level\":0.000}"
         );
         let loading = Status {
             state: State::Yielded,
@@ -419,8 +485,19 @@ mod tests {
             trigger_mode: TriggerMode::Toggle,
             permission_pane: None,
         };
-        let json = status_json(&loading);
+        let json = status_json(&loading, 0.4567);
         assert!(json.contains("\"yielded\":true") && json.contains("\"last_problem\":null"));
         assert!(json.contains("\"trigger_mode\":\"toggle\""));
+        assert!(json.ends_with(",\"level\":0.457}"));
+        assert!(status_json(&loading, f32::NAN).ends_with(",\"level\":0.000}"));
+    }
+
+    #[test]
+    fn last_is_the_text_as_json_or_null() {
+        assert_eq!(last_json(None), "{\"text\":null}");
+        assert_eq!(
+            last_json(Some("Il a dit \"oui\".\n")),
+            "{\"text\":\"Il a dit \\\"oui\\\".\\n\"}"
+        );
     }
 }

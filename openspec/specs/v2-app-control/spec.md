@@ -1,8 +1,8 @@
 # v2-app-control Specification
 
 ## Purpose
-Lets scripts, tests and, later, a Linux compositor key binding drive Whispy V2
-locally, and guarantees that only one V2 runs per user.
+Lets scripts, tests, a Linux compositor key binding and the Omarchy bar panel
+drive and read Whispy V2 locally, and guarantees that only one V2 runs per user.
 
 ## Requirements
 
@@ -22,7 +22,7 @@ _Tier: unit — `control` module on a temporary directory._
 _Tier: script._
 
 ### Requirement: The socket speaks a line protocol
-Each request SHALL be one line: `start`, `stop`, `toggle` or `status`. Each SHALL get one reply line. `start` SHALL act as a trigger press held down, and `stop` as its release, held long enough to count as a hold. `toggle` SHALL act as a short tap. `status` SHALL reply with a one-line JSON object naming the state, whether models are loaded, whether V2 is yielding to V1, and the last problem. An unknown request SHALL get an `error` reply and change nothing.
+Each request SHALL be one line: `start`, `stop`, `toggle`, `status` or `last`. Each SHALL get one reply line. `start` SHALL act as a trigger press held down, and `stop` as its release, held long enough to count as a hold. `toggle` SHALL act as a short tap. `status` SHALL reply with a one-line JSON object naming the state, whether models are loaded, whether V2 is yielding to V1, the last problem, the trigger mode and the input `level` (V1's scale; 0 when nothing records). `last` SHALL reply `{"text":…}` with the whole text of the last dictation since V2 started, or `null`; that text SHALL be kept in memory only, never written to disk. An unknown request SHALL get an `error` reply and change nothing. `whispy2 send <request>` SHALL send one request and print its reply, exiting 0 on an answer, 1 on an `error` or `refused` reply and 2 when no V2 answers.
 
 #### Scenario: start then stop dictates
 - **WHEN** a client sends `start`, waits 2 s, then sends `stop`
@@ -35,6 +35,12 @@ _Tier: unit — controller with a fake capture and inserter._
 - **THEN** the reply SHALL be JSON with `"state":"idle"` and `"models_loaded":true`
 
 _Tier: unit._
+
+#### Scenario: The level and the last text
+- **WHEN** a client reads `status` while V2 records, then `last` after the dictation is delivered
+- **THEN** `status` SHALL carry the recording's current `level`, back to 0 once it ends, and `last` SHALL reply with the dictated text
+
+_Tier: unit — controller with a fake capture and inserter (`a_socket_start_then_stop_dictates_and_yielding_refuses_a_start`)._
 
 #### Scenario: Unknown request
 - **WHEN** a client sends `record`

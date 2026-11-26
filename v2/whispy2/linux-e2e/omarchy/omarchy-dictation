@@ -1,0 +1,4 @@
+#!/bin/bash
+# Stand-in for Omarchy's `omarchy-dictation`: runs the selected backend
+# (`omarchy-dictation-use whispy`), as the dictation key bindings do.
+exec "omarchy-dictation-${OMARCHY_DICTATION_BACKEND:-whispy}" "$@"
