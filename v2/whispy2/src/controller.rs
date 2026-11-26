@@ -134,6 +134,17 @@ impl Status {
     }
 }
 
+/// What the control socket reads besides the [`Status`]. Kept out of it on
+/// purpose: the status is shown (and logged) at each change, and the level
+/// changes twenty times a second.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Live {
+    /// The input level of the recording, 0 when nothing records.
+    pub level: f32,
+    /// The whole text of the last dictation since V2 started; never on disk.
+    pub last_text: Option<String>,
+}
+
 #[derive(Debug)]
 pub enum Input {
     Event(Event, Source),
@@ -153,6 +164,11 @@ pub enum Input {
     TypeWhileSpeaking(bool),
     /// The current status, for the control socket's `status`.
     Query(Sender<Status>),
+    /// The whole text of a dictation, from the worker once it is transcribed
+    /// (delivered or not). Kept in memory only, for the socket's `last`.
+    Dictated(String),
+    /// What the socket shows besides the status: the level and the last text.
+    Live(Sender<Live>),
     Quit,
 }
 
@@ -303,6 +319,7 @@ fn run(
     let mut is_load_failed = false;
     let mut permission_pane: Option<Pane> = None;
     let mut phase = Phase::Hidden;
+    let mut live = Live::default();
     show(&status);
     while let Ok(input) = receiver.recv() {
         let mut models_loaded = status.models_loaded;
@@ -329,6 +346,9 @@ fn run(
             }
             Input::Level(level) => {
                 feedback.level(level);
+                if phase == Phase::Recording {
+                    live.level = level;
+                }
                 recorder.send_audio(&jobs);
                 None
             }
@@ -345,6 +365,14 @@ fn run(
             }
             Input::Query(reply) => {
                 let _ = reply.send(status.clone());
+                None
+            }
+            Input::Dictated(text) => {
+                live.last_text = Some(text);
+                None
+            }
+            Input::Live(reply) => {
+                let _ = reply.send(live.clone());
                 None
             }
             Input::Event(event, source) => {
@@ -378,6 +406,7 @@ fn run(
         let next_phase = phase_of(machine.state());
         if next_phase != phase {
             phase = next_phase;
+            live.level = 0.0;
             feedback.show(phase);
         }
         let next = Status {
@@ -652,6 +681,9 @@ fn spawn_worker<I: Inserter + 'static>(
                 if let Some(note) = done.alert {
                     let _ = controller.send(Input::Alert(Alert::microphone_heard_nothing(&note)));
                 }
+                if !done.whole.trim().is_empty() {
+                    let _ = controller.send(Input::Dictated(done.whole.clone()));
+                }
                 if matches!(&done.event, Event::Transcribed(text) if !text.trim().is_empty()) {
                     pending = Some(Pending {
                         duration_s,
@@ -738,6 +770,8 @@ struct Transcribed {
     outcome: Outcome,
     engine: Option<&'static str>,
     length: usize,
+    /// The whole text of the dictation, typed while spoken or not; empty when none.
+    whole: String,
     /// Set when the user should hear an alert and see this note.
     alert: Option<String>,
 }
@@ -749,6 +783,7 @@ impl Transcribed {
             outcome,
             engine: None,
             length: 0,
+            whole: String::new(),
             alert: None,
         }
     }
@@ -806,6 +841,7 @@ fn finish_stream(
             Transcribed {
                 length: finish.typed.chars().count(),
                 engine: finish.engine,
+                whole: finish.typed.clone(),
                 event: Event::Transcribed(finish.typed),
                 outcome,
                 alert: None,
@@ -827,6 +863,7 @@ fn held_number(text: String) -> Transcribed {
     Transcribed {
         length: text.chars().count(),
         engine: None,
+        whole: text.clone(),
         event: Event::Transcribed(text),
         outcome: Outcome::Inserted,
         alert: None,
@@ -857,6 +894,7 @@ fn transcribe_samples(
             Transcribed {
                 length: transcript.text.chars().count(),
                 engine: transcript.engine,
+                whole: transcript.text.clone(),
                 event: Event::Transcribed(transcript.text),
                 outcome,
                 alert: None,
@@ -1047,6 +1085,7 @@ impl LiveDictation {
             outcome,
             engine: self.engine.or(done.engine),
             length: whole.chars().count(),
+            whole,
             alert: None,
         }
     }
@@ -1628,7 +1667,19 @@ mod tests {
             crate::feedback::NoFeedback,
             |_: &Status| {},
         );
+        assert_eq!(
+            dispatch(&controller.inputs, Request::Last),
+            "{\"text\":null}"
+        );
+        // No level before a recording: the capture's sink is not heard at rest.
+        controller.inputs.send(Input::Level(0.9)).unwrap();
+        assert!(dispatch(&controller.inputs, Request::Status).ends_with("\"level\":0.000}"));
         assert_eq!(dispatch(&controller.inputs, Request::Start), "ok");
+        // The pill's level is read on the socket while recording.
+        controller.inputs.send(Input::Level(0.42)).unwrap();
+        let recording = dispatch(&controller.inputs, Request::Status);
+        assert!(recording.contains("\"state\":\"recording\""), "{recording}");
+        assert!(recording.ends_with("\"level\":0.420}"), "{recording}");
         // Immediately: still a hold, not a tap.
         assert_eq!(dispatch(&controller.inputs, Request::Stop), "ok");
         let (text, _) = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1636,6 +1687,12 @@ mod tests {
         wait_for("never idle", || {
             dispatch(&controller.inputs, Request::Status).contains("\"state\":\"idle\"")
         });
+        // The level falls back once the recording ends; the text is kept in memory.
+        assert!(dispatch(&controller.inputs, Request::Status).ends_with("\"level\":0.000}"));
+        assert_eq!(
+            dispatch(&controller.inputs, Request::Last),
+            "{\"text\":\"32000 samples\"}"
+        );
         assert!(dispatch(&controller.inputs, Request::Status).contains("\"models_loaded\":true"));
         // A stop while idle changes nothing.
         assert_eq!(dispatch(&controller.inputs, Request::Stop), "ok");

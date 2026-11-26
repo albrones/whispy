@@ -3,19 +3,22 @@
 # omarchy:summary=Record dictation using Whispy
 # omarchy:args=<start|stop|toggle|trigger <preset>|shortcuts>
 
-# Omarchy dictation backend for Whispy. `omarchy-dictation` runs it from the
+# Omarchy dictation backend for Whispy V2. `omarchy-dictation` runs it from the
 # Hyprland dictation keys (held: start, released: stop; toggle keys: toggle);
 # select it once with `omarchy-dictation-use whispy`. Whispy itself types the
-# transcript (wtype).
+# transcript.
+#
+# Every call goes through Whispy V2's control socket (~/.whispy/v2/control.sock),
+# asked by `whispy2 send <request>`: no network port, no token.
 #
 # `trigger <preset>` is called by the Whispy bar panel: it saves the preset in
 # Whispy's config and writes the Hyprland binding for it into
 # ~/.config/whispy/shortcuts.lua, which Omarchy loads after its own default
 # dictation keys whenever Whispy is the selected backend.
 
-api="${WHISPY_API_URL:-http://127.0.0.1:9090}"
-token_file="$HOME/.config/whispy/config.token"
-shortcuts_file="${XDG_CONFIG_HOME:-$HOME/.config}/whispy/shortcuts.lua"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/whispy"
+config_file="$config_dir/config.json"
+shortcuts_file="$config_dir/shortcuts.lua"
 
 # The order the bar panel lists them in; must match OMARCHY_TRIGGER_PRESETS in
 # src/whispy/core/config.py (a test checks it).
@@ -33,33 +36,48 @@ fail() {
   echo "omarchy-dictation-whispy: $1" >&2
   notify-send --app-name=Whispy --urgency=critical \
     --hint=string:x-canonical-private-synchronous:whispy \
-    "Whispy ne répond pas" "$1" 2>/dev/null
+    "Whispy is not answering" "$1" 2>/dev/null
   tell_bar refresh
   exit 1
 }
 
-# call METHOD PATH MAX_TIME [JSON_BODY]
-call() {
-  local method=$1 path=$2 max_time=$3 body=${4:-} token answer
-  local args=(-fsS --max-time "$max_time" -X "$method")
-  token=$(cat "$token_file" 2>/dev/null) || fail "no API token at $token_file — is Whispy installed?"
-  [[ -n $body ]] && args+=(-H "Content-Type: application/json" --data "$body")
-  if ! answer=$(curl "${args[@]}" -H "Authorization: Bearer $token" "$api$path" 2>&1); then
-    fail "$method $path: ${answer:-no answer} — start it with: systemctl --user start whispy"
+# The whispy2 binary: $WHISPY2_BIN, else on PATH, else ~/.local/bin.
+whispy2_bin() {
+  if [[ -n ${WHISPY2_BIN:-} ]]; then
+    echo "$WHISPY2_BIN"
+  elif command -v whispy2 >/dev/null 2>&1; then
+    command -v whispy2
+  elif [[ -x $HOME/.local/bin/whispy2 ]]; then
+    echo "$HOME/.local/bin/whispy2"
+  else
+    return 1
+  fi
+}
+
+# send REQUEST: one request on the control socket; prints the reply.
+send() {
+  local bin answer
+  bin=$(whispy2_bin) || fail "whispy2 is not installed (not on PATH, nor in ~/.local/bin)"
+  if ! answer=$("$bin" send "$1" 2>&1); then
+    fail "$1: ${answer:-no answer} — start it with: whispy2"
   fi
   printf '%s' "$answer"
 }
 
 start() {
-  call POST /start 5 >/dev/null
+  send start >/dev/null
   tell_bar refresh
 }
 
-# /stop answers once the transcript is ready and typed, and the API answers
-# nothing else meanwhile, so the bar hears it is transcribing from here.
+# V2 answers a stop at once and transcribes afterwards; the bar follows the
+# transcription by reading the socket while Whispy works.
 stop() {
-  tell_bar transcribing
-  call POST /stop 60 >/dev/null
+  send stop >/dev/null
+  tell_bar refresh
+}
+
+toggle() {
+  send toggle >/dev/null
   tell_bar refresh
 }
 
@@ -98,14 +116,29 @@ LUA
   mv "$tmp" "$shortcuts_file"
 }
 
+# Saves the preset in config.json, the file V1 and V2 share, keeping every
+# other key; written whole to a private temporary file, then moved in place.
+save_preset() {
+  local preset=$1 tmp
+  command -v jq >/dev/null 2>&1 || { echo "omarchy-dictation-whispy: jq is required to save the key" >&2; return 1; }
+  mkdir -p "$config_dir"
+  tmp=$(umask 077 && mktemp "$config_file.XXXXXX") || return 1
+  if [[ -s $config_file ]]; then
+    jq --arg preset "$preset" '.omarchy_trigger = $preset' "$config_file" > "$tmp"
+  else
+    jq -n --arg preset "$preset" '{omarchy_trigger: $preset}' > "$tmp"
+  fi || { rm -f "$tmp"; echo "omarchy-dictation-whispy: $config_file is not valid JSON; the key is unchanged" >&2; return 1; }
+  mv "$tmp" "$config_file"
+}
+
 trigger() {
   local preset=${1:-} backend
   if ! binding_for "$preset" >/dev/null; then
     echo "omarchy-dictation-whispy: unknown trigger '${preset}', expected one of: ${presets[*]}" >&2
     exit 2
   fi
-  # Saved first: with the daemon down, the key binding stays as it was.
-  call POST /config 5 "{\"omarchy_trigger\": \"$preset\"}" >/dev/null
+  # Saved first: a config that cannot be written leaves the binding as it was.
+  save_preset "$preset" || exit 1
   write_shortcuts "$preset"
   if command -v hyprctl >/dev/null 2>&1 && ! hyprctl reload >/dev/null; then
     echo "omarchy-dictation-whispy: hyprctl reload failed; the new key applies at the next login" >&2
@@ -120,8 +153,8 @@ trigger() {
 # The installer's path: write the binding file for the saved preset (or the
 # default), without the daemon, so a fresh install binds the key the panel shows.
 shortcuts() {
-  local config="${XDG_CONFIG_HOME:-$HOME/.config}/whispy/config.json" preset
-  preset=$(sed -n 's/.*"omarchy_trigger": *"\([a-z0-9_]*\)".*/\1/p' "$config" 2>/dev/null | head -n 1)
+  local preset
+  preset=$(sed -n 's/.*"omarchy_trigger": *"\([a-z0-9_]*\)".*/\1/p' "$config_file" 2>/dev/null | head -n 1)
   binding_for "$preset" >/dev/null || preset=${presets[0]}
   write_shortcuts "$preset"
   echo "$preset"
@@ -130,14 +163,7 @@ shortcuts() {
 case "${1:-}" in
   start) start ;;
   stop) stop ;;
-  toggle)
-    status=$(call GET /status 2) || exit 1
-    if [[ $status == *'"is_recording": true'* ]]; then
-      stop
-    else
-      start
-    fi
-    ;;
+  toggle) toggle ;;
   trigger) trigger "${2:-}" ;;
   shortcuts) shortcuts ;;
   *) echo "Usage: omarchy dictation whispy <start|stop|toggle|trigger <preset>|shortcuts>" >&2; exit 1 ;;

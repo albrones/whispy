@@ -19,7 +19,7 @@ var WAVEROWS = [
 ]
 var FRAME_INTERVAL_MS = 90
 
-// The engine reports level = 10 x RMS; below the transcription silence gate
+// V2 reports V1's level, 10 x RMS; below the transcription silence gate
 // (RMS 0.005, src/whispy/core/audio.py) nothing is speech, so the wave is flat.
 var SILENCE_LEVEL = 0.05
 // The macOS pill's perceptual boost (waveform_window.py: LEVEL_GAMMA, LEVEL_GAIN).
@@ -33,16 +33,16 @@ function presetLabel(value) {
   return ""
 }
 
-// What Whispy is doing, from the last /status answer.
-//   reachable: the API answered; status: its JSON (or null);
-//   transcribingHint: the dictation backend said /stop is running, during
-//   which the API answers nothing else.
-function phase(reachable, status, transcribingHint) {
+// What Whispy V2 is doing, from the last `status` answer of its control socket.
+//   reachable: the socket answered; status: its JSON (or null), e.g.
+//   {"state":"idle","models_loaded":true,"yielded":false,"last_problem":null,
+//    "trigger_mode":"hold","level":0.000}
+function phase(reachable, status) {
   if (!reachable || !status) return "stopped"
-  if (status.is_recording && !transcribingHint) return "recording"
-  if (status.is_transcribing || transcribingHint) return "transcribing"
-  if (status.model_loading) return "loading"
-  if (!status.model_loaded) return "no-model"
+  if (status.state === "recording") return "recording"
+  if (status.state === "transcribing" || status.state === "inserting") return "transcribing"
+  if (status.state === "yielded") return "yielded"
+  if (!status.models_loaded) return status.last_problem ? "no-model" : "loading"
   return "ready"
 }
 
@@ -52,6 +52,7 @@ function phaseLabel(value) {
   if (value === "loading") return "Loading model"
   if (value === "no-model") return "Model not loaded"
   if (value === "stopped") return "Whispy stopped"
+  if (value === "yielded") return "Whispy V1 is running"
   return "Ready"
 }
 
@@ -60,7 +61,7 @@ function tooltip(value) {
   return value === "stopped" ? phaseLabel(value) : "Whispy · " + phaseLabel(value)
 }
 
-// Whispy is working: the bar animates and /status is read often.
+// Whispy is working: the bar animates and the status is read often.
 function isActive(value) {
   return value === "recording" || value === "transcribing" || value === "loading"
 }

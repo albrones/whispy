@@ -11,7 +11,7 @@ import "Model.js" as Model
 
 // Whispy in the Omarchy bar: the macOS menu bar's waveform as the icon, a
 // panel with its settings, and the recording pill. See Service.qml for how and
-// when it talks to the daemon.
+// when it reads Whispy V2's control socket.
 Panel {
   id: root
   moduleName: "whispy"
@@ -35,9 +35,8 @@ Panel {
   readonly property color barIconColor: phase === "stopped" ? Qt.darker(barForeground, 1.55)
     : phase === "recording" ? brandGreen : barForeground
 
-  readonly property var rows: running
-    ? ["power", "trigger", "clipboard", "login"].concat(sw.lastText !== "" ? ["last"] : [])
-    : ["power", "start"]
+  // Starting Whispy and Start at login come back with its Linux service.
+  readonly property var rows: ["trigger"].concat(running && sw.lastText !== "" ? ["last"] : [])
   readonly property string currentRow: cursorActive && page === "" ? rows[Math.min(rowIndex, rows.length - 1)] : ""
   readonly property var pageOptions: page === "trigger" ? Model.PRESETS : []
 
@@ -62,10 +61,7 @@ Panel {
   }
 
   function activate(id) {
-    if (id === "power" || id === "start") sw.setRunning(!sw.reachable && !sw.starting)
-    else if (id === "trigger") openPage("trigger")
-    else if (id === "clipboard") sw.setConfig("copy_to_clipboard", !sw.config.copy_to_clipboard)
-    else if (id === "login") sw.setStartAtLogin(!sw.startAtLogin)
+    if (id === "trigger") openPage("trigger")
     else if (id === "last") sw.copyLast()
   }
 
@@ -105,7 +101,6 @@ Panel {
     sw.refresh()
     sw.fetchConfig()
     sw.fetchLast()
-    sw.readStartAtLogin()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -113,14 +108,13 @@ Panel {
   property alias service: sw
 
   // The dictation backend nudges the widget, so the icon follows a dictation
-  // without polling: `omarchy-shell whispy refresh|transcribing`.
+  // without polling: `omarchy-shell whispy refresh`.
   IpcHandler {
     target: root.ipcTarget
     function open(): void { root.open() }
     function close(): void { root.close() }
     function toggle(): void { root.togglePanel() }
     function refresh(): string { sw.refresh(); return "ok" }
-    function transcribing(): string { sw.markTranscribing(); sw.refresh(); return "ok" }
     function state(): string { return root.phase }
   }
 
@@ -206,17 +200,12 @@ Panel {
 
         // ---- Whispy stopped -------------------------------------------------
 
-        ActionRow {
-          visible: root.page === "" && !root.running
-          rowId: "start"
-          label: sw.starting ? "Starting Whispy…" : "Start Whispy"
-          caption: "Runs systemctl --user start whispy"
-        }
-
         // ---- Settings -------------------------------------------------------
 
+        // The key is saved in the config file, so it can be changed with
+        // Whispy stopped too.
         Column {
-          visible: root.page === "" && root.running
+          visible: root.page === ""
           width: parent.width
           spacing: Style.space(6)
 
@@ -230,18 +219,6 @@ Panel {
           // macOS, where the menu has neither): these say so, and set nothing.
           SettingRow { label: "Model"; value: "Parakeet TDT 0.6B v3" }
           SettingRow { label: "Language"; value: "Detected automatically" }
-          SwitchRow {
-            rowId: "clipboard"
-            label: "Copy to clipboard"
-            caption: "Also leave the text on the clipboard"
-            checked: sw.config.copy_to_clipboard === true
-          }
-          SwitchRow {
-            rowId: "login"
-            label: "Start at login"
-            caption: "systemctl --user enable whispy"
-            checked: sw.startAtLogin
-          }
         }
 
         PanelSeparator {
@@ -282,7 +259,7 @@ Panel {
 
   component Hero: Item {
     id: heroRoot
-    implicitHeight: Math.max(heroGlyph.implicitHeight, heroLabels.implicitHeight, powerSwitch.implicitHeight)
+    implicitHeight: Math.max(heroGlyph.implicitHeight, heroLabels.implicitHeight)
 
     Text {
       id: heroGlyph
@@ -296,24 +273,11 @@ Panel {
       font.pixelSize: Style.font.title
     }
 
-    ToggleSwitch {
-      id: powerSwitch
-      checked: root.running || sw.starting
-      busy: sw.starting
-      hasCursor: root.currentRow === "power"
-      foreground: root.foreground
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      onHovered: function(on) { if (on) root.setRowCursor("power") }
-      onToggled: root.activate("power")
-    }
-
     Column {
       id: heroLabels
       anchors.left: heroGlyph.right
       anchors.leftMargin: Style.space(14)
-      anchors.right: powerSwitch.left
-      anchors.rightMargin: Style.space(12)
+      anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
       spacing: Style.space(2)
 
@@ -330,7 +294,7 @@ Panel {
         textFormat: Text.PlainText
         width: parent.width
         text: (sw.message !== "" ? sw.message
-          : sw.starting ? "Starting" : Model.phaseLabel(root.phase)).toUpperCase()
+          : Model.phaseLabel(root.phase)).toUpperCase()
         color: sw.message !== "" && sw.messageIsError ? root.urgent : Qt.darker(root.foreground, 1.4)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
@@ -398,122 +362,6 @@ Panel {
         color: root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
-      }
-    }
-  }
-
-  component SwitchRow: CursorSurface {
-    id: switchRow
-    property string rowId: ""
-    property string label: ""
-    property string caption: ""
-    property bool checked: false
-
-    width: parent ? parent.width : implicitWidth
-    hasCursor: root.currentRow === rowId
-    foreground: root.foreground
-    implicitHeight: switchContent.implicitHeight + Style.spacing.rowPaddingX
-
-    MouseArea {
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onEntered: root.setRowCursor(switchRow.rowId)
-      onClicked: root.activate(switchRow.rowId)
-    }
-
-    RowLayout {
-      id: switchContent
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      anchors.leftMargin: Style.space(10)
-      anchors.rightMargin: Style.space(10)
-      spacing: Style.space(8)
-
-      ColumnLayout {
-        Layout.fillWidth: true
-        spacing: Style.space(1)
-
-        Text {
-          textFormat: Text.PlainText
-          Layout.fillWidth: true
-          text: switchRow.label
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          elide: Text.ElideRight
-        }
-
-        Text {
-          textFormat: Text.PlainText
-          Layout.fillWidth: true
-          visible: switchRow.caption !== ""
-          text: switchRow.caption
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          elide: Text.ElideRight
-        }
-      }
-
-      ToggleSwitch {
-        checked: switchRow.checked
-        interactive: false
-        foreground: root.foreground
-        Layout.alignment: Qt.AlignVCenter
-      }
-    }
-  }
-
-  component ActionRow: CursorSurface {
-    id: actionRow
-    property string rowId: ""
-    property string label: ""
-    property string caption: ""
-
-    width: parent ? parent.width : implicitWidth
-    hasCursor: root.currentRow === rowId
-    foreground: root.foreground
-    implicitHeight: actionContent.implicitHeight + Style.spacing.rowPaddingX
-
-    MouseArea {
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onEntered: root.setRowCursor(actionRow.rowId)
-      onClicked: root.activate(actionRow.rowId)
-    }
-
-    ColumnLayout {
-      id: actionContent
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      anchors.leftMargin: Style.space(10)
-      anchors.rightMargin: Style.space(10)
-      spacing: Style.space(1)
-
-      Text {
-        textFormat: Text.PlainText
-        Layout.fillWidth: true
-        text: actionRow.label
-        color: root.foreground
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
-        font.bold: true
-        elide: Text.ElideRight
-      }
-
-      Text {
-        textFormat: Text.PlainText
-        Layout.fillWidth: true
-        visible: actionRow.caption !== ""
-        text: actionRow.caption
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        elide: Text.ElideRight
       }
     }
   }

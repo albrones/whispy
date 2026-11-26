@@ -130,19 +130,19 @@ _Tier: unit-mocked — `tests/test_linux_adapters.py`._
 _Tier: unit-mocked — `tests/test_linux_adapters.py`._
 
 ### Requirement: Omarchy dictation backend
-Whispy SHALL ship an Omarchy dictation adapter, `omarchy-dictation-whispy start|stop|toggle`, that drives the HTTP API with the per-install token. When Whispy does not answer, the adapter SHALL post the desktop notification « Whispy ne répond pas » and exit non-zero, so a dictation is never lost silently. The Linux installer SHALL link it into `~/.local/bin` when Omarchy's `omarchy-dictation` is present.
+Whispy SHALL ship an Omarchy dictation adapter, `omarchy-dictation-whispy start|stop|toggle`, that drives Whispy V2 through its control socket (`whispy2 send start|stop|toggle`), with no network port and no token; Whispy V1 need not be installed. `whispy2` SHALL be found through `WHISPY2_BIN`, then `PATH`, then `~/.local/bin`. When Whispy does not answer, refuses, or is not installed, the adapter SHALL post the desktop notification « Whispy is not answering » and exit non-zero, so a dictation is never lost silently. The Linux installer SHALL link it into `~/.local/bin` when Omarchy's `omarchy-dictation` is present.
 
 #### Scenario: Whispy is not running
-- **WHEN** `omarchy-dictation-whispy start` runs and nothing answers on the API port
-- **THEN** it SHALL post « Whispy ne répond pas » and exit non-zero
+- **WHEN** `omarchy-dictation-whispy start` runs and no V2 answers on the socket
+- **THEN** it SHALL post « Whispy is not answering » and exit non-zero
 
-_Tier: unit-mocked — `tests/test_omarchy_adapter.py` (fake `notify-send` on PATH)._
+_Tier: unit-mocked — `tests/test_omarchy_adapter.py` (fake `whispy2` and `notify-send` on PATH)._
 
 #### Scenario: Push-to-talk through the compositor binding
-- **WHEN** Omarchy's F9 binding calls `omarchy-dictation start` then `omarchy-dictation stop` with `whispy` selected
-- **THEN** Whispy SHALL record between the two calls and type the transcript into the focused window
+- **WHEN** Omarchy's dictation binding calls `omarchy-dictation start` then `omarchy-dictation stop` with `whispy` selected and only V2 installed
+- **THEN** V2 SHALL record between the two calls and type the transcript into the focused window
 
-_Tier: manual-ui — Omarchy VM._
+_Tier: live — `v2/whispy2/linux-e2e/omarchy.sh` (sway headless, the adapter driving the real socket); manual-ui — Hyprland on Omarchy._
 
 ### Requirement: Login autostart under a Wayland compositor
 On Linux, when the installing session has an active `graphical-session.target`, the `systemd --user` unit SHALL be wanted by and ordered after that target, so the daemon starts with the compositor's environment (`WAYLAND_DISPLAY`) after every login; otherwise it SHALL keep `default.target`.
@@ -154,17 +154,17 @@ On Linux, when the installing session has an active `graphical-session.target`, 
 _Tier: manual-ui — Omarchy VM._
 
 ### Requirement: Omarchy dictation key presets
-`omarchy-dictation-whispy trigger <preset>` SHALL accept exactly the `omarchy_trigger` presets (`right_option_hold`, `right_ctrl_hold`, `f9_hold`, `left_option_space_toggle`), save the preset through `POST /config`, write `~/.config/whispy/shortcuts.lua` binding only the chosen key, and reload Hyprland. Hold presets SHALL be non-consuming.
+`omarchy-dictation-whispy trigger <preset>` SHALL accept exactly the `omarchy_trigger` presets (`right_option_hold`, `right_ctrl_hold`, `f9_hold`, `left_option_space_toggle`), save the preset as `omarchy_trigger` in `~/.config/whispy/config.json` (keeping every other key; the file V1 and V2 share), write `~/.config/whispy/shortcuts.lua` binding only the chosen key, and reload Hyprland. It SHALL need no running Whispy. Hold presets SHALL be non-consuming; the toggle preset calls `omarchy-dictation toggle`, which V2 answers in either trigger mode.
 
 #### Scenario: A preset is chosen
-- **WHEN** `trigger right_ctrl_hold` runs with Whispy answering
-- **THEN** the config SHALL hold `omarchy_trigger: right_ctrl_hold`, the file SHALL bind Right Ctrl push-to-talk and no other preset key, and `hyprctl reload` SHALL run
+- **WHEN** `trigger right_ctrl_hold` runs
+- **THEN** the config SHALL hold `omarchy_trigger: right_ctrl_hold` and its other keys unchanged, the file SHALL bind Right Ctrl push-to-talk and no other preset key, and `hyprctl reload` SHALL run
 
-_Tier: unit-mocked — `tests/test_omarchy_adapter.py` (stand-in API, fake `hyprctl`); live — `hyprctl binds` on the Omarchy VM._
+_Tier: unit-mocked — `tests/test_omarchy_adapter.py` (fake `hyprctl`); live — `hyprctl binds` on Omarchy._
 
-#### Scenario: Unknown preset or Whispy down
-- **WHEN** the preset is unknown, or nothing answers on the API port
-- **THEN** the script SHALL exit non-zero and leave the binding file and Hyprland untouched
+#### Scenario: Unknown preset or unreadable config
+- **WHEN** the preset is unknown, or `config.json` is not valid JSON
+- **THEN** the script SHALL exit non-zero and leave the config, the binding file and Hyprland untouched
 
 _Tier: unit-mocked — `tests/test_omarchy_adapter.py`._
 
@@ -176,39 +176,39 @@ _Tier: unit-mocked — `tests/test_omarchy_adapter.py`._
 
 #### Scenario: The chosen key dictates
 - **WHEN** Right Ctrl is chosen in the panel and held, then Right Option is held
-- **THEN** Right Ctrl SHALL dictate and Right Option SHALL NOT, also after logging in again
+- **THEN** Right Ctrl SHALL dictate with V2 and Right Option SHALL NOT, also after logging in again
 
-_Tier: manual-ui — Omarchy VM._
+_Tier: live — `v2/whispy2/linux-e2e/omarchy.sh` (the panel's picker, then the generated binding's command); manual-ui — Hyprland on Omarchy._
 
 ### Requirement: Omarchy bar widget
-On Omarchy, the installer SHALL link a bar widget (`whispy.panel`) and place it in the right section of the bar. Its icon SHALL show Whispy's state with the macOS braille waveform; a click SHALL open a panel with the dictation key, model and language (information only), Copy to clipboard, Start at login, the last dictation, and a way to start Whispy when it is stopped. Settings SHALL apply without a restart. At rest the widget SHALL NOT poll: it reads `/status` when the shell starts, when the panel opens, when the dictation backend nudges it, and every 500 ms only while Whispy works.
+On Omarchy, the installer SHALL link a bar widget (`whispy.panel`) and place it in the right section of the bar. The widget SHALL read Whispy V2's control socket directly (Quickshell's `Socket`, `status` and `last`), with no network port, no token and no process per read. Its icon SHALL show Whispy's state with the macOS braille waveform; a click SHALL open a panel with the dictation key, model and language (information only), and the last dictation (click to copy). The dictation key SHALL be read from `config.json` and SHALL be changeable while Whispy is stopped. At rest the widget SHALL NOT poll: it reads `status` when the shell starts, when the panel opens, when the dictation backend nudges it, every 500 ms while Whispy transcribes or loads, and every 50 ms while it listens.
 
 #### Scenario: State logic
-- **WHEN** the API is unreachable, recording, transcribing (or the backend says `/stop` is running), loading, or idle
-- **THEN** the widget state SHALL be stopped, recording, transcribing, loading, or ready respectively
+- **WHEN** the socket does not answer, or `status` says recording, transcribing or inserting, yielded, models not loaded (with or without a problem), or idle
+- **THEN** the widget state SHALL be stopped, recording, transcribing, yielded, loading or no-model, or ready respectively
 
-_Tier: unit-pure — `tests/test_omarchy_panel_model.py` (node)._
+_Tier: unit-pure — `tests/test_omarchy_panel_model.py` (node); live — `v2/whispy2/linux-e2e/omarchy.sh` (the real `Service.qml` under Quickshell against a running V2)._
 
 #### Scenario: Whispy stopped
-- **WHEN** the daemon is stopped and the panel is opened
-- **THEN** the icon SHALL be greyed, the panel SHALL read « Whispy stopped » and offer « Start Whispy »
+- **WHEN** V2 is not running and the panel is opened
+- **THEN** the icon SHALL be greyed and the panel SHALL read « Whispy stopped »
 
-_Tier: manual-ui — Omarchy VM._
+_Tier: live — `v2/whispy2/linux-e2e/omarchy.sh`; manual-ui — Omarchy._
 
 #### Scenario: A dictation drives the icon
 - **WHEN** the dictation key is held, then released
-- **THEN** the icon SHALL show listening, then transcribing, then ready
+- **THEN** the icon SHALL show listening, then transcribing, then ready, and the last dictation SHALL show its text
 
-_Tier: manual-ui — Omarchy VM._
+_Tier: live — `v2/whispy2/linux-e2e/omarchy.sh`; manual-ui — Omarchy._
 
 ### Requirement: Omarchy recording pill
-While recording, the bar widget SHALL show a pill at the bottom centre of the focused monitor: a layer-shell overlay with no keyboard interactivity and an empty input region, so the focused window keeps the focus. Its bars SHALL follow `GET /level`, polled only while recording, and SHALL stay flat at or below the transcription silence gate.
+While recording, the bar widget SHALL show a pill at the bottom centre of the focused monitor: a layer-shell overlay with no keyboard interactivity and an empty input region, so the focused window keeps the focus. Its bars SHALL follow the `level` of V2's socket `status`, read only while recording, and SHALL stay flat at or below the transcription silence gate.
 
 #### Scenario: Flat in silence, moving with speech
 - **WHEN** the level is at or below 0.05, or above it
 - **THEN** the bars SHALL be at their minimum height, or grow with the level, taller in the middle
 
-_Tier: unit-pure — `tests/test_omarchy_panel_model.py` (node)._
+_Tier: unit-pure — `tests/test_omarchy_panel_model.py` (node); live — `v2/whispy2/linux-e2e/omarchy.sh` (levels read during a dictation)._
 
 #### Scenario: Focus is kept
 - **WHEN** a dictation runs into a focused window

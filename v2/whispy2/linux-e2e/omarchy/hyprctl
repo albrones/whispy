@@ -1,0 +1,3 @@
+#!/bin/sh
+# Stand-in for Hyprland's hyprctl: no compositor here, so a reload is logged.
+echo "hyprctl $*" >> /tmp/hyprctl.log

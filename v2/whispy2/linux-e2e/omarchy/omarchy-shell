@@ -1,0 +1,5 @@
+#!/bin/bash
+# Stand-in for Omarchy's `omarchy-shell -q <target> <function>`: calls the
+# bar widget's IPC handler, here the panel harness run by omarchy.sh.
+[[ ${1:-} == -q ]] && shift
+QT_QPA_PLATFORM=offscreen exec qs -p /tmp/panel/shell.qml ipc call "$@"

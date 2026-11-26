@@ -181,17 +181,25 @@ network port. One request per line, one reply line:
 
 ```bash
 printf 'status\n' | nc -U ~/.whispy/v2/control.sock
-# {"state":"idle","models_loaded":true,"yielded":false,"last_problem":null,"trigger_mode":"hold"}
+# {"state":"idle","models_loaded":true,"yielded":false,"last_problem":null,"trigger_mode":"hold","level":0.000}
 printf 'start\n'  | nc -U ~/.whispy/v2/control.sock   # like pressing the trigger down
 printf 'stop\n'   | nc -U ~/.whispy/v2/control.sock   # like releasing it (always a hold)
 printf 'toggle\n' | nc -U ~/.whispy/v2/control.sock   # like one Toggle-mode press
+printf 'last\n'   | nc -U ~/.whispy/v2/control.sock   # {"text":"…"}: the last dictation, or null
+whispy2 send status                                   # the same, without nc
 ```
+
+`level` is the input level while recording (V1's scale, 10 × RMS; 0 otherwise),
+read by the Omarchy pill. `last` answers the whole text of the last dictation
+since V2 started: it lives in memory only, never on disk (the journal keeps
+lengths, not text). `whispy2 send <request>` exits 0 on an answer, 1 on an
+`error`/`refused` reply, 2 when no V2 answers.
 
 Requests go through the same state machine as the trigger key: a `stop` with nothing
 recording is ignored, and `start`/`toggle` are refused while V1 runs. The
 socket is also the single-instance lock: a second V2 finds the first one
 answering and exits; a socket left by a crash is replaced. It replaces V1's
-`:9090` API, and it is what a Linux compositor key binding will call.
+`:9090` API, and it is what a Linux compositor key binding and the Omarchy bar panel call.
 
 **V1 and V2 never both answer the trigger.** When V1 runs (its API port 9090
 answers, or a `Whispy.app/Contents/MacOS/Whispy` process exists) V2's status
@@ -255,8 +263,16 @@ socket are the macOS ones, under `~/.whispy/` and `~/.config/whispy/`.
   keycode and is ignored here.
 - **Wayland** (Omarchy/Hyprland, sway): no client may listen to a global key,
   so the compositor's binding drives the control socket:
-  `echo start | socat - UNIX-CONNECT:$HOME/.whispy/v2/control.sock`, then `stop`
-  (or `toggle`).
+  `whispy2 send start`, then `whispy2 send stop` (or `toggle`). Any socket
+  client works too: `echo start | socat - UNIX-CONNECT:$HOME/.whispy/v2/control.sock`.
+- **Omarchy**: the dictation backend
+  (`packaging/omarchy/omarchy-dictation-whispy`, selected with
+  `omarchy-dictation-use whispy`) calls `whispy2 send start|stop|toggle`, and
+  the bar panel (`packaging/omarchy/whispy-panel`) reads the socket itself
+  (Quickshell's `Socket`): `status` for the icon and the pill's level, `last`
+  for the last dictation. Its dictation key picker writes `omarchy_trigger` to
+  `~/.config/whispy/config.json` and the Hyprland binding to
+  `~/.config/whispy/shortcuts.lua`; it needs no running Whispy.
 - **Typing**: [enigo](https://crates.io/crates/enigo), one key at a time: XTest
   under X11, the virtual-keyboard protocol under Wayland (as `wtype`), so the
   text reaches terminals too. « Copy to clipboard » is ignored: Linux always
@@ -265,11 +281,13 @@ socket are the macOS ones, under `~/.whispy/` and `~/.config/whispy/`.
 - **Tray icon (X11)**: a grey ring at rest, a red dot while listening; its menu
   shows the status line and **Quit**. It needs a StatusNotifierItem host in the
   panel (KDE, XFCE, most bars). Without one Whispy posts one notification
-  (« Tray icon unavailable ») and runs on without it. No icon under Wayland:
-  the Omarchy bar panel comes with the next card.
+  (« Tray icon unavailable ») and runs on without it. No icon under Wayland;
+  on Omarchy, the bar panel shows the state.
 - **Notifications**: every alert goes through `notify-send` (libnotify).
 - **No network port**: the control socket is the only way in. Not ported:
-  `custom_vocabulary`, V1's `/transcribe` and `/level`.
+  `custom_vocabulary` and V1's `/transcribe`; V1's `/level` is the `level` of
+  the socket's `status`, and `/last-transcription` its `last` (the text is kept
+  in memory only, never on disk).
 
 **End-to-end checks** (Docker, any host): `whispy2/linux-e2e/run.sh <models-dir>`
 builds the Linux binary in a container and runs a real dictation of « Ajouter
