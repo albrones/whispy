@@ -12,8 +12,12 @@ import os
 import platform
 import re
 import shutil
+import signal
 import stat
 import subprocess
+import tempfile
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -333,6 +337,100 @@ def test_linux_reinstall_leaves_the_install_alone_when_the_build_fails(sandbox):
 # ---------------------------------------------------------------------------
 # packaging/macos-v2 and the Makefile
 # ---------------------------------------------------------------------------
+
+
+macos_only = pytest.mark.skipif(platform.system() != "Darwin", reason="packaging/macos-v2/reinstall.sh is macOS only")
+
+_FAKE_SOCKET_SERVER = """
+import os, socket, sys
+server = socket.socket(socket.AF_UNIX)
+server.bind(sys.argv[1])
+server.listen()
+while True:
+    connection, _ = server.accept()
+    connection.recv(64)
+    connection.sendall(b'{"state":"idle"}\\n')
+    connection.close()
+"""
+
+
+@macos_only
+def test_macos_reinstall_quits_the_app_that_runs_it():
+    """An update chosen in the menu runs reinstall.sh as a descendant of the
+    app it replaces. macOS pgrep skips its own ancestors unless -a: the 2.5.0
+    update found Whispy « not running », installed 2.5.1 under the running
+    2.5.0, and its socket answered as if 2.5.1 had started (#50).
+    Unattended, the app is quit with SIGTERM, never an Apple Event."""
+    # A short root: a Unix socket path must stay under 104 bytes.
+    root = Path(tempfile.mkdtemp(prefix="wsp", dir="/tmp"))
+    try:
+        repo = root / "repo"
+        scripts = repo / "packaging" / "macos-v2"
+        scripts.mkdir(parents=True)
+        shutil.copy2(MAC_REINSTALL, scripts / "reinstall.sh")
+        built = repo / "dist" / "Whispy V2.app" / "Contents" / "MacOS"
+        _stub(scripts, "build_bundle.sh", f'mkdir -p "{built}" && echo new > "{built}/whispy2"')
+        app = root / "Applications" / "Whispy V2.app"
+        (app / "Contents" / "MacOS").mkdir(parents=True)
+        (app / "Contents" / "MacOS" / "whispy2").write_text("old\n", encoding="utf-8")
+        sock, opened, apple_event = root / "c.sock", root / "opened", root / "apple-event"
+        server_pid = root / "server.pid"
+        server_py = root / "server.py"
+        server_py.write_text(_FAKE_SOCKET_SERVER, encoding="utf-8")
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        _stub(bin_dir, "osascript", f'touch "{apple_event}"; exit 1')
+        _stub(
+            bin_dir,
+            "open",
+            f'touch "{opened}"; python3 "{server_py}" "{sock}" >/dev/null 2>&1 & echo $! > "{server_pid}"',
+        )
+        env = {
+            "PATH": f"{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin",
+            "HOME": str(root),
+            "WHISPY_V2_APP": str(app),
+            "WHISPY_V2_SOCKET": str(sock),
+            "WHISPY_UNATTENDED": "1",
+        }
+        log, code = root / "reinstall.log", root / "code"
+        run = f'"{scripts}/reinstall.sh" > "{log}" 2>&1; echo $? > "{code}"'
+        # The fake app: named like the installed binary, it starts the update
+        # as its child and waits, as Whispy does.
+        fake_app = subprocess.Popen(
+            [
+                "perl",
+                "-e",
+                "$0 = shift; defined(my $pid = fork) or die; exec @ARGV unless $pid; sleep 60;",
+                str(app / "Contents" / "MacOS" / "whispy2"),
+                "sh",
+                "-c",
+                run,
+            ],
+            env=env,
+        )
+        # Reap it as soon as it exits, as launchd does: a zombie still answers kill -0.
+        reaper = threading.Thread(target=fake_app.wait, daemon=True)
+        reaper.start()
+        try:
+            deadline = time.monotonic() + 60
+            while not code.exists() or not code.read_text().strip():
+                assert time.monotonic() < deadline, log.read_text() if log.exists() else "no log"
+                time.sleep(0.2)
+            output = log.read_text(encoding="utf-8")
+            assert code.read_text().strip() == "0", output
+            assert f"running as pid(s): {fake_app.pid}" in output, output
+            reaper.join(timeout=5)
+            assert fake_app.returncode == -signal.SIGTERM, "the app running the update was quit"
+            assert not apple_event.exists(), "unattended: no Apple Event"
+            assert opened.exists()
+            assert (app / "Contents" / "MacOS" / "whispy2").read_text(encoding="utf-8") == "new\n"
+        finally:
+            if fake_app.poll() is None:
+                fake_app.kill()
+            if server_pid.exists():
+                subprocess.run(["kill", server_pid.read_text().strip()], check=False)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def test_macos_bundle_uses_its_own_signing_script_and_committed_icon():
