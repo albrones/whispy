@@ -3,6 +3,11 @@
 # until its control socket answers `status`. Never touches /Applications/Whispy.app (V1).
 #
 # Usage (from anywhere):  ./packaging/macos-v2/reinstall.sh
+#
+# WHISPY_UNATTENDED=1 (an update chosen in Whispy's menu, which runs this
+# script as a child of the app it replaces): quit the app with SIGTERM, never
+# with an Apple Event that could wait on an Automation prompt nobody sees.
+# WHISPY_V2_APP overrides the install path (tests only).
 set -euo pipefail
 
 YELLOW='\033[1;33m'; GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
@@ -11,23 +16,27 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 APP_SRC="$REPO_ROOT/dist/Whispy V2.app"
-APP_DST="/Applications/Whispy V2.app"
-APP_STAGE="/Applications/.Whispy V2.app.incoming"
+APP_DST="${WHISPY_V2_APP:-/Applications/Whispy V2.app}"
+APP_STAGE="$(dirname "$APP_DST")/.Whispy V2.app.incoming"
 V1_BIN="/Applications/Whispy.app/Contents/MacOS/Whispy"
 BUNDLE_ID="com.whispy.v2"
 SOCK="${WHISPY_V2_SOCKET:-$HOME/.whispy/v2/control.sock}"
 LOG="$HOME/.whispy/v2/whispy2.log"
-PROC_PATTERN='/Whispy V2.app/Contents/MacOS/whispy2'
+PROC_PATTERN='/Whispy V2[.]app/Contents/MacOS/whispy2( |$)'
+[ -n "${WHISPY_V2_APP:-}" ] && PROC_PATTERN="^$APP_DST/Contents/MacOS/whispy2( |\$)"
 
 die() { echo -e "${RED}[FAIL] $*${NC}" >&2; exit 1; }
 warn() { echo -e "${YELLOW}[warn] $*${NC}" >&2; }
 info() { echo -e "${YELLOW}$*${NC}"; }
 
+# -a: macOS pgrep skips its own ancestors by default, and an update from the
+# menu runs this script as a descendant of the very app it must quit (#50).
+running_pids() { pgrep -a -f "$PROC_PATTERN" || true; }
 sock_answers() { printf 'status\n' | nc -U "$SOCK" 2>/dev/null | head -n 1 || true; }  # set -e + pipefail: no socket yet must not end the script
 
 # --- 0. Preflight (no side effects) ----------------------------------------
 [ "$(uname -s)" = "Darwin" ] || die "macOS only."
-[ -w /Applications ] || die "/Applications is not writable by $(id -un)."
+[ -w "$(dirname "$APP_DST")" ] || die "$(dirname "$APP_DST") is not writable by $(id -un)."
 if [ -e "$APP_DST" ] && [ ! -w "$APP_DST" ]; then
     die "$APP_DST is not writable (root-owned?). Remove it with sudo, then rerun."
 fi
@@ -46,13 +55,16 @@ fi
 
 # --- 2. Quit the running V2 -------------------------------------------------
 info "=== 2/5 Stopping Whispy V2 ==="
-pids="$(pgrep -f "$PROC_PATTERN" || true)"
+pids="$(running_pids)"
 if [ -z "$pids" ]; then
     echo "  not running — nothing to stop"
 else
     echo "  running as pid(s): $pids"
     # Gated on a real process: the Apple Event could otherwise launch V2.
-    if osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1; then
+    if [ "${WHISPY_UNATTENDED:-0}" = 1 ]; then
+        kill -TERM $pids 2>/dev/null || true
+        grace=10
+    elif osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1; then
         grace=10
     else
         warn "Apple Event refused (System Settings → Privacy & Security → Automation)."
@@ -79,6 +91,10 @@ else
     fi
     echo "  stopped"
 fi
+# Never install under a running copy: `open` would only bring the old one
+# forward, and its socket would answer as if the new one had started.
+still="$(running_pids)"
+[ -z "$still" ] || die "Whispy V2 is still running (pid(s) $(echo $still)) — nothing was replaced. Quit it, then rerun."
 
 # --- 3. Install -------------------------------------------------------------
 info "=== 3/5 Installing to $APP_DST ==="
@@ -99,7 +115,7 @@ fi
 
 # --- 4. Relaunch ------------------------------------------------------------
 info "=== 4/5 Relaunching ==="
-/usr/bin/open "$APP_DST"
+open "$APP_DST"
 
 # --- 5. Wait for the control socket ----------------------------------------
 info "=== 5/5 Waiting for $SOCK ==="

@@ -16,7 +16,10 @@
 //!   restart of `whispy2.service` stops every process of the unit's cgroup,
 //!   the script included otherwise. `WHISPY_UNATTENDED=1` makes the script
 //!   stop with [`NEEDS_TERMINAL_EXIT`] rather than ask for a password (sudo),
-//!   and the row then shows the command to run in a terminal.
+//!   and the row then shows the command to run in a terminal. Every end the
+//!   app lives to see is shown on the row: a failure with its reason (the
+//!   last `[FAIL]` line of `~/.whispy/v2/update.log`), or an install that
+//!   left this old process running.
 //!
 //! The pure half ([`Version`], [`latest_tag`], [`Updater`]'s transitions and
 //! [`Row`]) is unit-tested with fake checks and installs.
@@ -42,8 +45,12 @@ pub mod texts {
         format!("Updating to {version}\u{2026}")
     }
 
-    pub fn update_failed(version: Version) -> String {
-        format!("Update to {version} failed \u{2014} try again (see ~/.whispy/v2/update.log)")
+    pub fn update_failed(version: Version, reason: &str) -> String {
+        format!("Update to {version} failed: {reason} \u{2014} try again")
+    }
+
+    pub fn not_restarted(version: Version) -> String {
+        format!("{version} is installed \u{2014} quit and reopen Whispy to finish")
     }
 
     pub fn needs_terminal(command: &str) -> String {
@@ -136,10 +143,12 @@ pub enum Checked {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Installed {
     /// The script succeeded without restarting this process (a script that
-    /// found nothing to rebuild, or no systemd user session).
+    /// found nothing to rebuild, no systemd user session, or a reinstall that
+    /// missed the running app, as the 2.5.0 one did on macOS).
     Done,
     /// The script stopped before sudo: run [`terminal_command`] by hand.
     NeedsTerminal,
+    /// The reason, shown on the row.
     Failed(String),
 }
 
@@ -162,7 +171,10 @@ enum Phase {
     Idle,
     Available(Version),
     Installing(Version),
-    Failed(Version),
+    /// The reason, shown on the row.
+    Failed(Version, String),
+    /// Installed, but this old process still runs.
+    NotRestarted(Version),
     NeedsTerminal(Version),
 }
 
@@ -172,7 +184,8 @@ impl Phase {
             Phase::Idle => return None,
             Phase::Available(version) => (texts::available(*version), true, false),
             Phase::Installing(version) => (texts::updating_to(*version), false, true),
-            Phase::Failed(version) => (texts::update_failed(*version), true, false),
+            Phase::Failed(version, reason) => (texts::update_failed(*version, reason), true, false),
+            Phase::NotRestarted(version) => (texts::not_restarted(*version), false, false),
             Phase::NeedsTerminal(version) => (
                 texts::needs_terminal(&terminal_command(*version)),
                 true,
@@ -189,10 +202,10 @@ impl Phase {
     /// The version an install would get.
     fn installable(&self) -> Option<Version> {
         match self {
-            Phase::Available(version) | Phase::Failed(version) | Phase::NeedsTerminal(version) => {
-                Some(*version)
-            }
-            Phase::Idle | Phase::Installing(_) => None,
+            Phase::Available(version)
+            | Phase::Failed(version, _)
+            | Phase::NeedsTerminal(version) => Some(*version),
+            Phase::Idle | Phase::Installing(_) | Phase::NotRestarted(_) => None,
         }
     }
 }
@@ -296,7 +309,9 @@ impl Updater {
                     ));
                     match shared.phase {
                         // The same version, already tried: keep what it said.
-                        Phase::Failed(v) | Phase::NeedsTerminal(v) if v == latest => {
+                        Phase::Failed(v, _) | Phase::NeedsTerminal(v) | Phase::NotRestarted(v)
+                            if v == latest =>
+                        {
                             shared.phase.clone()
                         }
                         _ => Phase::Available(latest),
@@ -357,7 +372,7 @@ impl Updater {
                 log::line(&format!(
                     "update: the {version} install ended without a restart"
                 ));
-                Phase::Idle
+                Phase::NotRestarted(version)
             }
             Installed::NeedsTerminal => {
                 log::line(&format!(
@@ -368,7 +383,7 @@ impl Updater {
             }
             Installed::Failed(reason) => {
                 log::line(&format!("update: installing {version} failed ({reason})"));
-                Phase::Failed(version)
+                Phase::Failed(version, reason)
             }
         };
         self.lock().phase = phase;
@@ -488,6 +503,45 @@ fn check_remote(repository: &str) -> Checked {
     }
 }
 
+/// Why the last install in `update.log` failed: its last `[FAIL]` line (or
+/// curl's), colours stripped and kept short for a menu row.
+pub fn failure_reason(log_text: &str) -> Option<String> {
+    let run = log_text
+        .rsplit_once("=== Whispy update to ")
+        .map_or(log_text, |(_, run)| run);
+    let line = run
+        .lines()
+        .map(strip_colours)
+        .map(|line| line.trim().to_string())
+        .rfind(|line| line.starts_with("[FAIL]") || line.starts_with("could not download"))?;
+    let reason = line.trim_start_matches("[FAIL]").trim();
+    const MAX: usize = 80;
+    Some(if reason.chars().count() > MAX {
+        let short: String = reason.chars().take(MAX - 1).collect();
+        format!("{}\u{2026}", short.trim_end())
+    } else {
+        reason.to_string()
+    })
+}
+
+/// `text` without its ANSI colour sequences (`ESC [ … m`).
+fn strip_colours(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            for c in chars.by_ref() {
+                if c.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// The script that downloads a tag's `bootstrap.sh` and runs it unattended,
 /// its output appended to the log. Positional parameters: the tag, the raw
 /// URL base, the log path. Never interpolated into the script text.
@@ -598,7 +652,12 @@ fn install_release(version: Version) -> Installed {
     match process.status() {
         Ok(status) if status.success() => Installed::Done,
         Ok(status) if status.code() == Some(NEEDS_TERMINAL_EXIT) => Installed::NeedsTerminal,
-        Ok(status) => Installed::Failed(format!("bootstrap.sh exited with {status}")),
+        Ok(status) => Installed::Failed(
+            std::fs::read_to_string(update_log())
+                .ok()
+                .and_then(|text| failure_reason(&text))
+                .unwrap_or_else(|| format!("bootstrap.sh exited with {status}")),
+        ),
         Err(error) => Installed::Failed(error.to_string()),
     }
 }
@@ -767,8 +826,18 @@ b91d9ff3\trefs/tags/v2.9.0
         updater.check();
         assert_eq!(updater.row().unwrap().title, "Updating to 2.5.0\u{2026}");
         drop(release.lock().unwrap().take());
-        // The script ended without restarting this process: no row any more.
-        assert_eq!(wait_for(&updater, |row| row.is_none()), None);
+        // The script ended but this process still runs (the 2.5.0 macOS
+        // update, #50): the row says so instead of vanishing.
+        let row = wait_for(&updater, |row| row.is_some_and(|row| !row.transient)).unwrap();
+        assert_eq!(
+            row.title,
+            "2.5.0 is installed \u{2014} quit and reopen Whispy to finish"
+        );
+        assert!(!row.enabled, "nothing to install again");
+        // The daily check keeps it shown.
+        updater.check();
+        wait_checked(&updater);
+        assert_eq!(updater.row(), Some(row));
     }
 
     #[test]
@@ -792,18 +861,47 @@ b91d9ff3\trefs/tags/v2.9.0
     fn a_failed_install_can_be_tried_again() {
         let updater = updater(
             Checked::Latest(Version(2, 5, 0)),
-            Installed::Failed("exit 1".into()),
+            Installed::Failed("Build failed".into()),
         );
         updater.check();
         wait_for(&updater, offered);
         updater.install();
         let row = wait_for(&updater, |row| row.is_some_and(|row| !row.transient)).unwrap();
-        assert!(
-            row.title.starts_with("Update to 2.5.0 failed"),
-            "{}",
-            row.title
+        assert_eq!(
+            row.title,
+            "Update to 2.5.0 failed: Build failed \u{2014} try again"
         );
         assert!(row.enabled);
+    }
+
+    #[test]
+    fn the_failure_reason_is_the_last_fail_line_of_the_last_run() {
+        let log = "\
+=== Whispy update to v2.5.0, Fri ===
+\u{1b}[0;31m[FAIL] old run\u{1b}[0m
+=== exit 1 ===
+=== Whispy update to v2.5.1, Fri ===
+   Compiling whispy2 v2.5.1
+\u{1b}[0;31m[FAIL] Build failed \u{2014} /Applications/Whispy V2.app left untouched.\u{1b}[0m
+=== exit 1 ===
+";
+        assert_eq!(
+            failure_reason(log).as_deref(),
+            Some("Build failed \u{2014} /Applications/Whispy V2.app left untouched.")
+        );
+        assert_eq!(
+            failure_reason(
+                "=== Whispy update to v2.5.1 ===\ncould not download bootstrap.sh for v2.5.1\n"
+            )
+            .as_deref(),
+            Some("could not download bootstrap.sh for v2.5.1")
+        );
+        assert_eq!(
+            failure_reason("=== Whispy update to v2.5.1 ===\n=== exit 2 ===\n"),
+            None
+        );
+        let long = format!("[FAIL] {}", "x".repeat(200));
+        assert_eq!(failure_reason(&long).unwrap().chars().count(), 80);
     }
 
     #[test]

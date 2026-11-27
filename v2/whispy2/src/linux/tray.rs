@@ -216,10 +216,14 @@ mod tests {
         };
         assert!(item.enabled);
         (item.activate)(&mut tray);
-        // The fake install ends without a restart: the offer is gone.
-        while updater.row().is_some() {
+        // The fake install ends without a restart: the row says so (#50).
+        while updater.row().is_none_or(|row| row.transient || row.enabled) {
             assert!(std::time::Instant::now() < deadline, "{:?}", updater.row());
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
+        assert_eq!(
+            updater.row().unwrap().title,
+            "2.5.0 is installed \u{2014} quit and reopen Whispy to finish"
+        );
     }
 }
