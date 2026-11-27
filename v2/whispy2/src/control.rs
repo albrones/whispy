@@ -5,8 +5,9 @@
 //! in a 0700 directory: the directory is the real guard, since permissions on a
 //! socket file are not honoured alike on BSD and Linux. No TCP port is opened.
 //! Line protocol, one request and one reply line per connection: `start`,
-//! `stop`, `toggle`, `status`, `last`. The Omarchy bar panel reads `status`
-//! (which carries the input level) and `last` straight from the socket.
+//! `stop`, `toggle`, `status`, `last`, `check-update`, `update`. The Omarchy
+//! bar panel reads `status` (which carries the input level and the update
+//! row) and `last` straight from the socket, and sends the update row's request.
 //!
 //! The socket produces the events the trigger key produces and the machine never
 //! learns where an edge came from: that is why a `stop` while idle, or a
@@ -31,6 +32,7 @@ use crate::journal::json_string;
 use crate::log;
 use crate::machine::{Event, Mode, State, MIN_HOLD};
 use crate::settings::TriggerMode;
+use crate::update::{self, Row, Updater};
 
 pub const SOCKET_ENV: &str = "WHISPY_V2_SOCKET";
 
@@ -49,6 +51,10 @@ pub enum Request {
     Status,
     /// The whole text of the last dictation, kept in memory only.
     Last,
+    /// « Check for Updates », as from the menu.
+    CheckUpdate,
+    /// « Update to X.Y.Z »: installs the offered version.
+    Update,
 }
 
 pub fn parse(line: &str) -> Result<Request, String> {
@@ -58,8 +64,10 @@ pub fn parse(line: &str) -> Result<Request, String> {
         "toggle" => Ok(Request::Toggle),
         "status" => Ok(Request::Status),
         "last" => Ok(Request::Last),
+        "check-update" => Ok(Request::CheckUpdate),
+        "update" => Ok(Request::Update),
         other => Err(format!(
-            "error: unknown request {:?}; expected start, stop, toggle, status or last",
+            "error: unknown request {:?}; expected start, stop, toggle, status, last, check-update or update",
             other.chars().take(32).collect::<String>()
         )),
     }
@@ -203,13 +211,37 @@ pub fn is_failure(reply: &str) -> bool {
 /// `start` and `toggle` are refused while V2 yields to V1: the key belongs to
 /// V1, and an ignored `start` would answer `ok` and record nothing. The status
 /// is read first on the same channel, so it is ordered after any earlier request.
-pub fn dispatch(inputs: &Sender<Input>, request: Request) -> String {
+///
+/// `check-update` and `update` act on `updater` (the menu's): `update` is
+/// refused unless an update is offered.
+pub fn dispatch(inputs: &Sender<Input>, updater: Option<&Updater>, request: Request) -> String {
+    match (request, updater) {
+        (Request::CheckUpdate, Some(updater)) => {
+            updater.check(true);
+            return "ok".into();
+        }
+        (Request::Update, Some(updater)) => {
+            return if updater.install() {
+                "ok".into()
+            } else {
+                "refused: no update is offered; check for updates first".into()
+            };
+        }
+        (Request::CheckUpdate | Request::Update, None) => {
+            return "refused: updates are not available in this build".into();
+        }
+        _ => {}
+    }
     let Some(status) = query(inputs) else {
         return "error: V2 is shutting down".into();
     };
     let send = |event: Event| inputs.send(Input::Event(event, Source::Socket)).is_ok();
     match request {
-        Request::Status => status_json(&status, live(inputs).unwrap_or_default().level),
+        Request::Status => status_json(
+            &status,
+            live(inputs).unwrap_or_default().level,
+            updater.map(Updater::row).as_ref(),
+        ),
         Request::Last => last_json(live(inputs).and_then(|live| live.last_text).as_deref()),
         Request::Start | Request::Toggle if status.state == State::Yielded => {
             "refused: Whispy V1 is running and holds the trigger".into()
@@ -220,6 +252,7 @@ pub fn dispatch(inputs: &Sender<Input>, request: Request) -> String {
             Instant::now(),
         )))),
         Request::Toggle => reply(send_toggle(&status, &send)),
+        Request::CheckUpdate | Request::Update => unreachable!("answered above"),
     }
 }
 
@@ -284,14 +317,15 @@ pub fn last_json(text: Option<&str>) -> String {
 }
 
 /// The `status` reply: one line of JSON. `level` is the input level of the
-/// recording (V1's scale, 0 when nothing records), for the Omarchy pill.
-pub fn status_json(status: &Status, level: f32) -> String {
+/// recording (V1's scale, 0 when nothing records), for the Omarchy pill;
+/// `update` the update row, for the Omarchy panel.
+pub fn status_json(status: &Status, level: f32, update: Option<&Row>) -> String {
     let problem = match status.last_problem() {
         Some(problem) => json_string(problem),
         None => "null".to_string(),
     };
     format!(
-        "{{\"state\":{},\"models_loaded\":{},\"yielded\":{},\"last_problem\":{problem},\"trigger_mode\":\"{}\",\"level\":{}}}",
+        "{{\"state\":{},\"models_loaded\":{},\"yielded\":{},\"last_problem\":{problem},\"trigger_mode\":\"{}\",\"level\":{}{}}}",
         json_string(status.state_name()),
         status.models_loaded,
         status.state == State::Yielded,
@@ -299,7 +333,11 @@ pub fn status_json(status: &Status, level: f32) -> String {
             TriggerMode::Hold => "hold",
             TriggerMode::Toggle => "toggle",
         },
-        json_number(level)
+        json_number(level),
+        match update {
+            Some(row) => format!(",\"update\":{}", update::row_json(row)),
+            None => String::new(),
+        }
     )
 }
 
@@ -341,6 +379,8 @@ mod tests {
         assert_eq!(parse("toggle"), Ok(Request::Toggle));
         assert_eq!(parse("status"), Ok(Request::Status));
         assert_eq!(parse("last"), Ok(Request::Last));
+        assert_eq!(parse("check-update"), Ok(Request::CheckUpdate));
+        assert_eq!(parse("update\n"), Ok(Request::Update));
         assert!(parse("record").unwrap_err().starts_with("error"));
         assert!(parse("").unwrap_err().starts_with("error"));
     }
@@ -475,7 +515,7 @@ mod tests {
             permission_pane: None,
         };
         assert_eq!(
-            status_json(&status, 0.0),
+            status_json(&status, 0.0, None),
             "{\"state\":\"idle\",\"models_loaded\":true,\"yielded\":false,\"last_problem\":\"Microphone heard nothing (\\\"Mic\\\")\",\"trigger_mode\":\"hold\",\"level\":0.000}"
         );
         let loading = Status {
@@ -485,11 +525,53 @@ mod tests {
             trigger_mode: TriggerMode::Toggle,
             permission_pane: None,
         };
-        let json = status_json(&loading, 0.4567);
+        let json = status_json(&loading, 0.4567, None);
         assert!(json.contains("\"yielded\":true") && json.contains("\"last_problem\":null"));
         assert!(json.contains("\"trigger_mode\":\"toggle\""));
         assert!(json.ends_with(",\"level\":0.457}"));
-        assert!(status_json(&loading, f32::NAN).ends_with(",\"level\":0.000}"));
+        assert!(status_json(&loading, f32::NAN, None).ends_with(",\"level\":0.000}"));
+    }
+
+    #[test]
+    fn status_carries_the_update_row_for_the_panel() {
+        let status = Status {
+            state: State::Idle,
+            note: None,
+            models_loaded: true,
+            trigger_mode: TriggerMode::Hold,
+            permission_pane: None,
+        };
+        let row = Row {
+            title: "Update to 2.5.0".into(),
+            action: Some(update::Action::Install),
+            transient: false,
+        };
+        assert!(status_json(&status, 0.0, Some(&row)).ends_with(
+            ",\"level\":0.000,\"update\":{\"title\":\"Update to 2.5.0\",\"action\":\"update\",\"transient\":false}}"
+        ));
+    }
+
+    #[test]
+    fn update_requests_reach_the_updater_and_update_needs_an_offer() {
+        use crate::update::{Checked, Installed, Version};
+        let (inputs, _unused) = mpsc::channel();
+        let updater = Updater::with(
+            Version(2, 4, 0),
+            || Checked::Latest(Version(2, 4, 0)),
+            |_| Installed::Done,
+            Duration::from_secs(5),
+        );
+        assert!(dispatch(&inputs, Some(&updater), Request::Update).starts_with("refused"));
+        assert_eq!(
+            dispatch(&inputs, Some(&updater), Request::CheckUpdate),
+            "ok"
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while updater.row().title != "Whispy is up to date" {
+            assert!(Instant::now() < deadline, "{:?}", updater.row());
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(dispatch(&inputs, None, Request::CheckUpdate).starts_with("refused"));
     }
 
     #[test]

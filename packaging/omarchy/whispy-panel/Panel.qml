@@ -38,6 +38,7 @@ Panel {
   // The key and Start at login are files and systemd state: both can be
   // changed with Whispy stopped.
   readonly property var rows: ["power"].concat(running ? [] : ["start"], ["trigger", "login"],
+    running && sw.update !== null ? ["update"] : [],
     running && sw.lastText !== "" ? ["last"] : [])
   readonly property string currentRow: cursorActive && page === "" ? rows[Math.min(rowIndex, rows.length - 1)] : ""
   readonly property var pageOptions: page === "trigger" ? Model.PRESETS : []
@@ -67,6 +68,7 @@ Panel {
     else if (id === "trigger") openPage("trigger")
     else if (id === "login") sw.setStartAtLogin(!sw.startAtLogin)
     else if (id === "last") sw.copyLast()
+    else if (id === "update") sw.runUpdate()
   }
 
   function moveCursor(dx, dy) {
@@ -237,6 +239,16 @@ Panel {
             caption: "systemctl --user enable whispy2"
             checked: sw.startAtLogin
           }
+        }
+
+        // « Check for Updates », « Update to X.Y.Z »: the title is Whispy's,
+        // from its status; it can carry a command to run, so it wraps.
+        ActionRow {
+          visible: root.page === "" && root.running && sw.update !== null
+          rowId: "update"
+          label: sw.update ? sw.update.title : ""
+          caption: sw.update && sw.update.request === "update" ? "Installs it, then restarts Whispy" : ""
+          wrap: true
         }
 
         PanelSeparator {
@@ -466,6 +478,8 @@ Panel {
     property string rowId: ""
     property string label: ""
     property string caption: ""
+    // A long label wraps instead of being cut.
+    property bool wrap: false
 
     width: parent ? parent.width : implicitWidth
     hasCursor: root.currentRow === rowId
@@ -497,7 +511,8 @@ Panel {
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
         font.bold: true
-        elide: Text.ElideRight
+        wrapMode: actionRow.wrap ? Text.WrapAtWordBoundaryOrAnywhere : Text.NoWrap
+        elide: actionRow.wrap ? Text.ElideNone : Text.ElideRight
       }
 
       Text {

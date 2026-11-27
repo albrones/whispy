@@ -8,6 +8,10 @@ import "Model.js" as Model
 // port, no token, no process per read. One request per connection, one JSON
 // line back: `status` (state, models, last problem, input level) and `last`.
 //
+// The update row (« Check for Updates », « Update to X.Y.Z ») comes with
+// `status`; a click sends its request (`check-update` or `update`) and the
+// status is read every 500 ms while the row is transient.
+//
 // When it asks: once when the shell starts, on a nudge from the dictation
 // backend (`omarchy-shell whispy refresh` after a start or stop, or when
 // Whispy does not answer), when the panel opens, every 500 ms while Whispy
@@ -37,6 +41,7 @@ Item {
   property var status: null
   readonly property string phase: Model.phase(reachable, status)
   readonly property bool active: Model.isActive(phase)
+  readonly property var update: Model.updateRow(reachable, status)
 
   property var config: ({})
   property string lastText: ""
@@ -110,6 +115,26 @@ Item {
     onAnswered: function(data) { if (data) root.lastText = data.text ? String(data.text) : "" }
   }
 
+  // The update row's requests: their reply is a word, not JSON; the next
+  // status shows what changed.
+  Ask {
+    id: checkUpdateAsk
+    request: "check-update"
+    onAnswered: function(data) { root.refresh() }
+  }
+
+  Ask {
+    id: installUpdateAsk
+    request: "update"
+    onAnswered: function(data) { root.refresh() }
+  }
+
+  function runUpdate() {
+    if (!update || update.request === "") return
+    if (update.request === "update") installUpdateAsk.go()
+    else checkUpdateAsk.go()
+  }
+
   function refresh() { statusAsk.go() }
   function fetchLast() { lastAsk.go() }
 
@@ -129,7 +154,7 @@ Item {
   Timer {
     interval: root.phase === "recording" ? 50 : 500
     repeat: true
-    running: root.active || root.starting || root.stopping
+    running: root.active || root.starting || root.stopping || (root.update !== null && root.update.transient)
     onTriggered: root.refresh()
   }
 

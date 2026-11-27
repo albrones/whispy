@@ -46,6 +46,12 @@ const out = {
   presets: m.PRESETS.map(p => p.value),
   labels: m.PRESETS.map(p => m.presetLabel(p.value)),
   unknownLabel: m.presetLabel("caps_lock_hold"),
+  updateStopped: m.updateRow(false, null),
+  updateOld: m.updateRow(true, ready),
+  updateOffer: m.updateRow(true, {...ready, update: {title: "Update to 2.5.0", action: "update", transient: false}}),
+  updateCheck: m.updateRow(true, {...ready, update: {title: "Check for Updates", action: "check-update", transient: false}}),
+  updateBusy: m.updateRow(true, {...ready, update: {title: "Checking for Updates…", action: null, transient: true}}),
+  updateBogus: m.updateRow(true, {...ready, update: {title: "x", action: "rm -rf", transient: "yes"}}),
 };
 console.log(JSON.stringify(out));
 """
@@ -93,6 +99,24 @@ def test_wave_is_flat_in_silence_and_moves_with_speech(model):
     assert 0 < quiet < normal <= loud == 1
     assert model["flatBars"] == [5, 5, 5]
     assert model["loudCentre"] > model["loudEdge"] > 5
+
+
+def test_the_update_row_comes_from_the_status_and_names_its_request(model):
+    assert model["updateStopped"] is None
+    assert model["updateOld"] is None, "a Whispy without the field shows no row"
+    assert model["updateOffer"] == {"title": "Update to 2.5.0", "request": "update", "transient": False}
+    assert model["updateCheck"]["request"] == "check-update"
+    assert model["updateBusy"] == {"title": "Checking for Updates…", "request": "", "transient": True}
+    # Only the two known requests are ever sent.
+    assert model["updateBogus"] == {"title": "x", "request": "", "transient": False}
+
+
+def test_the_panel_sends_only_the_update_requests_whispy_knows():
+    service = (PLUGIN / "Service.qml").read_text()
+    assert 'request: "check-update"' in service and 'request: "update"' in service
+    assert "root.update.transient" in service
+    panel = (PLUGIN / "Panel.qml").read_text()
+    assert 'rowId: "update"' in panel and "sw.runUpdate()" in panel
 
 
 def test_presets_match_the_config_schema(model):

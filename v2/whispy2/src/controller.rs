@@ -1668,44 +1668,48 @@ mod tests {
             |_: &Status| {},
         );
         assert_eq!(
-            dispatch(&controller.inputs, Request::Last),
+            dispatch(&controller.inputs, None, Request::Last),
             "{\"text\":null}"
         );
         // No level before a recording: the capture's sink is not heard at rest.
         controller.inputs.send(Input::Level(0.9)).unwrap();
-        assert!(dispatch(&controller.inputs, Request::Status).ends_with("\"level\":0.000}"));
-        assert_eq!(dispatch(&controller.inputs, Request::Start), "ok");
+        assert!(dispatch(&controller.inputs, None, Request::Status).ends_with("\"level\":0.000}"));
+        assert_eq!(dispatch(&controller.inputs, None, Request::Start), "ok");
         // The pill's level is read on the socket while recording.
         controller.inputs.send(Input::Level(0.42)).unwrap();
-        let recording = dispatch(&controller.inputs, Request::Status);
+        let recording = dispatch(&controller.inputs, None, Request::Status);
         assert!(recording.contains("\"state\":\"recording\""), "{recording}");
         assert!(recording.ends_with("\"level\":0.420}"), "{recording}");
         // Immediately: still a hold, not a tap.
-        assert_eq!(dispatch(&controller.inputs, Request::Stop), "ok");
+        assert_eq!(dispatch(&controller.inputs, None, Request::Stop), "ok");
         let (text, _) = inserted.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(text, "32000 samples");
         wait_for("never idle", || {
-            dispatch(&controller.inputs, Request::Status).contains("\"state\":\"idle\"")
+            dispatch(&controller.inputs, None, Request::Status).contains("\"state\":\"idle\"")
         });
         // The level falls back once the recording ends; the text is kept in memory.
-        assert!(dispatch(&controller.inputs, Request::Status).ends_with("\"level\":0.000}"));
+        assert!(dispatch(&controller.inputs, None, Request::Status).ends_with("\"level\":0.000}"));
         assert_eq!(
-            dispatch(&controller.inputs, Request::Last),
+            dispatch(&controller.inputs, None, Request::Last),
             "{\"text\":\"32000 samples\"}"
         );
-        assert!(dispatch(&controller.inputs, Request::Status).contains("\"models_loaded\":true"));
+        assert!(
+            dispatch(&controller.inputs, None, Request::Status).contains("\"models_loaded\":true")
+        );
         // A stop while idle changes nothing.
-        assert_eq!(dispatch(&controller.inputs, Request::Stop), "ok");
-        assert!(dispatch(&controller.inputs, Request::Status).contains("\"state\":\"idle\""));
+        assert_eq!(dispatch(&controller.inputs, None, Request::Stop), "ok");
+        assert!(dispatch(&controller.inputs, None, Request::Status).contains("\"state\":\"idle\""));
 
         controller.send(Event::V1Running(true));
         wait_for("never yielded", || {
-            dispatch(&controller.inputs, Request::Status).contains("\"yielded\":true")
+            dispatch(&controller.inputs, None, Request::Status).contains("\"yielded\":true")
         });
         for request in [Request::Start, Request::Toggle] {
-            assert!(dispatch(&controller.inputs, request).contains("V1 is running"));
+            assert!(dispatch(&controller.inputs, None, request).contains("V1 is running"));
         }
-        assert!(dispatch(&controller.inputs, Request::Status).contains("\"state\":\"yielded\""));
+        assert!(
+            dispatch(&controller.inputs, None, Request::Status).contains("\"state\":\"yielded\"")
+        );
         controller.stop();
     }
 

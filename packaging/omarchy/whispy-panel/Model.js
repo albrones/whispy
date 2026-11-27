@@ -56,6 +56,19 @@ function phaseLabel(value) {
   return "Ready"
 }
 
+// The update row of the `status` answer (v2/whispy2/src/update.rs), e.g.
+//   {"title":"Update to 2.5.0","action":"update","transient":false}
+// as { title, request, transient }: `request` is the socket request a click
+// sends ("check-update", "update", or "" while a check or install runs), and
+// `transient` asks the panel to read the status again until it settles.
+// null when Whispy is stopped or too old to report one.
+function updateRow(reachable, status) {
+  if (!reachable || !status || !status.update || typeof status.update.title !== "string") return null
+  var update = status.update
+  var request = update.action === "check-update" || update.action === "update" ? update.action : ""
+  return { title: update.title, request: request, transient: update.transient === true }
+}
+
 // The bar's tooltip: "Whispy · Listening", or "Whispy stopped".
 function tooltip(value) {
   return value === "stopped" ? phaseLabel(value) : "Whispy · " + phaseLabel(value)
@@ -98,6 +111,7 @@ if (typeof module !== "undefined") {
     presetLabel: presetLabel,
     phase: phase,
     phaseLabel: phaseLabel,
+    updateRow: updateRow,
     tooltip: tooltip,
     isActive: isActive,
     frame: frame,

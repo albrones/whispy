@@ -38,6 +38,7 @@ use crate::menu_model::{
 use crate::settings::{self, Settings};
 use crate::theme::{self, Title};
 use crate::title_anim;
+use crate::update::{self, Updater};
 
 /// What the menu needs to act on a choice. Built on the main thread.
 pub struct Handles {
@@ -51,6 +52,8 @@ pub struct Handles {
     pub inputs: Sender<Input>,
     /// The control socket, which a restart waits to see freed.
     pub socket: Option<PathBuf>,
+    /// The update row's state; [`refresh`] redraws the menu when it changes.
+    pub updater: Updater,
 }
 
 /// What the last rendering was built from; an identical rebuild is skipped so
@@ -219,6 +222,11 @@ pub fn show(status: Status) {
     });
 }
 
+/// Redraws the menu from any thread (the update row changed).
+pub fn refresh() {
+    DispatchQueue::main().exec_async(|| with_menu_bar(|menu_bar| menu_bar.rebuild()));
+}
+
 /// Whether the app's effective appearance is Dark Aqua (best match of Aqua, DarkAqua).
 fn is_dark(mtm: MainThreadMarker) -> bool {
     let app = NSApplication::sharedApplication(mtm);
@@ -296,6 +304,7 @@ impl MenuBar {
                 trigger_label: menu_model::trigger_label(settings.trigger.keycode),
                 login: self.login_row(),
                 permission_warning: pane_of(&inner.status).is_some(),
+                update: self.handles.updater.row(),
                 dark,
             };
             let note = inner
@@ -420,6 +429,8 @@ impl MenuBar {
                         .spawn();
                 }
             }
+            MenuAction::CheckForUpdates => self.handles.updater.choose(update::Action::Check),
+            MenuAction::InstallUpdate => self.handles.updater.choose(update::Action::Install),
             MenuAction::Restart => {
                 self.spawn_restart();
                 self.quit();

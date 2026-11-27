@@ -25,6 +25,11 @@ set -euo pipefail
 #   WHISPY_REPO    git URL (default: https://github.com/albrones/whispy.git)
 #   WHISPY_REF     branch/tag to check out (default: main)
 #   WHISPY_SKIP_SYSTEM_PACKAGES=1   Linux: never call the package manager
+#   WHISPY_UNATTENDED=1   run by Whispy's « Update to X.Y.Z »: never ask for a
+#                  password or open a dialog. A step that would (sudo for missing
+#                  system packages, the Xcode Command Line Tools) stops the script
+#                  with exit code 3 before anything is changed, and Whispy shows
+#                  the command to run in a terminal.
 #
 # Uninstall:
 #   curl -fsSL .../bootstrap.sh | bash -s -- --uninstall
@@ -38,7 +43,10 @@ NC='\033[0m'
 WHISPY_HOME="${WHISPY_HOME:-$HOME/.local/share/whispy}"
 WHISPY_REPO="${WHISPY_REPO:-https://github.com/albrones/whispy.git}"
 WHISPY_REF="${WHISPY_REF:-main}"
+WHISPY_UNATTENDED="${WHISPY_UNATTENDED:-}"
 OS="$(uname -s)"
+# The exit code of an unattended run that needs the user (see WHISPY_UNATTENDED).
+NEEDS_TERMINAL_EXIT=3
 
 V2_APP="/Applications/Whispy V2.app"
 V2_BUNDLE_ID="com.whispy.v2"
@@ -144,6 +152,13 @@ install_linux_packages() {
         echo -e "${YELLOW}[!] Missing system packages (not installed, WHISPY_SKIP_SYSTEM_PACKAGES=1): $packages${NC}"
         return 0
     fi
+    if [ "$WHISPY_UNATTENDED" = "1" ]; then
+        # No password prompt from an update started in the menu: stop here,
+        # before anything changed; Whispy shows the command to run instead.
+        echo -e "${YELLOW}[!] Missing system packages, which need sudo: $packages${NC}"
+        echo "    Rerun the install command in a terminal to install them."
+        exit "$NEEDS_TERMINAL_EXIT"
+    fi
     echo -e "${YELLOW}Installing system packages with $manager (sudo may ask for your password): $packages${NC}"
     # shellcheck disable=SC2086
     if case "$manager" in
@@ -166,6 +181,10 @@ fi
 # --- Prerequisites ---------------------------------------------------------------
 if [ "$OS" = "Darwin" ] && ! xcode-select -p >/dev/null 2>&1; then
     # git, the compiler, codesign and install_name_tool all come with them.
+    if [ "$WHISPY_UNATTENDED" = "1" ]; then
+        echo -e "${YELLOW}[!] The Xcode Command Line Tools are missing: rerun the install command in a terminal.${NC}"
+        exit "$NEEDS_TERMINAL_EXIT"
+    fi
     echo -e "${YELLOW}Whispy is built on this Mac and needs the Xcode Command Line Tools.${NC}"
     xcode-select --install >/dev/null 2>&1 || true
     echo "A dialog to install them has opened. Once it is done, rerun:"
