@@ -36,9 +36,9 @@ impl Surface {
 
 impl Surface {
     /// The update row in the icon's menu.
-    pub fn update_row(&self, row: &Row) {
+    pub fn update_row(&self, row: Option<&Row>) {
         if let Some(tray) = &self.tray {
-            let row = row.clone();
+            let row = row.cloned();
             tray.update(|tray| tray.update = row);
         }
     }

@@ -147,7 +147,6 @@
           <div class="dd-sep"></div>
           <div class="dd-item dd-hint">Hold your key to dictate</div>
           <div class="dd-sep"></div>
-          <div class="dd-item">Check for Updates</div>
           <div class="dd-item">Restart</div>
           <div class="dd-item">Quit<span class="dd-val">⌘Q</span></div>
         </div>
@@ -209,7 +208,7 @@
         </article>
         <article class="card">
           <h3>Lives in the tray</h3>
-          <p>Runs quietly as a background daemon in the menu bar (macOS), the system tray (Linux X11) or the Omarchy bar, where a panel holds its settings and picks the dictation key, and a waveform pill shows while you speak. No window to manage — flip <em>Start at login</em> on macOS; on Linux the installer enables a user service, which the Omarchy panel can start, stop or keep from starting at login. Updates come from the menu too: Whispy checks for a new release daily, and <em>Update to X.Y.Z</em> installs it and restarts. Under X11 the tray icon is optional: if your desktop has no working tray, Whispy runs without it.</p>
+          <p>Runs quietly as a background daemon in the menu bar (macOS), the system tray (Linux X11) or the Omarchy bar, where a panel holds its settings and picks the dictation key, and a waveform pill shows while you speak. No window to manage — flip <em>Start at login</em> on macOS; on Linux the installer enables a user service, which the Omarchy panel can start, stop or keep from starting at login. Updates come from the menu too: Whispy checks for a new release daily and, only when there is one, shows <em>Update available (X.Y.Z)</em>; one click installs it and restarts. Under X11 the tray icon is optional: if your desktop has no working tray, Whispy runs without it.</p>
         </article>
         <article class="card">
           <h3>Fast enough to forget</h3>
@@ -296,7 +295,7 @@
     <section id="install" class="section section-install">
       <h2>Install in one line</h2>
       <p class="section-lede">One command on macOS and on Linux (X11 and Wayland). After that,
-        Whispy updates itself from its menu (<em>Check for Updates</em>).</p>
+        Whispy offers each new release in its menu (<em>Update available</em>).</p>
 
       <div class="install-block">
         <pre class="codeblock" id="install-curl"><code>curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash</code></pre>

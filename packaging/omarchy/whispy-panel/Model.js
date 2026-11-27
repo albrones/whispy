@@ -57,15 +57,15 @@ function phaseLabel(value) {
 }
 
 // The update row of the `status` answer (v2/whispy2/src/update.rs), e.g.
-//   {"title":"Update to 2.5.0","action":"update","transient":false}
+//   {"title":"Update available (2.5.0)","action":"update","transient":false}
 // as { title, request, transient }: `request` is the socket request a click
-// sends ("check-update", "update", or "" while a check or install runs), and
-// `transient` asks the panel to read the status again until it settles.
-// null when Whispy is stopped or too old to report one.
+// sends ("update", or "" while the install runs), and `transient` asks the
+// panel to read the status again until it settles. null when Whispy is up to
+// date (the status has no `update`), stopped, or too old to report one.
 function updateRow(reachable, status) {
   if (!reachable || !status || !status.update || typeof status.update.title !== "string") return null
   var update = status.update
-  var request = update.action === "check-update" || update.action === "update" ? update.action : ""
+  var request = update.action === "update" ? "update" : ""
   return { title: update.title, request: request, transient: update.transient === true }
 }
 

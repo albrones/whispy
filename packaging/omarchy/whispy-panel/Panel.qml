@@ -241,8 +241,9 @@ Panel {
           }
         }
 
-        // « Check for Updates », « Update to X.Y.Z »: the title is Whispy's,
-        // from its status; it can carry a command to run, so it wraps.
+        // « Update available (X.Y.Z) », only while a release is offered: the
+        // title is Whispy's, from its status; it can carry a command to run,
+        // so it wraps.
         ActionRow {
           visible: root.page === "" && root.running && sw.update !== null
           rowId: "update"

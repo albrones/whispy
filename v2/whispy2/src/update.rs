@@ -3,11 +3,13 @@
 //!
 //! - **Check**: the last published version is the highest `vX.Y.Z` tag of the
 //!   public repository, read with `git ls-remote --tags` (no API, no token).
-//!   Whispy checks at startup, then once a day, and whenever « Check for
-//!   Updates » is chosen. Only a check asked for by hand says how it went (the
-//!   row's title changes for a few seconds); an automatic one that fails is
-//!   only logged.
-//! - **Install**: « Update to X.Y.Z » runs that tag's `scripts/bootstrap.sh`
+//!   Whispy checks at startup, then once a day (and on the socket's
+//!   `check-update`). A check shows nothing: up to date or offline, the menus
+//!   have no update row at all, and the result is only logged.
+//! - **Offer**: when a newer version is published, the row « Update available
+//!   (X.Y.Z) » appears. Finding it installs nothing: choosing it, a click of
+//!   its own, does.
+//! - **Install**: choosing the offer runs that tag's `scripts/bootstrap.sh`
 //!   with `WHISPY_REF=vX.Y.Z`, detached from the app: the script rebuilds,
 //!   replaces and restarts Whispy, so this process does not live to see it
 //!   succeed. Under Linux it runs as a transient `systemd --user` unit: the
@@ -32,13 +34,8 @@ use crate::log;
 pub mod texts {
     use super::Version;
 
-    pub const CHECK: &str = "Check for Updates";
-    pub const CHECKING: &str = "Checking for Updates\u{2026}";
-    pub const UP_TO_DATE: &str = "Whispy is up to date";
-    pub const CANNOT_CHECK: &str = "Can't check for updates";
-
-    pub fn update_to(version: Version) -> String {
-        format!("Update to {version}")
+    pub fn available(version: Version) -> String {
+        format!("Update available ({version})")
     }
 
     pub fn updating_to(version: Version) -> String {
@@ -61,8 +58,6 @@ const RAW: &str = "https://raw.githubusercontent.com/albrones/whispy";
 /// The exit code of `bootstrap.sh` under `WHISPY_UNATTENDED=1` when a step
 /// would need sudo (or a dialog): nothing was changed.
 pub const NEEDS_TERMINAL_EXIT: i32 = 3;
-/// How long a hand-made check shows its result.
-pub const FLASH: Duration = Duration::from_secs(5);
 /// How long `git ls-remote` may take before the check counts as failed.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
 /// How often an automatic check is due.
@@ -148,80 +143,67 @@ pub enum Installed {
     Failed(String),
 }
 
-/// What a row does when chosen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Action {
-    Check,
-    Install,
-}
-
-/// The update row, as every menu shows it.
+/// The update row, as every menu shows it, when there is one: Whispy up to
+/// date (or unable to check) shows none. Choosing it installs the version it
+/// names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
     pub title: String,
-    /// `None`: shown disabled (a check or an install is running).
-    pub action: Option<Action>,
-    /// The title changes on its own soon (a check, an install, a result
-    /// shown for a few seconds): the Omarchy panel asks again until it settles.
+    /// `false`: shown disabled (an install is running).
+    pub enabled: bool,
+    /// The title changes on its own soon (an install is running): the Omarchy
+    /// panel asks again until it settles.
     pub transient: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Phase {
+    /// Up to date, or not known yet: no row.
     Idle,
-    Checking {
-        manual: bool,
-    },
     Available(Version),
     Installing(Version),
-    /// A hand-made check's result, shown until `until`.
-    Flash {
-        text: &'static str,
-        until: Instant,
-    },
     Failed(Version),
     NeedsTerminal(Version),
 }
 
 impl Phase {
-    fn row(&self) -> Row {
-        let (title, action, transient) = match self {
-            Phase::Idle => (texts::CHECK.to_string(), Some(Action::Check), false),
-            Phase::Checking { .. } => (texts::CHECKING.to_string(), None, true),
-            Phase::Available(version) => (texts::update_to(*version), Some(Action::Install), false),
-            Phase::Installing(version) => (texts::updating_to(*version), None, true),
-            Phase::Flash { text, .. } => (text.to_string(), Some(Action::Check), true),
-            Phase::Failed(version) => {
-                (texts::update_failed(*version), Some(Action::Install), false)
-            }
+    fn row(&self) -> Option<Row> {
+        let (title, enabled, transient) = match self {
+            Phase::Idle => return None,
+            Phase::Available(version) => (texts::available(*version), true, false),
+            Phase::Installing(version) => (texts::updating_to(*version), false, true),
+            Phase::Failed(version) => (texts::update_failed(*version), true, false),
             Phase::NeedsTerminal(version) => (
                 texts::needs_terminal(&terminal_command(*version)),
-                Some(Action::Check),
+                true,
                 false,
             ),
         };
-        Row {
+        Some(Row {
             title,
-            action,
+            enabled,
             transient,
-        }
+        })
     }
 
     /// The version an install would get.
     fn installable(&self) -> Option<Version> {
         match self {
-            Phase::Available(version) | Phase::Failed(version) => Some(*version),
-            _ => None,
+            Phase::Available(version) | Phase::Failed(version) | Phase::NeedsTerminal(version) => {
+                Some(*version)
+            }
+            Phase::Idle | Phase::Installing(_) => None,
         }
     }
 }
 
 type CheckFn = dyn Fn() -> Checked + Send + Sync;
 type InstallFn = dyn Fn(Version) -> Installed + Send + Sync;
-type ChangedFn = dyn Fn(&Row) + Send + Sync;
+type ChangedFn = dyn Fn(Option<&Row>) + Send + Sync;
 
 struct Shared {
     phase: Phase,
+    checking: bool,
     last_check: Option<SystemTime>,
     on_change: Option<Arc<ChangedFn>>,
 }
@@ -235,7 +217,6 @@ pub struct Updater {
     current: Version,
     check: Arc<CheckFn>,
     install: Arc<InstallFn>,
-    flash: Duration,
 }
 
 impl Updater {
@@ -245,7 +226,6 @@ impl Updater {
             Version::current(),
             || check_remote(REPOSITORY),
             install_release,
-            FLASH,
         )
     }
 
@@ -254,136 +234,94 @@ impl Updater {
         current: Version,
         check: impl Fn() -> Checked + Send + Sync + 'static,
         install: impl Fn(Version) -> Installed + Send + Sync + 'static,
-        flash: Duration,
     ) -> Updater {
         Updater {
             shared: Arc::new(Mutex::new(Shared {
                 phase: Phase::Idle,
+                checking: false,
                 last_check: None,
                 on_change: None,
             })),
             current,
             check: Arc::new(check),
             install: Arc::new(install),
-            flash,
         }
     }
 
-    /// Called with the new row on every change, from any thread.
-    pub fn set_on_change(&self, on_change: impl Fn(&Row) + Send + Sync + 'static) {
+    /// Called with the new row (`None`: no row) on every change, from any thread.
+    pub fn set_on_change(&self, on_change: impl Fn(Option<&Row>) + Send + Sync + 'static) {
         self.lock().on_change = Some(Arc::new(on_change));
     }
 
-    pub fn row(&self) -> Row {
+    /// The row to show, `None` when there is no update to offer.
+    pub fn row(&self) -> Option<Row> {
         self.lock().phase.row()
     }
 
-    /// What the row's choice does: check, or install the version it names.
-    pub fn choose(&self, action: Action) {
-        match action {
-            Action::Check => self.check(true),
-            Action::Install => {
-                self.install();
-            }
-        }
-    }
-
-    /// Starts a check, unless one or an install is running. `manual` checks
-    /// show their result; automatic ones fail silently.
-    pub fn check(&self, manual: bool) {
+    /// Starts a check, unless one or an install is running. It shows
+    /// nothing until it finds a newer version.
+    pub fn check(&self) {
         {
             let mut shared = self.lock();
-            if matches!(shared.phase, Phase::Checking { .. } | Phase::Installing(_)) {
+            if shared.checking || matches!(shared.phase, Phase::Installing(_)) {
                 return;
             }
-            // An automatic check keeps an offered update offered while it runs.
-            if manual || !matches!(shared.phase, Phase::Available(_)) {
-                shared.phase = Phase::Checking { manual };
-            }
+            shared.checking = true;
             shared.last_check = Some(SystemTime::now());
         }
-        self.changed();
         let updater = self.clone();
         let spawned = thread::Builder::new()
             .name("whispy2-update-check".into())
             .spawn(move || {
                 let checked = (updater.check)();
-                updater.checked(manual, checked);
+                updater.checked(checked);
             });
         if let Err(error) = spawned {
-            self.checked(manual, Checked::Failed(error.to_string()));
+            self.checked(Checked::Failed(error.to_string()));
         }
     }
 
-    fn checked(&self, manual: bool, checked: Checked) {
-        let flash_until = Instant::now() + self.flash;
-        let phase = match &checked {
-            Checked::Latest(latest) if *latest > self.current => {
-                log::line(&format!(
-                    "update: {latest} is published (this is {})",
-                    self.current
-                ));
-                Phase::Available(*latest)
+    fn checked(&self, checked: Checked) {
+        let changed = {
+            let mut shared = self.lock();
+            shared.checking = false;
+            if matches!(shared.phase, Phase::Installing(_)) {
+                return;
             }
-            Checked::Latest(latest) => {
-                log::line(&format!(
-                    "update: up to date ({}, last published {latest})",
-                    self.current
-                ));
-                if manual {
-                    Phase::Flash {
-                        text: texts::UP_TO_DATE,
-                        until: flash_until,
+            let phase = match checked {
+                Checked::Latest(latest) if latest > self.current => {
+                    log::line(&format!(
+                        "update: {latest} is published (this is {})",
+                        self.current
+                    ));
+                    match shared.phase {
+                        // The same version, already tried: keep what it said.
+                        Phase::Failed(v) | Phase::NeedsTerminal(v) if v == latest => {
+                            shared.phase.clone()
+                        }
+                        _ => Phase::Available(latest),
                     }
-                } else {
+                }
+                Checked::Latest(latest) => {
+                    log::line(&format!(
+                        "update: up to date ({}, last published {latest})",
+                        self.current
+                    ));
                     Phase::Idle
                 }
-            }
-            Checked::Failed(reason) => {
-                log::line(&format!("update: cannot check for updates ({reason})"));
-                if manual {
-                    Phase::Flash {
-                        text: texts::CANNOT_CHECK,
-                        until: flash_until,
-                    }
-                } else {
+                Checked::Failed(reason) => {
                     // Silent: an update offered before stays offered.
-                    let shared = self.lock();
-                    match shared.phase {
-                        Phase::Available(version) => Phase::Available(version),
-                        _ => Phase::Idle,
-                    }
+                    log::line(&format!("update: cannot check for updates ({reason})"));
+                    shared.phase.clone()
                 }
-            }
+            };
+            let changed = shared.phase != phase;
+            shared.phase = phase;
+            changed
         };
-        let is_flash = matches!(phase, Phase::Flash { .. });
-        self.lock().phase = phase;
-        self.changed();
-        if is_flash {
-            self.end_flash_later(flash_until);
+        if changed {
+            self.changed();
         }
-    }
-
-    /// Puts the row back to « Check for Updates » once the result has been seen.
-    fn end_flash_later(&self, until: Instant) {
-        let updater = self.clone();
-        let _ = thread::Builder::new()
-            .name("whispy2-update-flash".into())
-            .spawn(move || {
-                thread::sleep(until.saturating_duration_since(Instant::now()));
-                let ended = {
-                    let mut shared = updater.lock();
-                    let is_same =
-                        matches!(shared.phase, Phase::Flash { until: u, .. } if u == until);
-                    if is_same {
-                        shared.phase = Phase::Idle;
-                    }
-                    is_same
-                };
-                if ended {
-                    updater.changed();
-                }
-            });
     }
 
     /// Starts installing the offered version. `false` when none is offered.
@@ -445,7 +383,7 @@ impl Updater {
             .spawn(move || loop {
                 let last = updater.lock().last_check;
                 if is_due(last, SystemTime::now()) {
-                    updater.check(false);
+                    updater.check();
                 }
                 thread::sleep(DAILY_POLL);
             });
@@ -460,7 +398,7 @@ impl Updater {
             (shared.phase.row(), shared.on_change.clone())
         };
         if let Some(on_change) = on_change {
-            on_change(&row);
+            on_change(row.as_ref());
         }
     }
 
@@ -489,12 +427,10 @@ fn is_due(last: Option<SystemTime>, now: SystemTime) -> bool {
 }
 
 /// The `update` part of the control socket's `status` reply.
+/// `action` is the socket request a click sends: `update`, or `null` while
+/// an install runs.
 pub fn row_json(row: &Row) -> String {
-    let action = match row.action {
-        Some(Action::Check) => "\"check-update\"",
-        Some(Action::Install) => "\"update\"",
-        None => "null",
-    };
+    let action = if row.enabled { "\"update\"" } else { "null" };
     format!(
         "{{\"title\":{},\"action\":{action},\"transient\":{}}}",
         crate::journal::json_string(&row.title),
@@ -674,11 +610,11 @@ mod tests {
 
     const CURRENT: Version = Version(2, 4, 0);
 
-    fn wait_for(updater: &Updater, settled: impl Fn(&Row) -> bool) -> Row {
+    fn wait_for(updater: &Updater, settled: impl Fn(Option<&Row>) -> bool) -> Option<Row> {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             let row = updater.row();
-            if settled(&row) {
+            if settled(row.as_ref()) {
                 return row;
             }
             assert!(Instant::now() < deadline, "row never settled: {row:?}");
@@ -686,13 +622,21 @@ mod tests {
         }
     }
 
+    /// Waits until the check in flight has ended.
+    fn wait_checked(updater: &Updater) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while updater.lock().checking {
+            assert!(Instant::now() < deadline, "the check never ended");
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    fn offered(row: Option<&Row>) -> bool {
+        row.is_some_and(|row| row.enabled)
+    }
+
     fn updater(checked: Checked, installed: Installed) -> Updater {
-        Updater::with(
-            CURRENT,
-            move || checked.clone(),
-            move |_| installed.clone(),
-            Duration::from_millis(80),
-        )
+        Updater::with(CURRENT, move || checked.clone(), move |_| installed.clone())
     }
 
     #[test]
@@ -723,61 +667,51 @@ b91d9ff3\trefs/tags/v2.9.0
     }
 
     #[test]
-    fn at_rest_the_row_offers_a_check() {
-        let row = updater(Checked::Latest(CURRENT), Installed::Done).row();
-        assert_eq!(row.title, "Check for Updates");
-        assert_eq!(row.action, Some(Action::Check));
-        assert!(!row.transient);
-    }
-
-    #[test]
-    fn criterion_1_a_newer_release_turns_the_row_into_update_to_it() {
-        let updater = updater(Checked::Latest(Version(2, 5, 0)), Installed::Done);
-        updater.check(false);
-        let row = wait_for(&updater, |row| row.action == Some(Action::Install));
-        assert_eq!(row.title, "Update to 2.5.0");
-        assert!(!row.transient);
-    }
-
-    #[test]
-    fn criterion_2_a_manual_check_says_up_to_date_for_a_few_seconds() {
-        let updater = updater(Checked::Latest(CURRENT), Installed::Done);
-        updater.check(true);
-        let row = wait_for(&updater, |row| row.title != texts::CHECKING);
-        assert_eq!(row.title, "Whispy is up to date");
-        assert!(row.transient);
-        let row = wait_for(&updater, |row| !row.transient);
-        assert_eq!(row.title, "Check for Updates");
-    }
-
-    #[test]
-    fn criterion_5_a_failed_manual_check_says_so_and_an_automatic_one_stays_silent() {
-        let updater = updater(Checked::Failed("offline".into()), Installed::Done);
-        let (seen, titles) = mpsc::channel();
-        updater.set_on_change(move |row| {
-            let _ = seen.send(row.title.clone());
-        });
-        updater.check(false);
-        wait_for(&updater, |row| !row.transient);
-        let automatic: Vec<String> = titles.try_iter().collect();
-        assert!(
-            !automatic.iter().any(|t| t == texts::CANNOT_CHECK),
-            "{automatic:?}"
-        );
-        assert_eq!(updater.row().title, "Check for Updates");
-
-        updater.check(true);
-        let row = wait_for(&updater, |row| row.title != texts::CHECKING);
-        assert_eq!(row.title, "Can't check for updates");
+    fn at_rest_there_is_no_row() {
         assert_eq!(
-            wait_for(&updater, |row| !row.transient).title,
-            "Check for Updates"
+            updater(Checked::Latest(CURRENT), Installed::Done).row(),
+            None
         );
     }
 
     #[test]
-    fn a_failed_automatic_check_keeps_an_offered_update() {
-        let fail = Arc::new(Mutex::new(false));
+    fn up_to_date_a_check_shows_nothing() {
+        let updater = updater(Checked::Latest(CURRENT), Installed::Done);
+        let (seen, rows) = mpsc::channel();
+        updater.set_on_change(move |row| {
+            let _ = seen.send(row.cloned());
+        });
+        updater.check();
+        wait_checked(&updater);
+        assert_eq!(updater.row(), None);
+        assert_eq!(rows.try_iter().count(), 0, "nothing was ever shown");
+    }
+
+    #[test]
+    fn criterion_1_a_newer_release_shows_update_available_and_installs_nothing() {
+        let (asked, installs) = mpsc::channel();
+        let updater = Updater::with(
+            CURRENT,
+            || Checked::Latest(Version(2, 5, 0)),
+            move |version| {
+                let _ = asked.send(version);
+                Installed::Done
+            },
+        );
+        updater.check();
+        let row = wait_for(&updater, offered).unwrap();
+        assert_eq!(row.title, "Update available (2.5.0)");
+        assert!(!row.transient);
+        // Another check finds the same offer: still offered, still nothing run.
+        updater.check();
+        wait_checked(&updater);
+        assert_eq!(updater.row(), Some(row));
+        assert!(installs.try_recv().is_err(), "finding it installs nothing");
+    }
+
+    #[test]
+    fn criterion_5_a_failed_check_shows_nothing_and_keeps_an_offered_update() {
+        let fail = Arc::new(Mutex::new(true));
         let failing = Arc::clone(&fail);
         let updater = Updater::with(
             CURRENT,
@@ -789,19 +723,22 @@ b91d9ff3\trefs/tags/v2.9.0
                 }
             },
             |_| Installed::Done,
-            Duration::from_millis(50),
         );
-        updater.check(false);
-        wait_for(&updater, |row| row.action == Some(Action::Install));
+        updater.check();
+        wait_checked(&updater);
+        assert_eq!(updater.row(), None);
+
+        *fail.lock().unwrap() = false;
+        updater.check();
+        wait_for(&updater, offered);
         *fail.lock().unwrap() = true;
-        updater.check(false);
-        // Never shows « Checking » over the offer, and keeps it after the failure.
-        thread::sleep(Duration::from_millis(50));
-        assert_eq!(updater.row().title, "Update to 2.5.0");
+        updater.check();
+        wait_checked(&updater);
+        assert_eq!(updater.row().unwrap().title, "Update available (2.5.0)");
     }
 
     #[test]
-    fn criterion_3_install_runs_the_offered_version_and_shows_it_running() {
+    fn criterion_3_choosing_the_offer_installs_it_and_shows_it_running() {
         let (release, installing) = mpsc::channel::<()>();
         let release = Mutex::new(Some(release));
         let (asked, versions) = mpsc::channel();
@@ -814,42 +751,41 @@ b91d9ff3\trefs/tags/v2.9.0
                 let _ = gate.lock().unwrap().recv();
                 Installed::Done
             },
-            Duration::from_millis(50),
         );
         assert!(!updater.install(), "nothing is offered yet");
-        updater.check(false);
-        wait_for(&updater, |row| row.action == Some(Action::Install));
-        updater.choose(Action::Install);
+        updater.check();
+        wait_for(&updater, offered);
+        assert!(updater.install());
         assert_eq!(
             versions.recv_timeout(Duration::from_secs(5)).unwrap(),
             Version(2, 5, 0)
         );
-        let row = updater.row();
+        let row = updater.row().unwrap();
         assert_eq!(row.title, "Updating to 2.5.0\u{2026}");
-        assert_eq!(row.action, None);
+        assert!(!row.enabled && row.transient);
         // A check while installing changes nothing.
-        updater.check(true);
-        assert_eq!(updater.row().title, "Updating to 2.5.0\u{2026}");
+        updater.check();
+        assert_eq!(updater.row().unwrap().title, "Updating to 2.5.0\u{2026}");
         drop(release.lock().unwrap().take());
-        // The script ended without restarting this process: back to rest.
-        assert_eq!(
-            wait_for(&updater, |row| !row.transient).title,
-            "Check for Updates"
-        );
+        // The script ended without restarting this process: no row any more.
+        assert_eq!(wait_for(&updater, |row| row.is_none()), None);
     }
 
     #[test]
     fn criterion_4_an_install_that_needs_sudo_shows_the_command_to_run() {
         let updater = updater(Checked::Latest(Version(2, 5, 0)), Installed::NeedsTerminal);
-        updater.check(false);
-        wait_for(&updater, |row| row.action == Some(Action::Install));
+        updater.check();
+        wait_for(&updater, offered);
         updater.install();
-        let row = wait_for(&updater, |row| !row.transient);
+        let row = wait_for(&updater, |row| row.is_some_and(|row| !row.transient)).unwrap();
         assert_eq!(
             row.title,
             "Update needs your password \u{2014} run in a terminal: curl -fsSL https://raw.githubusercontent.com/albrones/whispy/v2.5.0/scripts/bootstrap.sh | WHISPY_REF=v2.5.0 bash"
         );
-        assert_eq!(row.action, Some(Action::Check));
+        // The daily check keeps the command shown for the same version.
+        updater.check();
+        wait_checked(&updater);
+        assert_eq!(updater.row(), Some(row));
     }
 
     #[test]
@@ -858,16 +794,16 @@ b91d9ff3\trefs/tags/v2.9.0
             Checked::Latest(Version(2, 5, 0)),
             Installed::Failed("exit 1".into()),
         );
-        updater.check(false);
-        wait_for(&updater, |row| row.action == Some(Action::Install));
+        updater.check();
+        wait_for(&updater, offered);
         updater.install();
-        let row = wait_for(&updater, |row| !row.transient);
+        let row = wait_for(&updater, |row| row.is_some_and(|row| !row.transient)).unwrap();
         assert!(
             row.title.starts_with("Update to 2.5.0 failed"),
             "{}",
             row.title
         );
-        assert_eq!(row.action, Some(Action::Install));
+        assert!(row.enabled);
     }
 
     #[test]
@@ -882,17 +818,17 @@ b91d9ff3\trefs/tags/v2.9.0
     #[test]
     fn the_status_json_names_the_socket_request_of_the_row() {
         let row = Row {
-            title: "Update to 2.5.0".into(),
-            action: Some(Action::Install),
+            title: "Update available (2.5.0)".into(),
+            enabled: true,
             transient: false,
         };
         assert_eq!(
             row_json(&row),
-            "{\"title\":\"Update to 2.5.0\",\"action\":\"update\",\"transient\":false}"
+            "{\"title\":\"Update available (2.5.0)\",\"action\":\"update\",\"transient\":false}"
         );
         let busy = Row {
-            title: texts::CHECKING.into(),
-            action: None,
+            title: texts::updating_to(Version(2, 5, 0)),
+            enabled: false,
             transient: true,
         };
         assert!(row_json(&busy).contains("\"action\":null,\"transient\":true"));

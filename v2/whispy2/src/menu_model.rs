@@ -40,9 +40,7 @@ pub enum MenuAction {
     SelectTrigger(Option<i64>),
     ToggleLogin,
     OpenPermissionSettings,
-    /// « Check for Updates », and the result a hand-made check shows.
-    CheckForUpdates,
-    /// « Update to X.Y.Z ».
+    /// « Update available (X.Y.Z) »: installs it.
     InstallUpdate,
     Restart,
     Quit,
@@ -126,8 +124,8 @@ pub struct MenuInput {
     pub trigger_label: String,
     pub login: LoginRow,
     pub permission_warning: bool,
-    /// The update row (see [`crate::update`]).
-    pub update: crate::update::Row,
+    /// The update row (see [`crate::update`]); `None` when Whispy is up to date.
+    pub update: Option<crate::update::Row>,
     pub dark: bool,
 }
 
@@ -257,7 +255,9 @@ pub fn build(input: &MenuInput) -> Vec<MenuRow> {
     }
 
     rows.push(separator());
-    rows.push(update_row(&input.update));
+    if let Some(update) = &input.update {
+        rows.push(update_row(update));
+    }
     rows.push(MenuRow::new(
         RowKind::Action {
             action: MenuAction::Restart,
@@ -277,20 +277,15 @@ pub fn build(input: &MenuInput) -> Vec<MenuRow> {
     rows
 }
 
-/// The update row: disabled while a check or an install runs.
+/// The update row: disabled while an install runs.
 pub fn update_row(row: &crate::update::Row) -> MenuRow {
-    use crate::update::Action;
-    let action = match row.action {
-        Some(Action::Install) => MenuAction::InstallUpdate,
-        Some(Action::Check) | None => MenuAction::CheckForUpdates,
-    };
     MenuRow::new(
         RowKind::Action {
-            action,
+            action: MenuAction::InstallUpdate,
             key_equivalent: None,
         },
         Title::plain(row.title.clone()),
-        row.action.is_some(),
+        row.enabled,
     )
 }
 
@@ -551,13 +546,7 @@ mod tests {
             trigger_label: trigger_label(FN_KEYCODE),
             login: LoginRow::Hidden,
             permission_warning: false,
-            update: crate::update::Updater::with(
-                crate::update::Version(2, 4, 0),
-                || crate::update::Checked::Failed("test".into()),
-                |_| crate::update::Installed::Done,
-                std::time::Duration::from_secs(1),
-            )
-            .row(),
+            update: None,
             dark: true,
         }
     }
@@ -605,7 +594,6 @@ mod tests {
                 "Type while speaking   ✓",
                 "Trigger: Fn",
                 "",
-                "Check for Updates",
                 "Restart",
                 "Quit",
             ]
@@ -620,15 +608,7 @@ mod tests {
             }
         );
         assert_eq!(
-            rows[10].kind,
-            RowKind::Action {
-                action: MenuAction::CheckForUpdates,
-                key_equivalent: None
-            }
-        );
-        assert!(rows[10].enabled);
-        assert_eq!(
-            rows[12].kind,
+            rows[11].kind,
             RowKind::Action {
                 action: MenuAction::Quit,
                 key_equivalent: Some("q")
@@ -706,14 +686,22 @@ mod tests {
     }
 
     #[test]
-    fn the_update_row_installs_an_offer_and_waits_while_busy() {
-        use crate::update::{Action, Row};
-        let offer = update_row(&Row {
-            title: "Update to 2.5.0".into(),
-            action: Some(Action::Install),
+    fn the_update_row_shows_only_an_offer_installs_it_and_waits_while_busy() {
+        use crate::update::Row;
+        let mut input = idle_input();
+        input.update = Some(Row {
+            title: "Update available (2.5.0)".into(),
+            enabled: true,
             transient: false,
         });
-        assert_eq!(offer.title.text, "Update to 2.5.0");
+        let rows = build(&input);
+        let titles: Vec<&str> = rows.iter().map(|r| r.title.text.as_str()).collect();
+        assert_eq!(
+            &titles[titles.len() - 3..],
+            ["Update available (2.5.0)", "Restart", "Quit"]
+        );
+        let offer = update_row(input.update.as_ref().unwrap());
+        assert_eq!(offer.title.text, "Update available (2.5.0)");
         assert!(offer.enabled);
         assert_eq!(
             offer.kind,
@@ -723,8 +711,8 @@ mod tests {
             }
         );
         let busy = update_row(&Row {
-            title: "Checking for Updates\u{2026}".into(),
-            action: None,
+            title: "Updating to 2.5.0\u{2026}".into(),
+            enabled: false,
             transient: true,
         });
         assert!(!busy.enabled);
