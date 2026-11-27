@@ -1,11 +1,13 @@
 # linux-support Specification
 
 ## Purpose
-The Linux adapter sets behind the platform ports. X11: a `pynput` global hotkey
-listener, `xdotool` text injection and a `pystray` tray UI. Wayland: the
-compositor's key binding drives the API, `wtype` text injection and desktop
-notifications instead of a tray, plus the Omarchy dictation backend. These
-adapters provide the same behavior contract as their macOS counterparts.
+Whispy on Linux: Whispy V2 (`whispy2`, see `v2-linux-app`), installed by
+`scripts/bootstrap.sh` as a `systemd --user` unit (see `v2-linux-install`).
+X11: Right Ctrl through XInput 2 and a tray icon. Wayland: the compositor's key
+binding drives the control socket. On Omarchy: the dictation backend, the bar
+widget and the recording pill. Requirements that described the Python V1
+(`pynput`, `xdotool`, `pystray`, the HTTP API) went with it; V1 is kept at the
+git tag `v1`.
 
 Scenario test tiers follow the convention in `../TESTING-TIERS.md`.
 
@@ -81,6 +83,8 @@ The documented Linux install path SHALL actually install and start the daemon, O
 - **WHEN** a Linux user runs the install path the docs advertise for Linux
 - **THEN** either the daemon SHALL be installed and started (e.g. via a `systemd --user` unit), OR the docs SHALL clearly scope that path to macOS and present the supported Linux procedure — never silently no-op
 
+_Tier: live — `v2/whispy2/linux-e2e/install.sh` (the one-liner on a fresh Debian with systemd)._
+
 ### Requirement: Linux hotkey listener does not latch
 The Linux hotkey listener SHALL reset its held-key state on start so a previously missed release does not permanently swallow the next press.
 
@@ -149,7 +153,7 @@ On Linux, when the installing session has an active `graphical-session.target`, 
 
 #### Scenario: Reboot under Hyprland
 - **WHEN** the machine reboots and the user logs into Hyprland
-- **THEN** Whispy SHALL answer on `/status` without any manual start
+- **THEN** Whispy SHALL answer `status` on its control socket without any manual start
 
 _Tier: manual-ui — Omarchy VM._
 
@@ -181,7 +185,7 @@ _Tier: unit-mocked — `tests/test_omarchy_adapter.py`._
 _Tier: live — `v2/whispy2/linux-e2e/omarchy.sh` (the panel's picker, then the generated binding's command); manual-ui — Hyprland on Omarchy._
 
 ### Requirement: Omarchy bar widget
-On Omarchy, the installer SHALL link a bar widget (`whispy.panel`) and place it in the right section of the bar. The widget SHALL read Whispy V2's control socket directly (Quickshell's `Socket`, `status` and `last`), with no network port, no token and no process per read. Its icon SHALL show Whispy's state with the macOS braille waveform; a click SHALL open a panel with the dictation key, model and language (information only), and the last dictation (click to copy). The dictation key SHALL be read from `config.json` and SHALL be changeable while Whispy is stopped. At rest the widget SHALL NOT poll: it reads `status` when the shell starts, when the panel opens, when the dictation backend nudges it, every 500 ms while Whispy transcribes or loads, and every 50 ms while it listens.
+On Omarchy, the installer SHALL link a bar widget (`whispy.panel`) and place it in the right section of the bar. The widget SHALL read Whispy V2's control socket directly (Quickshell's `Socket`, `status` and `last`), with no network port, no token and no process per read. Its icon SHALL show Whispy's state with the macOS braille waveform; a click SHALL open a panel with a power switch, the dictation key, model and language (information only), Start at login, and the last dictation (click to copy). The power switch (and a « Start Whispy » row while it is stopped) SHALL start or stop the `systemd --user` unit `whispy2.service`; Start at login SHALL enable or disable it and show `systemctl --user is-enabled`. The dictation key SHALL be read from `config.json`; the key and Start at login SHALL be changeable while Whispy is stopped. At rest the widget SHALL NOT poll: it reads `status` when the shell starts, when the panel opens, when the dictation backend nudges it, every 500 ms while Whispy transcribes or loads, and every 50 ms while it listens.
 
 #### Scenario: State logic
 - **WHEN** the socket does not answer, or `status` says recording, transcribing or inserting, yielded, models not loaded (with or without a problem), or idle
@@ -192,6 +196,16 @@ _Tier: unit-pure — `tests/test_omarchy_panel_model.py` (node); live — `v2/wh
 #### Scenario: Whispy stopped
 - **WHEN** V2 is not running and the panel is opened
 - **THEN** the icon SHALL be greyed and the panel SHALL read « Whispy stopped »
+
+#### Scenario: Start and stop from the panel
+- **WHEN** the power switch or « Start Whispy » is activated while Whispy is stopped, or the switch while it runs
+- **THEN** the panel SHALL run `systemctl --user start whispy2.service` (after `reset-failed`), or `systemctl --user stop whispy2.service`, show « Starting » until the socket answers (60 s at most), and say so if `systemctl` fails
+
+#### Scenario: Start at login from the panel
+- **WHEN** Start at login is toggled
+- **THEN** the panel SHALL run `systemctl --user enable` or `disable whispy2.service`, then read `is-enabled` back
+
+_Tier: unit — `tests/test_omarchy_panel_model.py` (the commands); manual-ui — Omarchy._
 
 _Tier: live — `v2/whispy2/linux-e2e/omarchy.sh`; manual-ui — Omarchy._
 
