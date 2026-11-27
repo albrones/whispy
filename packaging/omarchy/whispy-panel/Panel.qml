@@ -325,7 +325,7 @@ Panel {
         textFormat: Text.PlainText
         width: parent.width
         text: (sw.message !== "" ? sw.message
-          : sw.starting ? "Starting" : Model.phaseLabel(root.phase)).toUpperCase()
+          : sw.starting ? "Starting" : sw.stopping ? "Stopping" : Model.phaseLabel(root.phase)).toUpperCase()
         color: sw.message !== "" && sw.messageIsError ? root.urgent : Qt.darker(root.foreground, 1.4)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption

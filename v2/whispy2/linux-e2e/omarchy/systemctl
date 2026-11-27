@@ -1,0 +1,18 @@
+#!/bin/bash
+# Stand-in for `systemctl --user` on whispy2.service. start and stop go to the
+# fake user manager of omarchy.sh (a loop reading /tmp/unit.fifo, started
+# outside Quickshell): as with systemd, the unit's process is never a child of
+# the panel. enable/disable/is-enabled keep the state in a file. Every call is
+# logged.
+echo "systemctl $*" >> /tmp/systemctl.log
+[ "$1" = --user ] || exit 2
+action=$2 unit=${3:-}
+[ "$unit" = whispy2.service ] || { echo "unexpected unit: $unit" >&2; exit 4; }
+case "$action" in
+  start | stop) echo "$action" > /tmp/unit.fifo ;;
+  reset-failed) ;;
+  enable) echo enabled > /tmp/unit.enabled ;;
+  disable) echo disabled > /tmp/unit.enabled ;;
+  is-enabled) cat /tmp/unit.enabled 2>/dev/null || echo disabled ;;
+  *) exit 3 ;;
+esac

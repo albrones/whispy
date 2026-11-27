@@ -144,6 +144,9 @@ def test_the_panel_drives_the_v2_unit():
     assert '"--user", "is-enabled", root.unit' in service
     assert 'on ? "enable" : "disable", unit' in service
     assert 'exec "$0" --user start "$1"' in service and '"--user", "stop", unit' in service
+    # After a stop, the status is read until Whispy is gone, not once.
+    assert "running: root.active || root.starting || root.stopping" in service
+    assert "else stopping = false" in service
     assert '"whispy"]' not in service, "V1's unit name"
     panel = (PLUGIN / "Panel.qml").read_text()
     assert 'rowId: "start"' in panel and 'rowId: "login"' in panel

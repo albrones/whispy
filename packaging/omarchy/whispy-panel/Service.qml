@@ -46,6 +46,8 @@ Item {
   property bool changingTrigger: triggerProcess.running
   // The switch asked systemd to start Whispy; cleared once the socket answers.
   property bool starting: false
+  // The switch asked systemd to stop it; cleared once the socket stops answering.
+  property bool stopping: false
   property bool startAtLogin: false
 
   // ---- The control socket ---------------------------------------------------
@@ -118,6 +120,7 @@ Item {
     status = reachable ? data : null
     level = reachable && data.state === "recording" ? Number(data.level) || 0 : 0
     if (reachable) starting = false
+    else stopping = false
     if (reachable && !wasReachable) fetchLast()
     if (wasPhase === "transcribing" && phase !== "transcribing") fetchLast()
   }
@@ -126,7 +129,7 @@ Item {
   Timer {
     interval: root.phase === "recording" ? 50 : 500
     repeat: true
-    running: root.active || root.starting
+    running: root.active || root.starting || root.stopping
     onTriggered: root.refresh()
   }
 
@@ -207,19 +210,24 @@ Item {
   function setRunning(on) {
     if (powerProcess.running) return
     starting = on
+    stopping = !on
     // systemd refuses a burst of starts meant for a crashing service, not for
     // someone flipping the switch; clear that first.
     powerProcess.command = on
       ? ["sh", "-c", '"$0" --user reset-failed "$1" 2>/dev/null; exec "$0" --user start "$1"', serviceControl, unit]
       : [serviceControl, "--user", "stop", unit]
     powerProcess.running = true
-    if (on) startDeadline.restart()
+    startDeadline.restart()
   }
 
   Process {
     id: powerProcess
     onExited: function(exitCode) {
-      if (exitCode !== 0) { root.starting = false; root.flash("systemctl could not change Whispy", true) }
+      if (exitCode !== 0) {
+        root.starting = false
+        root.stopping = false
+        root.flash("systemctl could not change Whispy", true)
+      }
       root.refresh()
     }
   }
@@ -229,7 +237,7 @@ Item {
   Timer {
     id: startDeadline
     interval: 60000
-    onTriggered: { root.starting = false; root.refresh() }
+    onTriggered: { root.starting = false; root.stopping = false; root.refresh() }
   }
 
   function copyLast() {
