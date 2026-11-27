@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-11-27
+
 ### Changed
 - **Whispy V2 on Linux.** The one-line installer now builds Whispy V2 on Linux
   too: it installs the build tools (apt, dnf or pacman) and Rust if needed,
@@ -15,6 +17,10 @@
   state is the git tag `v1`. Not carried over to V2: `custom_vocabulary`,
   `POST /transcribe` and `GET /level` (the control socket's `status` carries
   the level).
+
+### Features
+
+- **v2-linux:** installation de la V2 sous Linux, retrait de la V1 (3/3) (#62)
 
 ## [2.3.0] — 2026-11-26
 
