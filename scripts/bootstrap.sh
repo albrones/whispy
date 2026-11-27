@@ -103,15 +103,15 @@ linux_has_package() {
 
 # Prints the packages this machine lacks, named for package manager $1: what
 # building whispy2 needs (a C/C++ toolchain, cmake and clang for whisper.cpp,
-# pkg-config with the ALSA and xkbcommon headers), curl (rustup, and the
+# pkg-config with the ALSA, xkbcommon and OpenSSL headers), curl (rustup, and the
 # models at first launch), notify-send for alerts, and the session's clipboard
 # tool (the 5-minute watchdog leaves the text there).
 linux_missing_packages() {
     local manager="$1" wanted=() missing=() package
     case "$manager" in
-        apt) wanted=(git curl ca-certificates build-essential cmake clang libclang-dev pkg-config libasound2-dev libxkbcommon-dev libnotify-bin) ;;
-        dnf) wanted=(git curl gcc gcc-c++ make cmake clang clang-devel pkgconf-pkg-config alsa-lib-devel libxkbcommon-devel libnotify) ;;
-        pacman) wanted=(git curl base-devel cmake clang pkgconf alsa-lib libxkbcommon libnotify) ;;
+        apt) wanted=(git curl ca-certificates build-essential cmake clang libclang-dev pkg-config libasound2-dev libxkbcommon-dev libssl-dev libnotify-bin) ;;
+        dnf) wanted=(git curl gcc gcc-c++ make cmake clang clang-devel pkgconf-pkg-config alsa-lib-devel libxkbcommon-devel openssl-devel libnotify) ;;
+        pacman) wanted=(git curl base-devel cmake clang pkgconf alsa-lib libxkbcommon openssl libnotify) ;;
     esac
     if [ "$(linux_session)" = "wayland" ]; then
         wanted+=(wl-clipboard)
@@ -132,7 +132,7 @@ install_linux_packages() {
     fi
     if [ -z "$manager" ]; then
         echo -e "${YELLOW}[!] No apt, dnf or pacman here. Install git, curl, a C/C++ toolchain, cmake, clang,${NC}"
-        echo -e "${YELLOW}    pkg-config, the ALSA and xkbcommon headers and notify-send yourself.${NC}"
+        echo -e "${YELLOW}    pkg-config, the ALSA, xkbcommon and OpenSSL headers and notify-send yourself.${NC}"
         return 0
     fi
     packages="$(linux_missing_packages "$manager")"

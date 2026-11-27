@@ -16,7 +16,7 @@ cd whispy
 ```
 
 You need Rust (<https://rustup.rs>) and cmake. On Linux, also the build libraries the
-installer lists (a C/C++ toolchain, clang, pkg-config, the ALSA and xkbcommon headers:
+installer lists (a C/C++ toolchain, clang, pkg-config, the ALSA, xkbcommon and OpenSSL headers:
 see the [install guide](https://whispy-dun.vercel.app/docs/install.html)). For the
 tooling tests, `make install` creates a `.venv` with pytest and ruff.
 

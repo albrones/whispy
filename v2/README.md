@@ -254,8 +254,9 @@ p95 0.37 s). The real paste adds `pbpaste` + `pbcopy`
 
 The same binary, built on Linux (`cargo build --release -p whispy2`), with a
 Linux layer next to `src/mac` (`src/linux`). Build needs `cmake`, `clang`,
-`pkg-config` and the ALSA and xkbcommon headers (`libasound2-dev
-libxkbcommon-dev` on Debian/Ubuntu, `alsa-lib libxkbcommon` on Arch). Logs,
+`pkg-config` and the ALSA, xkbcommon and OpenSSL headers (`libasound2-dev
+libxkbcommon-dev libssl-dev` on Debian/Ubuntu, `alsa-lib libxkbcommon openssl`
+on Arch; OpenSSL for the ONNX Runtime download at build time). Logs,
 journal, models, settings and the control socket are the macOS ones, under
 `~/.whispy/` and `~/.config/whispy/`.
 

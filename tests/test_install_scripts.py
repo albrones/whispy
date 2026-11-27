@@ -73,9 +73,16 @@ def test_bootstrap_installs_linux_build_packages_with_each_package_manager(boots
     assert "pacman -S --needed --noconfirm" in bootstrap
     assert "WHISPY_SKIP_SYSTEM_PACKAGES" in bootstrap
     # What building whispy2 needs, on each distribution.
-    for package in ("build-essential", "libasound2-dev", "libxkbcommon-dev", "libclang-dev", "libnotify-bin"):
+    for package in (
+        "build-essential",
+        "libasound2-dev",
+        "libxkbcommon-dev",
+        "libclang-dev",
+        "libssl-dev",
+        "libnotify-bin",
+    ):
         assert package in bootstrap, f"apt: {package}"
-    for package in ("gcc-c++", "alsa-lib-devel", "libxkbcommon-devel", "clang-devel"):
+    for package in ("gcc-c++", "alsa-lib-devel", "libxkbcommon-devel", "clang-devel", "openssl-devel"):
         assert package in bootstrap, f"dnf: {package}"
     for package in ("base-devel", "alsa-lib", "libxkbcommon", "libnotify"):
         assert package in bootstrap, f"pacman: {package}"
