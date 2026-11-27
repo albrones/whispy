@@ -1,8 +1,8 @@
 //! V1's settings file, read and written by V2: the same `~/.config/whispy/config.json`,
 //! the same keys, the same defaults, so a choice made in one app carries to the other.
 //!
-//! V2 owns four keys (`copy_to_clipboard`, `trigger_mode`, `trigger`,
-//! `type_while_speaking`). The file
+//! V2 owns five keys (`copy_to_clipboard`, `trigger_mode`, `trigger`,
+//! `type_while_speaking`, `language`). The file
 //! holds many more (V1's `max_chunk_s`, `vocabulary`, `start_at_login`, ...):
 //! [`save_key`] therefore never writes a model of the file, it re-reads the file,
 //! changes the one key and writes everything else back as it found it.
@@ -12,6 +12,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use whispy_core::json::{parse_json, Json};
+
+use crate::i18n::Language;
 
 /// How the trigger drives a dictation: held for its whole length, or pressed
 /// once to start and once to stop. V1's `trigger_mode` choices.
@@ -86,6 +88,8 @@ pub struct Settings {
     /// Toggle mode only: type each piece of the dictation as soon as it is
     /// transcribed, instead of the whole text at the stop.
     pub type_while_speaking: bool,
+    /// The interface's language: the system's, or a forced one (#64).
+    pub language: Language,
 }
 
 impl Default for Settings {
@@ -97,6 +101,7 @@ impl Default for Settings {
             trigger: Trigger::fn_key(),
             // V1's `type_while_speaking` default (`core/config.py`).
             type_while_speaking: true,
+            language: Language::System,
         }
     }
 }
@@ -151,6 +156,14 @@ pub fn load(path: &Path) -> (Settings, Vec<String>) {
         match value.bool() {
             Some(is_on) => settings.type_while_speaking = is_on,
             None => notes.push("type_while_speaking is not true or false; using true".to_string()),
+        }
+    }
+    if let Some(value) = root.get("language") {
+        match value.text().and_then(Language::from_config) {
+            Some(language) => settings.language = language,
+            None => notes.push(
+                "language is not \"system\", \"fr\" or \"en\"; following the system".to_string(),
+            ),
         }
     }
     if let Some(value) = root.get("trigger_mode") {
@@ -393,6 +406,24 @@ mod tests {
         let (settings, notes) = load(&scratch());
         assert_eq!(settings, Settings::default());
         assert_eq!(notes.len(), 1);
+    }
+
+    #[test]
+    fn the_language_is_read_saved_and_kept_across_a_restart() {
+        let path = scratch();
+        fs::write(&path, V1_FILE).unwrap();
+        let (settings, notes) = load(&path);
+        assert_eq!(settings.language, Language::System);
+        assert!(notes.is_empty(), "{notes:?}");
+        save_key(&path, "language", Json::Text("en".into())).unwrap();
+        // A restart reads the file again: the choice is still there.
+        let (settings, notes) = load(&path);
+        assert_eq!(settings.language, Language::English);
+        assert!(notes.is_empty(), "{notes:?}");
+        save_key(&path, "language", Json::Text("klingon".into())).unwrap();
+        let (settings, notes) = load(&path);
+        assert_eq!(settings.language, Language::System);
+        assert_eq!(notes.len(), 1, "{notes:?}");
     }
 
     #[test]

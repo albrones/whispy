@@ -5,8 +5,7 @@ use std::path::Path;
 
 use objc2_service_management::{SMAppService, SMAppServiceStatus};
 
-/// The note shown when the OS wants the user's approval.
-pub const APPROVAL_NOTE: &str = "Approve Whispy V2 in System Settings \u{2192} Login Items";
+use crate::i18n::{fill, Text};
 
 /// What the OS says about the login item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,9 +66,9 @@ pub fn toggle() -> Result<LoginState, String> {
         }
     };
     if let Err(error) = result {
-        return Err(format!(
-            "Start at login failed: {}",
-            error.localizedDescription()
+        return Err(fill(
+            Text::LoginFailed,
+            &[("error", &error.localizedDescription().to_string())],
         ));
     }
     Ok(state())

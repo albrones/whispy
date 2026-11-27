@@ -22,14 +22,12 @@ impl Surface {
         Surface { tray }
     }
 
-    /// The status line in the icon's menu and tooltip: the last problem, else the headline.
+    /// The status the icon's menu and tooltip draw their line from
+    /// ([`Status::line`]), in the language in force when they are drawn.
     pub fn status(&self, status: &Status) {
-        let line = status
-            .last_problem()
-            .map(str::to_string)
-            .unwrap_or_else(|| status.headline().to_string());
         if let Some(tray) = &self.tray {
-            tray.update(|tray| tray.status = line);
+            let status = status.clone();
+            tray.update(|tray| tray.status = Some(status));
         }
     }
 }

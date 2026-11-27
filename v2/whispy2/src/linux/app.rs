@@ -17,6 +17,7 @@ use super::surface::Surface;
 use super::{tray, x11_trigger};
 use crate::control::{self, Claim};
 use crate::controller::{Controller, Input, LostClips, Source};
+use crate::i18n::Lang;
 use crate::journal::Journal;
 use crate::log;
 use crate::machine::Event;
@@ -57,7 +58,7 @@ pub fn run() {
     };
 
     let settings_path = crate::settings::default_path();
-    let (settings, notes) = crate::settings::load(&settings_path.unwrap_or_default());
+    let (settings, notes) = crate::settings::load(&settings_path.clone().unwrap_or_default());
     log::line(&format!(
         "settings: trigger_mode={}, type_while_speaking={} (Linux types the text; the trigger key is {} under X11)",
         settings.trigger_mode.as_config(),
@@ -67,12 +68,23 @@ pub fn run() {
     for note in notes.iter().filter(|note| !note.contains("using Fn")) {
         log::line(note);
     }
+    let lang = crate::i18n::apply(settings.language);
+    log::line(&format!(
+        "language: {} ({})",
+        settings.language.as_config(),
+        lang.code()
+    ));
 
     // The icon first: the controller's feedback and status go through it.
     let (quit, quit_requested) = mpsc::channel::<()>();
     let updater = Updater::new();
     let tray = match session {
-        Session::X11 => match tray::spawn(quit.clone(), updater.clone()) {
+        Session::X11 => match tray::spawn(
+            quit.clone(),
+            updater.clone(),
+            settings.language,
+            settings_path,
+        ) {
             Ok(handle) => Some(handle),
             Err(reason) => {
                 log::line(&format!(
@@ -102,8 +114,8 @@ pub fn run() {
         surface,
         move |status| {
             match &status.note {
-                Some(note) => log::line(&format!("{} ({note})", status.headline())),
-                None => log::line(status.headline()),
+                Some(note) => log::line(&format!("{} ({note})", status.headline_in(Lang::En))),
+                None => log::line(status.headline_in(Lang::En)),
             }
             status_surface.status(status);
         },

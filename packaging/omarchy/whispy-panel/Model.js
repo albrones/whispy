@@ -3,11 +3,12 @@
 
 // The dictation keys the panel offers, in the order of the backend's presets
 // (omarchy-dictation-whispy) and of omarchy_trigger in docs/src/config-schema.json.
+// Their labels are the texts "preset.<value>" of i18n/<lang>.js.
 var PRESETS = [
-  { value: "right_option_hold", label: "Right Option (hold)" },
-  { value: "right_ctrl_hold", label: "Right Ctrl (hold)" },
-  { value: "f9_hold", label: "F9 (hold)" },
-  { value: "left_option_space_toggle", label: "Left Option + Space (toggle)" }
+  { value: "right_option_hold" },
+  { value: "right_ctrl_hold" },
+  { value: "f9_hold" },
+  { value: "left_option_space_toggle" }
 ]
 
 // The macOS menu bar's braille waveform (v2/whispy2/src/title_anim.rs):
@@ -26,9 +27,32 @@ var SILENCE_LEVEL = 0.05
 var LEVEL_GAMMA = 0.5
 var LEVEL_GAIN = 2.0
 
-function presetLabel(value) {
+// The panel's language, "en" or "fr": Whispy's own when it answers (its
+// `status` carries `lang`, so a choice in its menu shows here too), else the
+// `language` it would force (config.json), else the session's locale
+// (LC_ALL, LC_MESSAGES, LANG: French for fr*, English for any other).
+function lang(status, config, localeTag) {
+  if (status && (status.lang === "fr" || status.lang === "en")) return status.lang
+  var forced = config ? config.language : null
+  if (forced === "fr" || forced === "en") return forced
+  return /^fr([-_.@]|$)/i.test(String(localeTag || "")) ? "fr" : "en"
+}
+
+// The text `key` from `t` (a TEXTS table of i18n/), the key itself if missing.
+function text(t, key) {
+  return t && typeof t[key] === "string" ? t[key] : key
+}
+
+// The dictation keys with their labels in `t`.
+function presets(t) {
+  return PRESETS.map(function(preset) {
+    return { value: preset.value, label: text(t, "preset." + preset.value) }
+  })
+}
+
+function presetLabel(value, t) {
   for (var i = 0; i < PRESETS.length; i++) {
-    if (PRESETS[i].value === value) return PRESETS[i].label
+    if (PRESETS[i].value === value) return text(t, "preset." + value)
   }
   return ""
 }
@@ -46,14 +70,14 @@ function phase(reachable, status) {
   return "ready"
 }
 
-function phaseLabel(value) {
-  if (value === "recording") return "Listening"
-  if (value === "transcribing") return "Transcribing"
-  if (value === "loading") return "Loading model"
-  if (value === "no-model") return "Model not loaded"
-  if (value === "stopped") return "Whispy stopped"
-  if (value === "yielded") return "An older Whispy is running"
-  return "Ready"
+function phaseLabel(value, t) {
+  if (value === "recording") return text(t, "phase.recording")
+  if (value === "transcribing") return text(t, "phase.transcribing")
+  if (value === "loading") return text(t, "phase.loading")
+  if (value === "no-model") return text(t, "phase.no_model")
+  if (value === "stopped") return text(t, "phase.stopped")
+  if (value === "yielded") return text(t, "phase.yielded")
+  return text(t, "phase.ready")
 }
 
 // The update row of the `status` answer (v2/whispy2/src/update.rs), e.g.
@@ -70,8 +94,8 @@ function updateRow(reachable, status) {
 }
 
 // The bar's tooltip: "Whispy · Listening", or "Whispy stopped".
-function tooltip(value) {
-  return value === "stopped" ? phaseLabel(value) : "Whispy · " + phaseLabel(value)
+function tooltip(value, t) {
+  return value === "stopped" ? phaseLabel(value, t) : "Whispy · " + phaseLabel(value, t)
 }
 
 // Whispy is working: the bar animates and the status is read often.
@@ -108,6 +132,9 @@ if (typeof module !== "undefined") {
     PRESETS: PRESETS,
     IDLE_FRAME: IDLE_FRAME,
     WAVEROWS: WAVEROWS,
+    lang: lang,
+    text: text,
+    presets: presets,
     presetLabel: presetLabel,
     phase: phase,
     phaseLabel: phaseLabel,

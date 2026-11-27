@@ -318,14 +318,15 @@ pub fn last_json(text: Option<&str>) -> String {
 
 /// The `status` reply: one line of JSON. `level` is the input level of the
 /// recording (V1's scale, 0 when nothing records), for the Omarchy pill;
-/// `update` the update row, for the Omarchy panel.
+/// `lang` the interface's language in force (`en` or `fr`) and `update` the
+/// update row, for the Omarchy panel.
 pub fn status_json(status: &Status, level: f32, update: Option<&Row>) -> String {
     let problem = match status.last_problem() {
         Some(problem) => json_string(problem),
         None => "null".to_string(),
     };
     format!(
-        "{{\"state\":{},\"models_loaded\":{},\"yielded\":{},\"last_problem\":{problem},\"trigger_mode\":\"{}\",\"level\":{}{}}}",
+        "{{\"state\":{},\"models_loaded\":{},\"yielded\":{},\"last_problem\":{problem},\"trigger_mode\":\"{}\",\"lang\":\"{}\",\"level\":{}{}}}",
         json_string(status.state_name()),
         status.models_loaded,
         status.state == State::Yielded,
@@ -333,6 +334,7 @@ pub fn status_json(status: &Status, level: f32, update: Option<&Row>) -> String 
             TriggerMode::Hold => "hold",
             TriggerMode::Toggle => "toggle",
         },
+        crate::i18n::current().code(),
         json_number(level),
         match update {
             Some(row) => format!(",\"update\":{}", update::row_json(row)),
@@ -516,8 +518,11 @@ mod tests {
         };
         assert_eq!(
             status_json(&status, 0.0, None),
-            "{\"state\":\"idle\",\"models_loaded\":true,\"yielded\":false,\"last_problem\":\"Microphone heard nothing (\\\"Mic\\\")\",\"trigger_mode\":\"hold\",\"level\":0.000}"
+            "{\"state\":\"idle\",\"models_loaded\":true,\"yielded\":false,\"last_problem\":\"Microphone heard nothing (\\\"Mic\\\")\",\"trigger_mode\":\"hold\",\"lang\":\"en\",\"level\":0.000}"
         );
+        crate::i18n::set(crate::i18n::Lang::Fr);
+        assert!(status_json(&status, 0.0, None).contains(",\"lang\":\"fr\","));
+        crate::i18n::set(crate::i18n::Lang::En);
         let loading = Status {
             state: State::Yielded,
             note: Some(crate::controller::LOADING_NOTE.into()),

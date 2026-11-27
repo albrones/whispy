@@ -69,6 +69,10 @@
 <tr id="cfg-trigger"><td><code>trigger</code></td><td><code>null</code></td><td>null (Fn) or a keycode</td><td>macOS</td><td>macOS: the trigger key. Empty for Fn, or a keycode: 54 Right Command, 61 Right Option, 105 F13 (all in the menu). Linux under X11 always uses Right Ctrl; under Wayland your compositor binds the key.</td></tr>
 </tbody>
 <tbody>
+<tr class="group-row"><th colspan="5" scope="colgroup">Interface</th></tr>
+<tr id="cfg-language"><td><code>language</code></td><td><code>&quot;system&quot;</code></td><td>system or fr or en</td><td>macOS, Linux</td><td>The language of Whispy&#x27;s menus and notifications. system: French when the system is in French (macOS: the first preferred language; Linux: LC_ALL, LC_MESSAGES, then LANG), English otherwise. fr or en forces one. Also in the menu: Language.</td></tr>
+</tbody>
+<tbody>
 <tr class="group-row"><th colspan="5" scope="colgroup">Omarchy</th></tr>
 <tr id="cfg-omarchy_trigger"><td><code>omarchy_trigger</code></td><td><code>&quot;right_option_hold&quot;</code></td><td>right_option_hold or right_ctrl_hold or f9_hold or left_option_space_toggle</td><td>Linux</td><td>Omarchy: the dictation key, written by the Whispy bar panel (pick it there: it also rewrites ~/.config/whispy/shortcuts.lua and reloads Hyprland).</td></tr>
 </tbody>
@@ -120,6 +124,21 @@
       "macos"
     ],
     "description": "macOS: the trigger key. Empty for Fn, or a keycode: 54 Right Command, 61 Right Option, 105 F13 (all in the menu). Linux under X11 always uses Right Ctrl; under Wayland your compositor binds the key."
+  },
+  "language": {
+    "group": "Interface",
+    "kind": "choice",
+    "choices": [
+      "system",
+      "fr",
+      "en"
+    ],
+    "default": "system",
+    "platforms": [
+      "macos",
+      "linux"
+    ],
+    "description": "The language of Whispy's menus and notifications. system: French when the system is in French (macOS: the first preferred language; Linux: LC_ALL, LC_MESSAGES, then LANG), English otherwise. fr or en forces one. Also in the menu: Language."
   },
   "omarchy_trigger": {
     "group": "Omarchy",

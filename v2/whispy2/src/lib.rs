@@ -7,6 +7,7 @@
 //! - [`microphone`]: the default input device through cpal, both platforms.
 //! - [`control`]: the local socket that drives V2 and keeps it single.
 //! - [`feedback`]: the indicator and alert sound, behind a port.
+//! - [`i18n`]: the interface in French or English, from `i18n/*.json`.
 //! - [`journal`] and [`log`]: what V2 records about its dictations and itself.
 //! - [`update`]: checks for a newer release and installs it from the menu.
 //! - [`v1`]: tells whether Whispy V1 is running, so only one of them listens to Fn.
@@ -14,6 +15,7 @@
 pub mod control;
 pub mod controller;
 pub mod feedback;
+pub mod i18n;
 pub mod journal;
 #[cfg(target_os = "linux")]
 pub mod linux;

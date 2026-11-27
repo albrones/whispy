@@ -7,6 +7,7 @@ use std::path::Path;
 use whispy_core::json::Json;
 
 use crate::controller::{Status, LOADING_NOTE};
+use crate::i18n::Language;
 use crate::machine::State;
 use crate::menu_model::{MenuAction, StatusFacts};
 use crate::settings::{trigger_presets, Settings, Trigger, TriggerMode};
@@ -39,6 +40,7 @@ pub enum Change {
     Mode(TriggerMode),
     Trigger(Trigger),
     TypeWhileSpeaking(bool),
+    Language(Language),
 }
 
 impl Change {
@@ -49,6 +51,7 @@ impl Change {
             Change::Mode(_) => "trigger_mode",
             Change::Trigger(_) => "trigger",
             Change::TypeWhileSpeaking(_) => "type_while_speaking",
+            Change::Language(_) => "language",
         }
     }
 
@@ -59,6 +62,7 @@ impl Change {
             Change::Mode(mode) => Json::Text(mode.as_config().to_string()),
             Change::Trigger(trigger) => trigger.as_config(),
             Change::TypeWhileSpeaking(is_on) => Json::Bool(*is_on),
+            Change::Language(language) => Json::Text(language.as_config().to_string()),
         }
     }
 
@@ -68,6 +72,7 @@ impl Change {
             Change::Mode(mode) => settings.trigger_mode = *mode,
             Change::Trigger(trigger) => settings.trigger = trigger.clone(),
             Change::TypeWhileSpeaking(is_on) => settings.type_while_speaking = *is_on,
+            Change::Language(language) => settings.language = *language,
         }
     }
 }
@@ -91,6 +96,7 @@ pub fn change_for(action: MenuAction, current: &Settings) -> Option<Change> {
                 .find(|trigger| trigger.keycode == keycode)
                 .map(Change::Trigger)
         }
+        MenuAction::SelectLanguage(language) => Some(Change::Language(language)),
         _ => None,
     }
 }
@@ -108,6 +114,9 @@ pub fn action_tag(action: MenuAction) -> isize {
         MenuAction::ToggleTypeWhileSpeaking => 7,
         MenuAction::InstallUpdate => 9,
         MenuAction::SelectTrigger(None) => 100,
+        MenuAction::SelectLanguage(Language::System) => 200,
+        MenuAction::SelectLanguage(Language::French) => 201,
+        MenuAction::SelectLanguage(Language::English) => 202,
         MenuAction::SelectTrigger(Some(keycode)) => 1000 + keycode as isize,
     }
 }
@@ -123,6 +132,9 @@ pub fn tag_action(tag: isize) -> Option<MenuAction> {
         7 => MenuAction::ToggleTypeWhileSpeaking,
         9 => MenuAction::InstallUpdate,
         100 => MenuAction::SelectTrigger(None),
+        200 => MenuAction::SelectLanguage(Language::System),
+        201 => MenuAction::SelectLanguage(Language::French),
+        202 => MenuAction::SelectLanguage(Language::English),
         tag if tag >= 1000 => MenuAction::SelectTrigger(Some((tag - 1000) as i64)),
         _ => return None,
     })
@@ -240,6 +252,14 @@ mod tests {
             (live_typing.key(), live_typing.value()),
             ("type_while_speaking", Json::Bool(false))
         );
+        let english = change_for(MenuAction::SelectLanguage(Language::English), &settings).unwrap();
+        assert_eq!(
+            (english.key(), english.value()),
+            ("language", Json::Text("en".into()))
+        );
+        let mut forced = settings.clone();
+        english.apply(&mut forced);
+        assert_eq!(forced.language, Language::English);
         assert!(change_for(MenuAction::Quit, &settings).is_none());
         assert!(change_for(MenuAction::SelectTrigger(Some(7)), &settings).is_none());
     }
@@ -296,6 +316,9 @@ mod tests {
             MenuAction::SelectTrigger(None),
             MenuAction::SelectTrigger(Some(54)),
             MenuAction::SelectTrigger(Some(105)),
+            MenuAction::SelectLanguage(Language::System),
+            MenuAction::SelectLanguage(Language::French),
+            MenuAction::SelectLanguage(Language::English),
         ] {
             assert_eq!(tag_action(action_tag(action)), Some(action));
         }

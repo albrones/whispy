@@ -41,7 +41,7 @@ Panel {
     running && sw.update !== null ? ["update"] : [],
     running && sw.lastText !== "" ? ["last"] : [])
   readonly property string currentRow: cursorActive && page === "" ? rows[Math.min(rowIndex, rows.length - 1)] : ""
-  readonly property var pageOptions: page === "trigger" ? Model.PRESETS : []
+  readonly property var pageOptions: page === "trigger" ? Model.presets(sw.t) : []
 
   function openPage(id, byPointer) {
     page = id
@@ -158,7 +158,7 @@ Panel {
     bar: root.bar
     iconComponent: Component { Item {} }
     fixedWidth: vertical ? -1 : Math.ceil(frameMetrics.advanceWidth) + Style.space(14)
-    tooltipText: Model.tooltip(root.phase)
+    tooltipText: Model.tooltip(root.phase, sw.t)
 
     Text {
       anchors.centerIn: parent
@@ -210,8 +210,8 @@ Panel {
         ActionRow {
           visible: root.page === "" && !root.running
           rowId: "start"
-          label: sw.starting ? "Starting Whispy…" : "Start Whispy"
-          caption: "Runs systemctl --user start whispy2"
+          label: Model.text(sw.t, sw.starting ? "start.busy" : "start")
+          caption: Model.text(sw.t, "start.caption")
         }
 
         // ---- Settings -------------------------------------------------------
@@ -225,17 +225,17 @@ Panel {
 
           SettingRow {
             rowId: "trigger"
-            label: "Dictation key"
-            value: Model.presetLabel(sw.config.omarchy_trigger) || "Omarchy default"
+            label: Model.text(sw.t, "dictation_key")
+            value: Model.presetLabel(sw.config.omarchy_trigger, sw.t) || Model.text(sw.t, "dictation_key.default")
             chevron: true
           }
           // Parakeet ships in one size and finds the language itself (as on
           // macOS, where the menu has neither): these say so, and set nothing.
-          SettingRow { label: "Model"; value: "Parakeet TDT 0.6B v3" }
-          SettingRow { label: "Language"; value: "Detected automatically" }
+          SettingRow { label: Model.text(sw.t, "model"); value: "Parakeet TDT 0.6B v3" }
+          SettingRow { label: Model.text(sw.t, "language"); value: Model.text(sw.t, "language.value") }
           SwitchRow {
             rowId: "login"
-            label: "Start at login"
+            label: Model.text(sw.t, "start_at_login")
             caption: "systemctl --user enable whispy2"
             checked: sw.startAtLogin
           }
@@ -248,7 +248,7 @@ Panel {
           visible: root.page === "" && root.running && sw.update !== null
           rowId: "update"
           label: sw.update ? sw.update.title : ""
-          caption: sw.update && sw.update.request === "update" ? "Installs it, then restarts Whispy" : ""
+          caption: sw.update && sw.update.request === "update" ? Model.text(sw.t, "update.caption") : ""
           wrap: true
         }
 
@@ -338,7 +338,8 @@ Panel {
         textFormat: Text.PlainText
         width: parent.width
         text: (sw.message !== "" ? sw.message
-          : sw.starting ? "Starting" : sw.stopping ? "Stopping" : Model.phaseLabel(root.phase)).toUpperCase()
+          : sw.starting ? Model.text(sw.t, "starting") : sw.stopping ? Model.text(sw.t, "stopping")
+          : Model.phaseLabel(root.phase, sw.t)).toUpperCase()
         color: sw.message !== "" && sw.messageIsError ? root.urgent : Qt.darker(root.foreground, 1.4)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
@@ -555,7 +556,7 @@ Panel {
 
       Text {
         textFormat: Text.PlainText
-        text: "LAST DICTATION"
+        text: Model.text(sw.t, "last_dictation")
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
@@ -566,7 +567,7 @@ Panel {
       Text {
         textFormat: Text.PlainText
         Layout.fillWidth: true
-        text: sw.lastText !== "" ? sw.lastText : "Nothing dictated yet"
+        text: sw.lastText !== "" ? sw.lastText : Model.text(sw.t, "last_dictation.none")
         color: sw.lastText !== "" ? root.foreground : root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
@@ -578,7 +579,7 @@ Panel {
       Text {
         textFormat: Text.PlainText
         visible: sw.lastText !== ""
-        text: "Click or C to copy"
+        text: Model.text(sw.t, "last_dictation.copy")
         opacity: lastRow.hasCursor ? 1 : 0
         color: root.dim
         font.family: root.fontFamily
@@ -621,7 +622,7 @@ Panel {
       Text {
         textFormat: Text.PlainText
         Layout.fillWidth: true
-        text: "Dictation key"
+        text: Model.text(sw.t, "dictation_key")
         color: root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.body

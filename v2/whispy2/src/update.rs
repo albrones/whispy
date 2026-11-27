@@ -33,28 +33,36 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::log;
 
-/// Every text the update shows, in one place, to be translated later (#64).
+/// Every text the update shows, in one place, drawn from the translation
+/// files (`i18n/*.json`, #64) in the language in force.
 pub mod texts {
     use super::Version;
+    use crate::i18n::{fill, Text};
 
     pub fn available(version: Version) -> String {
-        format!("Update available ({version})")
+        fill(Text::UpdateAvailable, &[("version", &version.to_string())])
     }
 
     pub fn updating_to(version: Version) -> String {
-        format!("Updating to {version}\u{2026}")
+        fill(Text::UpdateUpdatingTo, &[("version", &version.to_string())])
     }
 
     pub fn update_failed(version: Version, reason: &str) -> String {
-        format!("Update to {version} failed: {reason} \u{2014} try again")
+        fill(
+            Text::UpdateFailed,
+            &[("version", &version.to_string()), ("reason", reason)],
+        )
     }
 
     pub fn not_restarted(version: Version) -> String {
-        format!("{version} is installed \u{2014} quit and reopen Whispy to finish")
+        fill(
+            Text::UpdateNotRestarted,
+            &[("version", &version.to_string())],
+        )
     }
 
     pub fn needs_terminal(command: &str) -> String {
-        format!("Update needs your password \u{2014} run in a terminal: {command}")
+        fill(Text::UpdateNeedsTerminal, &[("command", command)])
     }
 }
 

@@ -5,17 +5,19 @@
 //! check states here makes the "menu matches V1" scenario a plain unit test.
 //! The module also holds V1's status-line precedence, trigger labels, System
 //! Settings URLs and alert texts, all ported verbatim from
-//! `src/whispy/ui/menu_bar.py`.
+//! `src/whispy/ui/menu_bar.py`. Every text is drawn through [`crate::i18n`],
+//! in the language in force when the menu is built.
 
+use crate::i18n::{fill, tr, Language, Text};
 use crate::theme::{check_title, section_title, status_title, toggle_title, Title};
 
 /// V1's trigger presets: label and keycode (`None` is Fn, stored as unset;
 /// its keycode is [`FN_KEYCODE`]).
-pub const TRIGGER_PRESETS: [(&str, Option<i64>); 4] = [
-    ("Fn", None),
-    ("Right Command", Some(54)),
-    ("Right Option", Some(61)),
-    ("F13", Some(105)),
+pub const TRIGGER_PRESETS: [(Text, Option<i64>); 4] = [
+    (Text::KeyFn, None),
+    (Text::KeyRightCommand, Some(54)),
+    (Text::KeyRightOption, Some(61)),
+    (Text::KeyF13, Some(105)),
 ];
 
 /// The Fn key's keycode, what the unset trigger means.
@@ -27,7 +29,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The menu's first row: « Whispy 2.1.0 · voice dictation ».
 pub fn header_title() -> String {
-    format!("Whispy {VERSION} \u{b7} voice dictation")
+    fill(Text::MenuHeader, &[("version", VERSION)])
 }
 
 /// What a menu item does when chosen.
@@ -38,6 +40,8 @@ pub enum MenuAction {
     ToggleTypeWhileSpeaking,
     /// `None` selects Fn (the default, stored as unset).
     SelectTrigger(Option<i64>),
+    /// « Language: System / Français / English ».
+    SelectLanguage(Language),
     ToggleLogin,
     OpenPermissionSettings,
     /// « Update available (X.Y.Z) »: installs it.
@@ -122,6 +126,8 @@ pub struct MenuInput {
     pub trigger_keycode: i64,
     /// The label shown in « Trigger: <label> » (see [`trigger_label`]).
     pub trigger_label: String,
+    /// The `language` setting, checked in « Language: … ».
+    pub language: Language,
     pub login: LoginRow,
     pub permission_warning: bool,
     /// The update row (see [`crate::update`]); `None` when Whispy is up to date.
@@ -146,21 +152,21 @@ pub struct StatusFacts {
 /// no yielding; here it comes first, because while yielded V2 listens to
 /// nothing, so every other line would be misleading.
 pub fn status_text(f: &StatusFacts) -> &'static str {
-    if f.yielded {
-        "Whispy V1 is running \u{2014} the trigger key is left to it"
+    tr(if f.yielded {
+        Text::StatusYielded
     } else if f.trigger_down && !f.recording {
-        "Listening\u{2026}"
+        Text::StatusListening
     } else if f.model_loading {
-        "Loading model\u{2026}"
+        Text::StatusLoadingModel
     } else if !f.model_loaded {
-        "\u{26a0} Model not loaded"
+        Text::StatusModelNotLoaded
     } else if f.recording {
-        "Recording"
+        Text::StatusRecording
     } else if f.transcribing {
-        "Transcribing\u{2026}"
+        Text::StatusTranscribing
     } else {
-        "Ready"
-    }
+        Text::StatusReady
+    })
 }
 
 /// Whether the preset `value` is the configured trigger (Fn is `None`).
@@ -173,7 +179,7 @@ fn preset_active(value: Option<i64>, keycode: i64) -> bool {
 pub fn trigger_label(keycode: i64) -> String {
     for (label, value) in TRIGGER_PRESETS {
         if preset_active(value, keycode) {
-            return label.to_string();
+            return tr(label).to_string();
         }
     }
     keycode_to_name(keycode)
@@ -197,19 +203,27 @@ pub fn build(input: &MenuInput) -> Vec<MenuRow> {
             RowKind::PermissionWarning {
                 visible: input.permission_warning,
             },
-            Title::plain("\u{26a0} Missing permission \u{2014} fix in System Settings\u{2026}"),
+            Title::plain(tr(Text::MenuPermissionWarning)),
             true,
         ),
         separator(),
-        MenuRow::new(RowKind::Section, section_title("Settings"), false),
+        MenuRow::new(
+            RowKind::Section,
+            section_title(tr(Text::MenuSettings)),
+            false,
+        ),
         toggle(
-            "Copy to clipboard",
+            tr(Text::MenuCopyToClipboard),
             input.copy_to_clipboard,
             MenuAction::ToggleCopy,
         ),
-        toggle("Toggle mode", input.toggle_mode, MenuAction::ToggleMode),
         toggle(
-            "Type while speaking",
+            tr(Text::MenuToggleMode),
+            input.toggle_mode,
+            MenuAction::ToggleMode,
+        ),
+        toggle(
+            tr(Text::MenuTypeWhileSpeaking),
             input.type_while_speaking,
             MenuAction::ToggleTypeWhileSpeaking,
         ),
@@ -224,16 +238,17 @@ pub fn build(input: &MenuInput) -> Vec<MenuRow> {
                     action: MenuAction::SelectTrigger(value),
                     checked,
                 },
-                check_title(label, checked),
+                check_title(tr(label), checked),
                 true,
             )
         })
         .collect();
     rows.push(MenuRow::new(
         RowKind::Submenu { items },
-        Title::plain(format!("Trigger: {}", input.trigger_label)),
+        Title::plain(fill(Text::MenuTrigger, &[("key", &input.trigger_label)])),
         true,
     ));
+    rows.push(language_row(input.language));
 
     match input.login {
         LoginRow::Hidden => {}
@@ -242,13 +257,21 @@ pub fn build(input: &MenuInput) -> Vec<MenuRow> {
                 action: MenuAction::ToggleLogin,
                 checked: false,
             },
-            Title::plain("Start at login (needs the installed app)"),
+            Title::plain(tr(Text::MenuStartAtLoginUnavailable)),
             false,
         )),
-        LoginRow::On => rows.push(toggle("Start at login", true, MenuAction::ToggleLogin)),
-        LoginRow::Off => rows.push(toggle("Start at login", false, MenuAction::ToggleLogin)),
+        LoginRow::On => rows.push(toggle(
+            tr(Text::MenuStartAtLogin),
+            true,
+            MenuAction::ToggleLogin,
+        )),
+        LoginRow::Off => rows.push(toggle(
+            tr(Text::MenuStartAtLogin),
+            false,
+            MenuAction::ToggleLogin,
+        )),
         LoginRow::NeedsApproval => rows.push(toggle(
-            "Start at login (needs approval in System Settings)",
+            tr(Text::MenuStartAtLoginNeedsApproval),
             false,
             MenuAction::ToggleLogin,
         )),
@@ -263,7 +286,7 @@ pub fn build(input: &MenuInput) -> Vec<MenuRow> {
             action: MenuAction::Restart,
             key_equivalent: None,
         },
-        Title::plain("Restart"),
+        Title::plain(tr(Text::MenuRestart)),
         true,
     ));
     rows.push(MenuRow::new(
@@ -271,10 +294,33 @@ pub fn build(input: &MenuInput) -> Vec<MenuRow> {
             action: MenuAction::Quit,
             key_equivalent: Some("q"),
         },
-        Title::plain("Quit"),
+        Title::plain(tr(Text::MenuQuit)),
         true,
     ));
     rows
+}
+
+/// « Language: System », its submenu checking the setting in force.
+pub fn language_row(setting: Language) -> MenuRow {
+    let items = Language::ALL
+        .iter()
+        .map(|&language| {
+            let checked = language == setting;
+            MenuRow::new(
+                RowKind::Choice {
+                    action: MenuAction::SelectLanguage(language),
+                    checked,
+                },
+                check_title(language.label(), checked),
+                true,
+            )
+        })
+        .collect();
+    MenuRow::new(
+        RowKind::Submenu { items },
+        Title::plain(fill(Text::MenuLanguage, &[("language", setting.label())])),
+        true,
+    )
 }
 
 /// The update row: disabled while an install runs.
@@ -351,9 +397,9 @@ pub struct Alert {
 }
 
 impl Alert {
-    fn new(subtitle: &str, message: String, pane: Option<Pane>) -> Alert {
+    fn new(subtitle: Text, message: String, pane: Option<Pane>) -> Alert {
         Alert {
-            subtitle: subtitle.to_string(),
+            subtitle: tr(subtitle).to_string(),
             message,
             pane,
         }
@@ -362,7 +408,7 @@ impl Alert {
     /// A startup probe reported an explicit denial; `kind` is V1's string.
     pub fn missing_permission(kind: &str, message: &str) -> Alert {
         Alert::new(
-            "Missing permission",
+            Text::AlertMissingPermission,
             message.to_string(),
             Some(Pane::from_kind(kind)),
         )
@@ -370,7 +416,7 @@ impl Alert {
 
     pub fn cannot_type(message: &str) -> Alert {
         Alert::new(
-            "Can't type into apps",
+            Text::AlertCannotType,
             message.to_string(),
             Some(Pane::Accessibility),
         )
@@ -379,55 +425,57 @@ impl Alert {
     /// First launch: the models are being fetched, dictation waits for them.
     pub fn downloading_models(megabytes: u64) -> Alert {
         Alert::new(
-            "Downloading the speech models",
-            format!("First launch: Whispy is downloading its models ({megabytes} MB). Dictation works as soon as the menu says Ready."),
+            Text::AlertDownloadingModels,
+            fill(
+                Text::AlertDownloadingModelsMessage,
+                &[("megabytes", &megabytes.to_string())],
+            ),
             None,
         )
     }
 
     pub fn model_failed(message: &str) -> Alert {
         Alert::new(
-            "Model failed to load",
-            format!("{message} \u{2014} check your internet connection, then use Restart from the Whispy menu."),
+            Text::AlertModelFailed,
+            fill(Text::AlertModelFailedMessage, &[("message", message)]),
             None,
         )
     }
 
     pub fn no_microphone(message: &str) -> Alert {
         Alert::new(
-            "No microphone available",
-            format!("{message} \u{2014} check your input device, then try again."),
+            Text::AlertNoMicrophone,
+            fill(Text::AlertNoMicrophoneMessage, &[("message", message)]),
             None,
         )
     }
 
     pub fn microphone_heard_nothing(message: &str) -> Alert {
-        Alert::new("Microphone heard nothing", message.to_string(), None)
+        Alert::new(Text::AlertHeardNothing, message.to_string(), None)
     }
 
     pub fn dictation_stopped(message: &str) -> Alert {
-        Alert::new("Dictation stopped", message.to_string(), None)
+        Alert::new(Text::AlertDictationStopped, message.to_string(), None)
     }
 
     /// Linux: the trigger key cannot be listened to; `message` says why and what still works.
     pub fn trigger_key_unavailable(message: &str) -> Alert {
-        Alert::new("Trigger key unavailable", message.to_string(), None)
+        Alert::new(Text::AlertTriggerKeyUnavailable, message.to_string(), None)
     }
 
     /// Linux: the tray icon could not start; Whispy runs on without it.
     pub fn tray_unavailable(reason: &str) -> Alert {
         Alert::new(
-            "Tray icon unavailable",
-            format!("Whispy keeps running without its icon ({reason}). Notifications tell you what goes wrong."),
+            Text::AlertTrayUnavailable,
+            fill(Text::AlertTrayUnavailableMessage, &[("reason", reason)]),
             None,
         )
     }
 
     pub fn model_still_loading() -> Alert {
         Alert::new(
-            "Model still loading",
-            "Whispy is still loading the transcription model \u{2014} try again in a moment."
-                .to_string(),
+            Text::AlertModelStillLoading,
+            tr(Text::AlertModelStillLoadingMessage).to_string(),
             None,
         )
     }
@@ -544,6 +592,7 @@ mod tests {
             type_while_speaking: true,
             trigger_keycode: FN_KEYCODE,
             trigger_label: trigger_label(FN_KEYCODE),
+            language: Language::System,
             login: LoginRow::Hidden,
             permission_warning: false,
             update: None,
@@ -593,6 +642,7 @@ mod tests {
                 "Toggle mode",
                 "Type while speaking   ✓",
                 "Trigger: Fn",
+                "Language: System",
                 "",
                 "Restart",
                 "Quit",
@@ -608,12 +658,85 @@ mod tests {
             }
         );
         assert_eq!(
-            rows[11].kind,
+            rows[12].kind,
             RowKind::Action {
                 action: MenuAction::Quit,
                 key_equivalent: Some("q")
             }
         );
+    }
+
+    #[test]
+    fn the_language_submenu_offers_system_french_english_and_checks_the_setting() {
+        let mut input = idle_input();
+        input.language = Language::English;
+        let row = &build(&input)[9];
+        assert_eq!(row.title.text, "Language: English");
+        let RowKind::Submenu { items } = &row.kind else {
+            panic!("not a submenu")
+        };
+        let titles: Vec<&str> = items.iter().map(|r| r.title.text.as_str()).collect();
+        assert_eq!(titles, ["      System", "      Français", "✓  English"]);
+        assert_eq!(
+            items[1].kind,
+            RowKind::Choice {
+                action: MenuAction::SelectLanguage(Language::French),
+                checked: false
+            }
+        );
+    }
+
+    #[test]
+    fn in_french_every_row_of_the_menu_is_french() {
+        use crate::i18n::{set, Lang};
+        set(Lang::Fr);
+        let mut input = idle_input();
+        input.login = LoginRow::On;
+        input.update = Some(crate::update::Row {
+            title: crate::update::texts::available(crate::update::Version(2, 6, 0)),
+            enabled: true,
+            transient: false,
+        });
+        input.status_text = status_text(&StatusFacts {
+            model_loaded: true,
+            ..Default::default()
+        })
+        .to_string();
+        input.trigger_label = trigger_label(54);
+        let rows = build(&input);
+        let titles: Vec<&str> = rows.iter().map(|r| r.title.text.as_str()).collect();
+        assert_eq!(
+            titles,
+            [
+                format!("Whispy {VERSION} \u{b7} dictée vocale").as_str(),
+                "●  Prêt",
+                "\u{26a0} Autorisation manquante \u{2014} à corriger dans Réglages Système\u{2026}",
+                "",
+                "RÉGLAGES",
+                "Copier dans le presse-papiers   ✓",
+                "Mode bascule",
+                "Écrire pendant la dictée   ✓",
+                "Touche : Commande droite",
+                "Langue : Système",
+                "Ouvrir à la connexion   ✓",
+                "",
+                "Mise à jour disponible (2.6.0)",
+                "Redémarrer",
+                "Quitter",
+            ]
+        );
+        let RowKind::Submenu { items } = &rows[9].kind else {
+            panic!("not a submenu")
+        };
+        let languages: Vec<&str> = items.iter().map(|r| r.title.text.as_str()).collect();
+        assert_eq!(languages, ["✓  Système", "      Français", "      English"]);
+        assert_eq!(
+            Alert::model_still_loading().subtitle,
+            "Modèle en cours de chargement"
+        );
+        // Choosing English redraws the same menu in English, without a restart.
+        set(Lang::En);
+        assert_eq!(build(&input)[13].title.text, "Restart");
     }
 
     #[test]
@@ -660,14 +783,14 @@ mod tests {
         i.login = LoginRow::Unavailable;
         let rows = build(&i);
         assert_eq!(
-            rows[9].title.text,
+            rows[10].title.text,
             "Start at login (needs the installed app)"
         );
-        assert!(!rows[9].enabled);
+        assert!(!rows[10].enabled);
         i.login = LoginRow::On;
-        assert_eq!(build(&i)[9].title.text, "Start at login   ✓");
+        assert_eq!(build(&i)[10].title.text, "Start at login   ✓");
         i.login = LoginRow::Off;
-        assert_eq!(build(&i)[9].title.text, "Start at login");
+        assert_eq!(build(&i)[10].title.text, "Start at login");
     }
 
     #[test]

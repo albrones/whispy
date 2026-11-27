@@ -52,7 +52,7 @@ The main thread orchestrates and reviews; subagents execute and report.
 - **Permissions (Critical):** macOS needs **Microphone**, **Accessibility** and **Input Monitoring** for `Whispy V2`. Linux has no permission prompts.
 
 ## 📝 Development Conventions
-- **Config:** `~/.config/whispy/config.json` (keys: `copy_to_clipboard`, `trigger_mode`, `trigger`, `type_while_speaking`, `omarchy_trigger`); every other key is kept as found.
+- **Config:** `~/.config/whispy/config.json` (keys: `copy_to_clipboard`, `trigger_mode`, `trigger`, `type_while_speaking`, `language`, `omarchy_trigger`); every other key is kept as found. Interface texts live in `v2/whispy2/i18n/{en,fr}.json` (app) and `packaging/omarchy/whispy-panel/i18n/{en,fr}.js` (panel): a new visible text goes in both files of its pair.
 - **Language:** All code, documentation, and UI strings must be in English.
 - **Keep the website in sync:** any user-facing change (new feature, changed install flow, renamed setting, dropped option) MUST update `website/index.html` in the same change — install commands, feature cards, and the menu-bar demo. `tests/test_website.py` guards some of this; treat it as a floor, not the whole job. User docs live in `docs/src/` and must be regenerated with `make docs` (commit `website/docs/`); `tests/test_docs_site.py` fails on stale output.
 - **Releases:** every `feat` or `fix` merged on `main` publishes a version (`.github/workflows/release.yml`, `scripts/release.py`).

@@ -16,12 +16,15 @@ import pytest
 ROOT = Path(__file__).parent.parent
 PLUGIN = ROOT / "packaging" / "omarchy" / "whispy-panel"
 MODEL = PLUGIN / "Model.js"
+I18N = PLUGIN / "i18n"
 BACKEND = ROOT / "packaging" / "omarchy" / "omarchy-dictation-whispy"
 SCHEMA = json.loads((ROOT / "docs" / "src" / "config-schema.json").read_text(encoding="utf-8"))
 OMARCHY_TRIGGER_PRESETS = tuple(SCHEMA["omarchy_trigger"]["choices"])
 
 NODE_SCRIPT = r"""
 const m = require(process.argv[1]);
+const en = require(process.argv[2]).TEXTS;
+const fr = require(process.argv[3]).TEXTS;
 const ready = {state: "idle", models_loaded: true, yielded: false, last_problem: null, trigger_mode: "hold", level: 0};
 const out = {
   stopped: m.phase(false, null),
@@ -32,10 +35,27 @@ const out = {
   yielded: m.phase(true, {...ready, state: "yielded", yielded: true}),
   loading: m.phase(true, {...ready, models_loaded: false}),
   noModel: m.phase(true, {...ready, models_loaded: false, last_problem: "The models could not be loaded"}),
-  yieldedLabel: m.phaseLabel("yielded"),
+  yieldedLabel: m.phaseLabel("yielded", en),
   yieldedIsRest: m.isActive("yielded"),
-  stoppedTooltip: m.tooltip("stopped"),
-  listeningTooltip: m.tooltip("recording"),
+  stoppedTooltip: m.tooltip("stopped", en),
+  listeningTooltip: m.tooltip("recording", en),
+  frenchTooltip: m.tooltip("recording", fr),
+  frenchStopped: m.phaseLabel("stopped", fr),
+  frenchPresets: m.presets(fr).map(p => p.label),
+  langs: {
+    appFrench: m.lang({...ready, lang: "fr"}, {language: "en"}, "en_US.UTF-8"),
+    appEnglish: m.lang({...ready, lang: "en"}, {}, "fr_FR.UTF-8"),
+    oldApp: m.lang(ready, {}, "fr_FR.UTF-8"),
+    stoppedForced: m.lang(null, {language: "en"}, "fr_FR.UTF-8"),
+    stoppedSystem: m.lang(null, {language: "system"}, "fr_CA.UTF-8"),
+    stoppedOther: m.lang(null, {}, "de_DE.UTF-8"),
+    noLocale: m.lang(null, null, ""),
+    notFrench: m.lang(null, {}, "fy_NL.UTF-8"),
+  },
+  enKeys: Object.keys(en).sort(),
+  frKeys: Object.keys(fr).sort(),
+  enEmpty: Object.keys(en).filter(k => !en[k]),
+  frEmpty: Object.keys(fr).filter(k => !fr[k]),
   idleFrames: [m.frame("ready", 0), m.frame("ready", 5), m.frame("stopped", 3)],
   activeFrames: [m.frame("recording", 0), m.frame("recording", 1), m.frame("transcribing", 16)],
   silence: [m.displayLevel(0), m.displayLevel(0.05), m.displayLevel(NaN)],
@@ -44,8 +64,8 @@ const out = {
   loudCentre: m.barHeight(5, 11, 1, Math.PI / 2 - 4.5, 5, 38),
   loudEdge: m.barHeight(0, 11, 1, Math.PI / 2, 5, 38),
   presets: m.PRESETS.map(p => p.value),
-  labels: m.PRESETS.map(p => m.presetLabel(p.value)),
-  unknownLabel: m.presetLabel("caps_lock_hold"),
+  labels: m.PRESETS.map(p => m.presetLabel(p.value, en)),
+  unknownLabel: m.presetLabel("caps_lock_hold", en),
   updateStopped: m.updateRow(false, null),
   updateOld: m.updateRow(true, ready),
   updateOffer: m.updateRow(true, {...ready, update: {title: "Update available (2.5.0)", action: "update", transient: false}}),
@@ -61,7 +81,12 @@ console.log(JSON.stringify(out));
 def model() -> dict:
     if shutil.which("node") is None:
         pytest.skip("node is not installed")
-    result = subprocess.run(["node", "-e", NODE_SCRIPT, str(MODEL)], capture_output=True, text=True, timeout=20)
+    result = subprocess.run(
+        ["node", "-e", NODE_SCRIPT, str(MODEL), str(I18N / "en.js"), str(I18N / "fr.js")],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
@@ -83,6 +108,46 @@ def test_phase_follows_the_v2_status(model):
 def test_tooltips_name_the_state(model):
     assert model["stoppedTooltip"] == "Whispy stopped"
     assert model["listeningTooltip"] == "Whispy · Listening"
+
+
+def test_the_panel_speaks_whispys_language_else_the_configs_else_the_sessions(model):
+    langs = model["langs"]
+    # Running, Whispy says which language is in force, a menu choice included.
+    assert langs["appFrench"] == "fr"
+    assert langs["appEnglish"] == "en"
+    # Stopped (or too old to say): the forced language, else the locale.
+    assert langs["oldApp"] == "fr"
+    assert langs["stoppedForced"] == "en"
+    assert langs["stoppedSystem"] == "fr"
+    assert langs["stoppedOther"] == "en"
+    assert langs["noLocale"] == "en"
+    assert langs["notFrench"] == "en"
+    assert model["frenchTooltip"] == "Whispy · À l'écoute"
+    assert model["frenchStopped"] == "Whispy arrêté"
+    assert model["frenchPresets"][0] == "Option droite (maintenir)"
+
+
+def test_both_panel_translation_files_have_every_text(model):
+    assert model["enKeys"] == model["frKeys"], "i18n/en.js and i18n/fr.js disagree"
+    assert model["enEmpty"] == [] and model["frEmpty"] == []
+
+
+def test_every_text_the_panel_draws_is_in_the_translation_files():
+    """Without node: each Model.text(…, "key") and preset label resolves in both files."""
+    keys = {
+        name: set(re.findall(r'^\s*"([a-z0-9_.]+)":', (I18N / f"{name}.js").read_text(encoding="utf-8"), re.MULTILINE))
+        for name in ("en", "fr")
+    }
+    assert keys["en"] == keys["fr"], "i18n/en.js and i18n/fr.js disagree"
+    used = set()
+    for path in [*PLUGIN.glob("*.qml"), MODEL]:
+        used |= set(re.findall(r'Model\.text\([^,]+, "([a-z0-9_.]+)"\)', path.read_text(encoding="utf-8")))
+        used |= set(re.findall(r'text\(t, "([a-z0-9_.]+)"\)', path.read_text(encoding="utf-8")))
+    used |= {f"preset.{value}" for value in OMARCHY_TRIGGER_PRESETS}
+    assert used, "no text found"
+    assert used <= keys["en"], f"missing: {sorted(used - keys['en'])}"
+    # The ternary in the start row names its two keys outside a Model.text call.
+    assert {"start", "start.busy"} <= keys["en"]
 
 
 def test_icon_rests_still_and_scrolls_while_working(model):
