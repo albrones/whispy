@@ -2211,7 +2211,7 @@ dependencies = [
 
 [[package]]
 name = "whispy2"
-version = "2.5.0"
+version = "2.5.1"
 dependencies = [
  "block2",
  "core-foundation",

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.5.1] — 2026-11-27
+
+### Fixes
+
+- **v2:** offer an update only when there is one, install on its own click (#68)
+
 ## [2.5.0] — 2026-11-27
 
 ### Features
