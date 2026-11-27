@@ -38,7 +38,7 @@ use crate::menu_model::{
 use crate::settings::{self, Settings};
 use crate::theme::{self, Title};
 use crate::title_anim;
-use crate::update::{self, Updater};
+use crate::update::Updater;
 
 /// What the menu needs to act on a choice. Built on the main thread.
 pub struct Handles {
@@ -429,8 +429,9 @@ impl MenuBar {
                         .spawn();
                 }
             }
-            MenuAction::CheckForUpdates => self.handles.updater.choose(update::Action::Check),
-            MenuAction::InstallUpdate => self.handles.updater.choose(update::Action::Install),
+            MenuAction::InstallUpdate => {
+                self.handles.updater.install();
+            }
             MenuAction::Restart => {
                 self.spawn_restart();
                 self.quit();

@@ -8,8 +8,8 @@ import "Model.js" as Model
 // port, no token, no process per read. One request per connection, one JSON
 // line back: `status` (state, models, last problem, input level) and `last`.
 //
-// The update row (« Check for Updates », « Update to X.Y.Z ») comes with
-// `status`; a click sends its request (`check-update` or `update`) and the
+// The update row (« Update available (X.Y.Z) », only while a release is
+// offered) comes with `status`; a click sends its request (`update`) and the
 // status is read every 500 ms while the row is transient.
 //
 // When it asks: once when the shell starts, on a nudge from the dictation
@@ -115,14 +115,8 @@ Item {
     onAnswered: function(data) { if (data) root.lastText = data.text ? String(data.text) : "" }
   }
 
-  // The update row's requests: their reply is a word, not JSON; the next
+  // The update row's request: its reply is a word, not JSON; the next
   // status shows what changed.
-  Ask {
-    id: checkUpdateAsk
-    request: "check-update"
-    onAnswered: function(data) { root.refresh() }
-  }
-
   Ask {
     id: installUpdateAsk
     request: "update"
@@ -130,9 +124,7 @@ Item {
   }
 
   function runUpdate() {
-    if (!update || update.request === "") return
-    if (update.request === "update") installUpdateAsk.go()
-    else checkUpdateAsk.go()
+    if (update && update.request === "update") installUpdateAsk.go()
   }
 
   function refresh() { statusAsk.go() }

@@ -51,9 +51,9 @@ pub enum Request {
     Status,
     /// The whole text of the last dictation, kept in memory only.
     Last,
-    /// « Check for Updates », as from the menu.
+    /// Checks for a newer release now, as the daily check does.
     CheckUpdate,
-    /// « Update to X.Y.Z »: installs the offered version.
+    /// « Update available (X.Y.Z) »: installs the offered version.
     Update,
 }
 
@@ -217,7 +217,7 @@ pub fn is_failure(reply: &str) -> bool {
 pub fn dispatch(inputs: &Sender<Input>, updater: Option<&Updater>, request: Request) -> String {
     match (request, updater) {
         (Request::CheckUpdate, Some(updater)) => {
-            updater.check(true);
+            updater.check();
             return "ok".into();
         }
         (Request::Update, Some(updater)) => {
@@ -240,7 +240,7 @@ pub fn dispatch(inputs: &Sender<Input>, updater: Option<&Updater>, request: Requ
         Request::Status => status_json(
             &status,
             live(inputs).unwrap_or_default().level,
-            updater.map(Updater::row).as_ref(),
+            updater.and_then(Updater::row).as_ref(),
         ),
         Request::Last => last_json(live(inputs).and_then(|live| live.last_text).as_deref()),
         Request::Start | Request::Toggle if status.state == State::Yielded => {
@@ -542,13 +542,15 @@ mod tests {
             permission_pane: None,
         };
         let row = Row {
-            title: "Update to 2.5.0".into(),
-            action: Some(update::Action::Install),
+            title: "Update available (2.5.0)".into(),
+            enabled: true,
             transient: false,
         };
         assert!(status_json(&status, 0.0, Some(&row)).ends_with(
-            ",\"level\":0.000,\"update\":{\"title\":\"Update to 2.5.0\",\"action\":\"update\",\"transient\":false}}"
+            ",\"level\":0.000,\"update\":{\"title\":\"Update available (2.5.0)\",\"action\":\"update\",\"transient\":false}}"
         ));
+        // Up to date: no row, no `update` key.
+        assert!(status_json(&status, 0.0, None).ends_with(",\"level\":0.000}"));
     }
 
     #[test]
@@ -557,9 +559,8 @@ mod tests {
         let (inputs, _unused) = mpsc::channel();
         let updater = Updater::with(
             Version(2, 4, 0),
-            || Checked::Latest(Version(2, 4, 0)),
+            || Checked::Latest(Version(2, 5, 0)),
             |_| Installed::Done,
-            Duration::from_secs(5),
         );
         assert!(dispatch(&inputs, Some(&updater), Request::Update).starts_with("refused"));
         assert_eq!(
@@ -567,10 +568,11 @@ mod tests {
             "ok"
         );
         let deadline = Instant::now() + Duration::from_secs(5);
-        while updater.row().title != "Whispy is up to date" {
+        while updater.row().is_none() {
             assert!(Instant::now() < deadline, "{:?}", updater.row());
             thread::sleep(Duration::from_millis(5));
         }
+        assert_eq!(dispatch(&inputs, Some(&updater), Request::Update), "ok");
         assert!(dispatch(&inputs, None, Request::CheckUpdate).starts_with("refused"));
     }
 

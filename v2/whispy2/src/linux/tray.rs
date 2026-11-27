@@ -1,6 +1,6 @@
 //! The X11 tray icon (StatusNotifierItem): the state at a glance (a grey ring
 //! at rest, a red dot while listening), the status line, the update row
-//! (« Check for Updates », « Update to X.Y.Z ») and Quit.
+//! (« Update available (X.Y.Z) », only when there is one) and Quit.
 //!
 //! V1's rule holds: an icon is decoration and must never stop dictation. When
 //! it cannot start (no D-Bus session, no tray host in the panel) the caller
@@ -26,8 +26,8 @@ pub struct WhispyTray {
     pub listening: bool,
     /// The status line (« Ready — hold the trigger key to dictate », a problem).
     pub status: String,
-    /// The update row, as the updater last reported it.
-    pub update: Row,
+    /// The update row, as the updater last reported it; `None`: up to date.
+    pub update: Option<Row>,
     updater: Updater,
     quit: Sender<()>,
 }
@@ -92,7 +92,7 @@ impl ksni::Tray for WhispyTray {
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        vec![
+        let mut items = vec![
             StandardItem {
                 label: self.status.clone(),
                 enabled: false,
@@ -100,17 +100,21 @@ impl ksni::Tray for WhispyTray {
             }
             .into(),
             MenuItem::Separator,
-            StandardItem {
-                label: self.update.title.clone(),
-                enabled: self.update.action.is_some(),
-                activate: Box::new(|tray: &mut Self| {
-                    if let Some(action) = tray.update.action {
-                        tray.updater.choose(action);
-                    }
-                }),
-                ..Default::default()
-            }
-            .into(),
+        ];
+        if let Some(update) = &self.update {
+            items.push(
+                StandardItem {
+                    label: update.title.clone(),
+                    enabled: update.enabled,
+                    activate: Box::new(|tray: &mut Self| {
+                        tray.updater.install();
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+        items.push(
             StandardItem {
                 label: "Quit".into(),
                 activate: Box::new(|tray: &mut Self| {
@@ -119,7 +123,8 @@ impl ksni::Tray for WhispyTray {
                 ..Default::default()
             }
             .into(),
-        ]
+        );
+        items
     }
 
     fn watcher_offline(&self, reason: ksni::OfflineReason) -> bool {
@@ -163,45 +168,56 @@ mod tests {
         use crate::update::{Checked, Installed, Version};
         Updater::with(
             Version(2, 4, 0),
-            || Checked::Latest(Version(2, 4, 0)),
+            || Checked::Latest(Version(2, 5, 0)),
             |_| Installed::Done,
-            std::time::Duration::from_secs(5),
         )
     }
 
-    #[test]
-    fn the_menu_shows_the_status_and_quit_reaches_the_app() {
-        let (quit, quitted) = std::sync::mpsc::channel();
-        let mut tray = WhispyTray::new(quit, test_updater());
-        tray.status = "Ready".into();
-        let menu = ksni::Tray::menu(&tray);
-        let labels: Vec<_> = menu
+    fn labels(tray: &WhispyTray) -> Vec<String> {
+        ksni::Tray::menu(tray)
             .iter()
             .filter_map(|item| match item {
                 MenuItem::Standard(item) => Some(item.label.clone()),
                 _ => None,
             })
-            .collect();
-        assert_eq!(labels, ["Ready", "Check for Updates", "Quit"]);
-        if let MenuItem::Standard(quit_item) = &menu[3] {
+            .collect()
+    }
+
+    #[test]
+    fn up_to_date_the_menu_shows_the_status_and_quit_reaches_the_app() {
+        let (quit, quitted) = std::sync::mpsc::channel();
+        let mut tray = WhispyTray::new(quit, test_updater());
+        tray.status = "Ready".into();
+        assert_eq!(labels(&tray), ["Ready", "Quit"]);
+        let menu = ksni::Tray::menu(&tray);
+        if let MenuItem::Standard(quit_item) = &menu[2] {
             (quit_item.activate)(&mut tray);
         }
         assert!(quitted.try_recv().is_ok());
     }
 
     #[test]
-    fn the_update_item_runs_the_rows_action() {
+    fn an_offered_update_shows_and_installs_on_its_own_click() {
         let (quit, _quitted) = std::sync::mpsc::channel();
         let updater = test_updater();
         let mut tray = WhispyTray::new(quit, updater.clone());
+        updater.check();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while updater.row().is_none() {
+            assert!(std::time::Instant::now() < deadline, "no offer");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        tray.update = updater.row();
+        tray.status = "Ready".into();
+        assert_eq!(labels(&tray), ["Ready", "Update available (2.5.0)", "Quit"]);
         let menu = ksni::Tray::menu(&tray);
         let MenuItem::Standard(item) = &menu[2] else {
             panic!("the update item is a standard item")
         };
         assert!(item.enabled);
         (item.activate)(&mut tray);
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while updater.row().title != "Whispy is up to date" {
+        // The fake install ends without a restart: the offer is gone.
+        while updater.row().is_some() {
             assert!(std::time::Instant::now() < deadline, "{:?}", updater.row());
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
