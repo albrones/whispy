@@ -1,0 +1,20 @@
+Peux-tu relancer le build et vérifier que les tests passent avant de merger la pull request.
+Le déploiement sur Kubernetes a échoué parce que le pod n'arrivait pas à joindre la base de données.
+J'ai ajouté un endpoint REST qui renvoie la liste des utilisateurs au format JSON.
+Il faut mettre à jour la dépendance React et corriger les warnings du linter.
+Le cache Redis expire au bout de trente minutes, ce qui explique la latence le matin.
+Ouvre une issue sur GitHub pour suivre le bug du mode sombre.
+On garde le feature flag désactivé en production jusqu'à la fin de la recette.
+La pipeline CI tourne sur GitHub Actions et publie l'image Docker sur le registry.
+Je préfère un rebase plutôt qu'un merge commit pour garder un historique propre.
+Le modèle de reconnaissance vocale tourne en local avec ONNX Runtime sur le Mac.
+Ajoute un test unitaire qui couvre le cas où le fichier de configuration est vide.
+La réunion de demain est décalée à quatorze heures, pense à prévenir l'équipe.
+Le serveur renvoie une erreur cinq cent quand le token d'authentification a expiré.
+Il faudrait refactorer ce composant pour séparer la logique métier de l'affichage.
+On a trois tickets en review et deux en attente de déploiement sur la staging.
+Le microphone ne capte rien tant que l'application n'a pas l'autorisation dans les réglages.
+Envoie-moi le lien du dashboard Grafana avec les métriques de la semaine dernière.
+La migration de la base PostgreSQL prendra environ vingt minutes de downtime.
+Pense à lancer cargo clippy avant de pousser, sinon la CI va refuser la branche.
+Le webhook Slack notifie le canal quand une release est publiée sur main.
