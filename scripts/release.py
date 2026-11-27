@@ -11,7 +11,7 @@ HEAD and picks the bump:
 - anything else (``chore``, ``docs``, ``test``...) -> no release
 
 When a release is due it writes the new version into every file that carries
-it (the V2 crate and its lock entry, the V1 package, the website's menu demo),
+it (the V2 crate and its lock entry, the website's menu demo),
 moves the CHANGELOG's ``[Unreleased]`` notes under a new version heading with
 the list of features and fixes, writes the same notes to ``--notes`` for the
 GitHub release, and prints the version. It prints nothing when no release is
