@@ -16,6 +16,16 @@
   `POST /transcribe` and `GET /level` (the control socket's `status` carries
   the level).
 
+## [2.3.0] — 2026-11-26
+
+### Features
+
+- **v2-linux:** Omarchy keys and bar panel on the V2 control socket (2/3) (#61)
+
+### Fixes
+
+- **v2:** live dictation holds exactly what a number decision still reads (« million », « heures ») (#60)
+
 ## [2.2.0] — 2026-11-26
 
 ### Features
