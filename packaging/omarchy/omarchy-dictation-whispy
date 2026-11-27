@@ -20,8 +20,8 @@ config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/whispy"
 config_file="$config_dir/config.json"
 shortcuts_file="$config_dir/shortcuts.lua"
 
-# The order the bar panel lists them in; must match OMARCHY_TRIGGER_PRESETS in
-# src/whispy/core/config.py (a test checks it).
+# The order the bar panel lists them in; must match PRESETS in the panel's
+# Model.js and omarchy_trigger in docs/src/config-schema.json (a test checks it).
 presets=(right_option_hold right_ctrl_hold f9_hold left_option_space_toggle)
 
 # Tell the bar widget something changed, so its icon follows without polling.

@@ -11,9 +11,12 @@ set -euo pipefail
 #             /Applications and launches it. The app downloads its speech
 #             models on first launch. A V1 Whispy.app is quit and moved to the
 #             Trash: V2 is the only macOS version.
-#   Linux  -> Whispy V1 (Python) until V2 reaches Linux: installs the missing
-#             system packages (apt, dnf or pacman, through sudo), then
-#             install.sh (venv + systemd --user unit).
+#   Linux  -> Whispy V2 (Rust): installs the missing system packages (apt,
+#             dnf or pacman, through sudo), the Rust toolchain when it is
+#             missing, then packaging/linux/reinstall.sh: builds whispy2,
+#             installs it to ~/.local/bin and runs it as the systemd --user
+#             unit whispy2.service. A Whispy V1 install (Python venv and its
+#             whispy.service unit) is stopped and removed.
 #
 # Rerunning it updates an existing install.
 #
@@ -26,7 +29,7 @@ set -euo pipefail
 # Uninstall:
 #   curl -fsSL .../bootstrap.sh | bash -s -- --uninstall
 
-# Colors (matched to install.sh)
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -45,9 +48,8 @@ echo -e "${YELLOW}=== Whispy bootstrap ===${NC}"
 echo ""
 
 # --- Uninstall ---------------------------------------------------------------
-# install.sh also offers to remove user data (config incl. API token, logs,
-# and the downloaded model cache) -- interactively only, so this stays safe to
-# pipe via `curl | bash` with no TTY (see install.sh).
+# Settings (~/.config/whispy) and models (~/.whispy) are kept: a reinstall
+# would otherwise download the models again.
 if [[ "${1:-}" == "--uninstall" ]]; then
     if [ "$OS" = "Darwin" ] && [ -d "$V2_APP" ]; then
         echo -e "${YELLOW}Quitting and removing $V2_APP...${NC}"
@@ -58,9 +60,11 @@ if [[ "${1:-}" == "--uninstall" ]]; then
         rm -rf "$V2_APP"
         echo "Its models stay in ~/.whispy/models (delete that folder to get the space back)."
     fi
-    if [ -x "$WHISPY_HOME/install.sh" ]; then
-        echo -e "${YELLOW}Running Whispy uninstall...${NC}"
-        "$WHISPY_HOME/install.sh" --uninstall || true
+    if [ "$OS" = "Linux" ] && [ -x "$WHISPY_HOME/packaging/linux/reinstall.sh" ]; then
+        "$WHISPY_HOME/packaging/linux/reinstall.sh" --uninstall || true
+    elif [ -x "$WHISPY_HOME/install.sh" ]; then
+        # A checkout from before V2 reached Linux: V1's own uninstaller.
+        "$WHISPY_HOME/install.sh" --uninstall </dev/null || true
     fi
     echo -e "${YELLOW}Removing $WHISPY_HOME...${NC}"
     rm -rf "$WHISPY_HOME"
@@ -88,42 +92,35 @@ linux_session() {
     fi
 }
 
-has_portaudio() {
-    { command -v ldconfig >/dev/null 2>&1 && ldconfig -p 2>/dev/null | grep -q 'libportaudio\.so'; } \
-        || compgen -G "/usr/lib*/libportaudio.so*" >/dev/null \
-        || compgen -G "/usr/lib/*/libportaudio.so*" >/dev/null
+# Is package $2 installed, for package manager $1?
+linux_has_package() {
+    case "$1" in
+        apt) dpkg-query -W -f='${Status}' "$2" 2>/dev/null | grep -q 'ok installed' ;;
+        dnf) rpm -q --whatprovides "$2" >/dev/null 2>&1 ;;
+        pacman) pacman -Q "$2" >/dev/null 2>&1 || pacman -Qg "$2" >/dev/null 2>&1 ;;
+    esac
 }
 
-# Prints the packages this machine lacks, named for package manager $1.
+# Prints the packages this machine lacks, named for package manager $1: what
+# building whispy2 needs (a C/C++ toolchain, cmake and clang for whisper.cpp,
+# pkg-config with the ALSA and xkbcommon headers), curl (rustup, and the
+# models at first launch), notify-send for alerts, and the session's clipboard
+# tool (the 5-minute watchdog leaves the text there).
 linux_missing_packages() {
-    local manager="$1" session missing=()
-    session="$(linux_session)"
-    command -v git >/dev/null 2>&1 || missing+=(git)
-    if ! command -v python3 >/dev/null 2>&1; then
-        case "$manager" in pacman) missing+=(python) ;; *) missing+=(python3) ;; esac
-    fi
-    # Debian and Ubuntu ship python3 without venv/ensurepip.
-    if [ "$manager" = "apt" ] && ! python3 -c 'import ensurepip, venv' >/dev/null 2>&1; then
-        missing+=(python3-venv)
-    fi
-    if [ "$session" = "wayland" ]; then
-        command -v wtype >/dev/null 2>&1 || missing+=(wtype)
-        command -v wl-copy >/dev/null 2>&1 || missing+=(wl-clipboard)
+    local manager="$1" wanted=() missing=() package
+    case "$manager" in
+        apt) wanted=(git curl ca-certificates build-essential cmake clang libclang-dev pkg-config libasound2-dev libxkbcommon-dev libnotify-bin) ;;
+        dnf) wanted=(git curl gcc gcc-c++ make cmake clang clang-devel pkgconf-pkg-config alsa-lib-devel libxkbcommon-devel libnotify) ;;
+        pacman) wanted=(git curl base-devel cmake clang pkgconf alsa-lib libxkbcommon libnotify) ;;
+    esac
+    if [ "$(linux_session)" = "wayland" ]; then
+        wanted+=(wl-clipboard)
     else
-        command -v xdotool >/dev/null 2>&1 || missing+=(xdotool)
-        { command -v xclip >/dev/null 2>&1 || command -v xsel >/dev/null 2>&1; } || missing+=(xclip)
+        wanted+=(xclip)
     fi
-    # pip builds evdev (pynput's Linux backend) from source: no wheel exists.
-    command -v gcc >/dev/null 2>&1 || missing+=(gcc)
-    if ! python3 -c 'import os, sysconfig; raise SystemExit(not os.path.exists(os.path.join(sysconfig.get_paths()["include"], "Python.h")))' >/dev/null 2>&1; then
-        case "$manager" in apt) missing+=(python3-dev) ;; dnf) missing+=(python3-devel) ;; esac
-    fi
-    if [ ! -f /usr/include/linux/input.h ]; then
-        case "$manager" in apt) missing+=(linux-libc-dev) ;; dnf) missing+=(kernel-headers) ;; pacman) missing+=(linux-api-headers) ;; esac
-    fi
-    if ! has_portaudio; then
-        case "$manager" in apt) missing+=(libportaudio2) ;; *) missing+=(portaudio) ;; esac
-    fi
+    for package in "${wanted[@]}"; do
+        linux_has_package "$manager" "$package" || missing+=("$package")
+    done
     echo "${missing[*]:-}"
 }
 
@@ -134,7 +131,8 @@ install_linux_packages() {
     elif command -v pacman >/dev/null 2>&1; then manager=pacman
     fi
     if [ -z "$manager" ]; then
-        echo -e "${YELLOW}[!] No apt, dnf or pacman here: install.sh will list what is missing.${NC}"
+        echo -e "${YELLOW}[!] No apt, dnf or pacman here. Install git, curl, a C/C++ toolchain, cmake, clang,${NC}"
+        echo -e "${YELLOW}    pkg-config, the ALSA and xkbcommon headers and notify-send yourself.${NC}"
         return 0
     fi
     packages="$(linux_missing_packages "$manager")"
@@ -195,7 +193,7 @@ fi
 echo -e "${GREEN}[OK] Source ready at $WHISPY_HOME${NC}"
 echo ""
 
-# --- macOS: Whispy V2 ----------------------------------------------------------------
+# --- Whispy V2: the toolchain ----------------------------------------------------------
 ensure_rust() {
     [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
     if command -v cargo >/dev/null 2>&1; then
@@ -208,14 +206,19 @@ ensure_rust() {
     echo -e "${GREEN}[OK] Rust $(cargo --version | awk '{print $2}')${NC}"
 }
 
-# cmake builds whisper.cpp. Homebrew's when there is a Homebrew, else the
-# cmake wheel in a private venv (python3 comes with the Command Line Tools).
+# cmake builds whisper.cpp. Linux: the system package (installed above).
+# macOS: Homebrew's when there is a Homebrew, else the cmake wheel in a
+# private venv (python3 comes with the Command Line Tools).
 ensure_cmake() {
     local tools="$WHISPY_HOME/.tools"
     [ -x "$tools/bin/cmake" ] && export PATH="$tools/bin:$PATH"
     if command -v cmake >/dev/null 2>&1; then
         echo -e "${GREEN}[OK] cmake $(cmake --version | awk 'NR==1{print $3}')${NC}"
         return 0
+    fi
+    if [ "$OS" = "Linux" ]; then
+        echo -e "${RED}Error: cmake is missing. Install it with your package manager and rerun.${NC}"
+        exit 1
     fi
     echo -e "${YELLOW}Installing cmake...${NC}"
     if command -v brew >/dev/null 2>&1; then
@@ -284,14 +287,29 @@ install_macos() {
     echo "  - check \"Start at login\" in its menu."
 }
 
+install_linux() {
+    ensure_rust
+    ensure_cmake
+    # Builds whispy2, replaces a V1 install, installs ~/.local/bin/whispy2 and
+    # the whispy2.service unit, starts it and waits for it.
+    "$WHISPY_HOME/packaging/linux/reinstall.sh"
+    echo ""
+    echo -e "${GREEN}Whispy is installed.${NC} It starts with your session (systemd --user unit whispy2)."
+    echo "First launch downloads the speech models (about 1.2 GB) into ~/.whispy/models."
+    if [ "$(linux_session)" = "wayland" ]; then
+        echo "Wayland: bind a key of your compositor to dictate:"
+        echo "  press: whispy2 send start   release: whispy2 send stop   (or: whispy2 send toggle)"
+        echo "  Omarchy: omarchy-dictation-use whispy && hyprctl reload, then hold the key"
+        echo "  picked in Whispy's bar panel (Right Option by default)."
+    else
+        echo "X11: hold Right Ctrl while you speak, release to insert the text."
+    fi
+    echo "Logs: journalctl --user -u whispy2 -f   (and ~/.whispy/v2/whispy2.log)"
+}
+
 case "$OS" in
 Linux)
-    if ! command -v python3 &>/dev/null; then
-        echo -e "${RED}Error: python3 is not installed. Please install it and rerun this script.${NC}"
-        exit 1
-    fi
-    # Linux runs V1 (venv + systemd --user unit) until V2 reaches Linux.
-    exec "$WHISPY_HOME/install.sh"
+    install_linux
     ;;
 Darwin)
     install_macos

@@ -1,5 +1,5 @@
 /* Config builder for the Whispy docs. No dependencies, works from file://.
- * Mirrors the validation of _validate_config in src/whispy/core/config.py: keep them in sync.
+ * Mirrors how Whispy reads ~/.config/whispy/config.json (v2/whispy2/src/settings.rs): keep them in sync.
  * Pure logic (validate, diffFromDefaults, parseRaw) is exported for node; DOM code only runs in a
  * browser when #config-builder exists. */
 "use strict";
@@ -21,8 +21,7 @@ function validate(key, value, values, schema) {
     case "trigger":
       if (value === null) return null;
       if (typeof value === "number") return Number.isInteger(value) && value >= 0 ? null : "A keycode must be a whole number, 0 or more.";
-      if (typeof value === "string") return value.trim() !== "" ? null : "Leave empty for the platform default.";
-      return "Enter a key name, a keycode, or leave empty.";
+      return "Enter a keycode (54, 61, 105), or leave empty for Fn.";
     case "str_list":
       if (!Array.isArray(value)) return "Must be a list.";
       return value.every((t) => typeof t === "string" && t.trim() !== "" && t === t.trim()) ? null : "Terms must be non-empty text.";
@@ -140,7 +139,7 @@ function initConfigBuilder() {
       if (spec.le != null) control.setAttribute("max", spec.le);
       control.value = formatValue(spec, spec.default);
     } else if (spec.kind === "trigger") {
-      control = h("input", { type: "text", id, placeholder: "platform default (Fn / Right Ctrl)", autocomplete: "off", spellcheck: "false" });
+      control = h("input", { type: "text", id, placeholder: "Fn (empty), or a keycode", autocomplete: "off", spellcheck: "false" });
     } else {
       control = h("textarea", { id, rows: "3", placeholder: "one term per line", spellcheck: "false" });
       control.value = formatValue(spec, spec.default);

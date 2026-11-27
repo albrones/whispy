@@ -1,81 +1,19 @@
-[build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "whispy"
-version = "2.2.0"
-description = "Cross-platform (macOS / Linux-X11) speech-to-text daemon"
-requires-python = ">=3.10"
-dependencies = [
-    # Transcription: NVIDIA Parakeet TDT 0.6b v3 as int8 ONNX, run through
-    # onnxruntime. Pulls only numpy + onnxruntime (the NeMo toolkit would drag
-    # in PyTorch, ~2.5 GB, for a menu-bar daemon). `hub` adds huggingface_hub
-    # for the weight download.
-    "onnx-asr[cpu,hub]",
-    # Cross-platform audio capture (PortAudio). Hard runtime dependency.
-    "sounddevice",
-    # Voice-activity detection for streaming segmentation. The maintained
-    # binary-wheel fork (no pkg_resources/setuptools runtime dep; works on
-    # Python 3.12+). The segmenter degrades to an energy gate if it is absent.
-    "webrtcvad-wheels",
-    # macOS-only: CGEventTap hotkey + rumps menu bar.
-    "pyobjc-framework-Quartz; sys_platform=='darwin'",
-    # macOS-only: AVFoundation drives the microphone TCC prompt + status check
-    # (doctor.py, platform/macos/permissions.py).
-    "pyobjc-framework-AVFoundation; sys_platform=='darwin'",
-    # macOS-only: ApplicationServices provides the Accessibility check + prompt
-    # (AXIsProcessTrusted / AXIsProcessTrustedWithOptions).
-    "pyobjc-framework-ApplicationServices; sys_platform=='darwin'",
-    "rumps; sys_platform=='darwin'",
-    # macOS bundle: setup_app.py force-includes certifi's CA bundle for HTTPS
-    # model downloads. huggingface_hub no longer pulls it in (httpx2 +
-    # truststore), so a fresh venv could not build the app without it.
-    "certifi; sys_platform=='darwin'",
-    # Linux/X11-only: pynput hotkey + pystray tray (Pillow renders the icon).
-    # Text injection additionally needs the `xdotool` system binary — see README.
-    "pynput; sys_platform=='linux'",
-    "pystray; sys_platform=='linux'",
-    "Pillow; sys_platform=='linux'",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-    "pytest-mock>=3.10",
-    "pytest-timeout>=2.3",
-    # Exact, not a floor: CI runs `ruff format --check` and a newer ruff
-    # formats differently, so a floating dev ruff silently reformats the repo
-    # against CI. Bump this, .pre-commit-config.yaml and ci.yml together.
-    "ruff==0.15.21",
-    "pre-commit>=3.0",
-]
-
-[tool.setuptools.packages.find]
-where = ["src"]
+# Whispy is the Rust app in v2/. Python here is repository tooling only:
+# scripts/release.py (versions), scripts/build_docs.py (the docs site) and the
+# pytest guards of the website, docs, install scripts and Omarchy packaging.
+# Its dependencies are in requirements-dev.txt.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
-# Real-model / live-hardware tests are marked per-OS and excluded from the
-# default run (slow, model download, live hardware). Run them with
-# `pytest -m macos` or `pytest -m linux`.
-addopts = "-m 'not macos and not linux'"
-markers = [
-    "macos: requires macOS (real Whisper model, live hardware, CGEventTap/rumps)",
-    "linux: requires a live Linux/X11 session (pynput, xdotool, pystray, real audio)",
-]
-# Bounds a single test's runtime so a hang fails fast instead of blocking the
-# job until the CI-level timeout (up to 6h by default). The macos-real-seam
-# CI job overrides this with a longer --timeout for real model load/inference.
+# Bounds a single test's runtime so a hang fails fast.
 timeout = 120
 timeout_method = "thread"
 
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-src = ["src", "tests"]
+src = ["scripts", "tests"]
+extend-exclude = ["v2/target"]
 
 [tool.ruff.lint]
 # E/W: pycodestyle, F: pyflakes, I: isort, UP: pyupgrade, B: bugbear
@@ -85,31 +23,4 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests set up sys.path before importing whispy (E402) and use lambdas as
-# lightweight callbacks (E731); both are intentional in the test suite.
 "tests/*" = ["B011", "E402", "E731"]
-# The daemon entry point adjusts sys.path before importing the package.
-"whispy_daemon.py" = ["E402"]
-
-[tool.coverage.run]
-source = ["src/whispy"]
-# Omit only the irreducible Cocoa/rumps/sounddevice and Quartz call sites.
-# Pure logic extracted out of them (ui/unicode_anim.py, core/paths.py,
-# hardware/event_decode.py) stays covered.
-omit = [
-    "src/whispy/ui/menu_bar.py",
-    "src/whispy/ui/waveform_window.py",
-    "src/whispy/hardware/event_tap.py",
-    # Real-seam platform adapters (live OS bindings, exercised in per-OS tiers).
-    "src/whispy/platform/macos/notifier.py",
-    "src/whispy/platform/linux/hotkey.py",
-    "src/whispy/platform/linux/tray.py",
-    "src/whispy/platform/linux/notifier.py",
-]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "if __name__ == .__main__.",
-    "pass",
-]

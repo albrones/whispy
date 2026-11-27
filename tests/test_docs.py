@@ -1,10 +1,8 @@
 """Doc-code parity guard tests.
 
-Mirrors the ``tests/test_website.py`` pattern (plain pytest functions reading
-doc files as text) but scoped to README.md, AGENTS.md, CHANGELOG.md, and the
-``tests/`` directory listing, so the highest-value, cheapest-to-check facts
-in the non-website docs can't silently drift from the code again (see
-``openspec/changes/sync-docs-with-code``).
+Plain pytest functions reading doc files as text, so the cheapest-to-check
+facts in README.md, AGENTS.md, CONTRIBUTING.md, CHANGELOG.md and the docs site
+can't silently drift from the code.
 """
 
 import html
@@ -14,15 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from whispy.core.config import DEFAULT_CONFIG
-
 ROOT = Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
 AGENTS = ROOT / "AGENTS.md"
 CHANGELOG = ROOT / "CHANGELOG.md"
 CONTRIBUTING = ROOT / "CONTRIBUTING.md"
-TESTS_DIR = ROOT / "tests"
 DOCS_DIR = ROOT / "website" / "docs"
+SCHEMA = ROOT / "docs" / "src" / "config-schema.json"
+SETTINGS_RS = ROOT / "v2" / "whispy2" / "src" / "settings.rs"
 DOCS_BASE = "https://whispy-dun.vercel.app/docs/"
 INSTALL_ONE_LINER = "curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash"
 
@@ -49,6 +46,21 @@ def contributing() -> str:
 
 
 @pytest.fixture(scope="module")
+def agents() -> str:
+    return AGENTS.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def changelog() -> str:
+    return CHANGELOG.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def schema() -> dict:
+    return json.loads(SCHEMA.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
 def config_rows() -> dict[str, str]:
     """Map each documented config key to its Default cell text (HTML-unescaped)."""
     page = (DOCS_DIR / "config.html").read_text(encoding="utf-8")
@@ -57,24 +69,8 @@ def config_rows() -> dict[str, str]:
     rows = {}
     for key, cells in re.findall(r'<tr id="cfg-([^"]+)">(.*?)</tr>', table.group(1), re.DOTALL):
         tds = re.findall(r"<td>(.*?)</td>", cells, re.DOTALL)
-        default = re.sub(r"</?code>", "", tds[1])
-        rows[key] = html.unescape(default)
+        rows[key] = html.unescape(re.sub(r"</?code>", "", tds[1]))
     return rows
-
-
-@pytest.fixture(scope="module")
-def usage_page() -> str:
-    return (DOCS_DIR / "usage.html").read_text(encoding="utf-8")
-
-
-@pytest.fixture(scope="module")
-def agents() -> str:
-    return AGENTS.read_text(encoding="utf-8")
-
-
-@pytest.fixture(scope="module")
-def changelog() -> str:
-    return CHANGELOG.read_text(encoding="utf-8")
 
 
 def _section(text: str, heading: str) -> str:
@@ -87,110 +83,89 @@ def _section(text: str, heading: str) -> str:
     return text[start:end]
 
 
-def _test_table_paths(contributing_text: str) -> list[str]:
-    section = _section(contributing_text, "Test suite")
-    return re.findall(r"`(tests/[^`]+\.py(?:::[^`]+)?)`", section)
+# --- The documented config keys are the ones Whispy reads -------------------
 
 
-# --- Documented defaults match code -----------------------------------------
+def test_config_schema_lists_every_key_the_app_reads(schema: dict):
+    """settings.rs reads its keys with `root.get("<key>")`; the panel adds omarchy_trigger."""
+    read = set(re.findall(r'root\.get\("([a-z_]+)"\)', SETTINGS_RS.read_text(encoding="utf-8")))
+    assert read, "no root.get(...) key found in settings.rs"
+    assert set(schema) == read | {"omarchy_trigger"}
 
 
-def test_docs_do_not_document_removed_config_keys(config_rows: dict[str, str]):
-    """Keys that configured the Whisper decoder must not appear as settings."""
-    for gone in ("model_size", "language", "beam_size", "best_of", "auto_detect_min_duration"):
-        assert gone not in config_rows, f"config docs still document the removed `{gone}` setting"
+def test_config_docs_document_the_schema(schema: dict, config_rows: dict[str, str]):
+    assert set(config_rows) == set(schema)
+    for key, spec in schema.items():
+        assert config_rows[key] == json.dumps(spec["default"]), f"docs default for `{key}` drifted"
 
 
-def test_readme_names_the_model_that_actually_runs(readme: str):
-    """The README must present Parakeet as the engine, not Whisper.
-
-    faster-whisper may still be *named* — the upgrade note points at the stale
-    model cache — but never as the thing that transcribes.
-    """
-    lowered = readme.lower()
-    assert "parakeet" in lowered
-
-    for line in lowered.splitlines():
-        if "faster-whisper" not in line:
-            continue
-        # Allowed: the stale-cache path and the sentence retiring it.
-        assert "no longer used" in line or "models--systran--faster-whisper" in line, (
-            f"README still presents faster-whisper as the engine: {line.strip()!r}"
-        )
+def test_docs_do_not_document_v1_only_config_keys(config_rows: dict[str, str]):
+    for gone in ("custom_vocabulary", "pause_ms", "max_chunk_s", "min_recording_duration", "tray_icon", "model_size"):
+        assert gone not in config_rows
 
 
-# --- Complete config key reference ------------------------------------------
+def test_settings_defaults_match_the_schema(schema: dict):
+    """`impl Default for Settings` in settings.rs states the defaults the docs show."""
+    text = SETTINGS_RS.read_text(encoding="utf-8")
+    block = re.search(r"impl Default for Settings \{(.*?)\n\}", text, re.DOTALL)
+    assert block is not None
+    body = block.group(1)
+    assert f"copy_to_clipboard: {json.dumps(schema['copy_to_clipboard']['default'])}" in body
+    assert f"type_while_speaking: {json.dumps(schema['type_while_speaking']['default'])}" in body
+    assert schema["trigger_mode"]["default"] == "hold" and "trigger_mode: TriggerMode::Hold" in body
+    assert schema["trigger"]["default"] is None and "trigger: Trigger::fn_key()" in body
 
 
-def test_config_docs_cover_every_default_config_key(config_rows: dict[str, str]):
-    missing = set(DEFAULT_CONFIG.keys()) - set(config_rows)
-    assert not missing, f"DEFAULT_CONFIG keys missing from docs/config.html: {missing}"
+# --- V1 is gone from what users read (issue #54, criterion 3) ---------------
 
 
-def test_config_docs_defaults_match_code(config_rows: dict[str, str]):
-    for key, default in DEFAULT_CONFIG.items():
-        assert config_rows[key] == json.dumps(default), (
-            f"docs default for `{key}` is {config_rows[key]!r}, code says {json.dumps(default)!r}"
-        )
+def _user_pages() -> dict[str, str]:
+    pages = {"website/index.html": (ROOT / "website" / "index.html").read_text(encoding="utf-8")}
+    for page in sorted(DOCS_DIR.glob("*.html")):
+        pages[f"website/docs/{page.name}"] = page.read_text(encoding="utf-8")
+    return pages
 
 
-# --- API examples are authenticated and correctly attributed ---------------
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        r"\bV1\b",
+        r"coming (to Linux )?soon",
+        r"reaches Linux",
+        r"V2 reaches",
+        "9090",
+        "config.token",
+        "make doctor",
+        "install.sh",
+        "custom_vocabulary",
+        r"\.venv",
+    ],
+)
+def test_site_and_docs_no_longer_mention_v1(phrase: str):
+    hits = [name for name, text in _user_pages().items() if re.search(phrase, text, re.IGNORECASE)]
+    assert not hits, f"{phrase!r} still appears in {hits}"
 
 
-def test_usage_docs_port_attribution(usage_page: str):
-    assert "defined near the top of <code>src/whispy/api/server.py</code>" in usage_page
-    assert "defined near the top of <code>whispy_daemon.py</code>" not in usage_page
+def test_readme_points_at_the_v1_tag_only_as_history(readme: str):
+    assert "/tree/v1" in readme
+    assert "coming to Linux" not in readme
+    assert "make doctor" not in readme
 
 
-def test_agents_curl_examples_include_auth_header(agents: str):
-    """Every curl example against the local API includes the bearer-token header."""
-    curl_lines = [line for line in agents.splitlines() if "curl" in line and "localhost:9090" in line]
-    assert curl_lines, "expected at least one curl example against the local API in AGENTS.md"
-    for line in curl_lines:
-        assert "Authorization: Bearer" in line, f"curl example missing auth header: {line!r}"
-
-
-def test_install_sh_smoke_test_curl_includes_auth_header():
-    install_sh = (ROOT / "install.sh").read_text(encoding="utf-8")
-    curl_lines = [line for line in install_sh.splitlines() if "curl" in line and "localhost:9090" in line]
-    assert curl_lines, "expected a smoke-test curl example in install.sh"
-    for line in curl_lines:
-        assert "Authorization: Bearer" in line, f"curl example missing auth header: {line!r}"
-
-
-# --- Platform description reflects cross-platform support ------------------
-
-
-def test_agents_platform_line_not_macos_only(agents: str):
-    assert "macOS (Apple Silicon/Intel) only" not in agents
-    assert "Linux" in agents
-
-
-def test_agents_lists_linux_dependencies(agents: str):
-    for dep in ("pynput", "pystray", "Pillow"):
-        assert dep in agents, f"{dep} missing from AGENTS.md tech-stack list"
+def test_agents_describes_the_rust_app(agents: str):
+    assert "Language:** Python 3" not in agents
+    assert "Rust" in agents
+    assert "localhost:9090" not in agents
 
 
 # --- Test suite documentation matches the tests/ directory -----------------
 
 
 def test_contributing_test_table_paths_exist(contributing: str):
-    paths = _test_table_paths(contributing)
+    paths = re.findall(r"`(tests/[^`]+\.py)`", _section(contributing, "Running the tests"))
     assert paths, "CONTRIBUTING.md test table lists no test files"
     for path in paths:
-        file_path = path.split("::")[0]
-        assert (ROOT / file_path).is_file(), f"CONTRIBUTING references nonexistent test file: {file_path}"
-
-
-def test_contributing_does_not_reference_test_stress(contributing: str):
-    assert "test_stress.py" not in contributing
-
-
-def test_contributing_error_handling_description_has_no_sox_claim(contributing: str):
-    section = _section(contributing, "Test suite")
-    line = next((li for li in section.splitlines() if "test_error_handling.py" in li), None)
-    assert line is not None, "test_error_handling.py row not found in CONTRIBUTING test table"
-    assert "sox" not in line.lower()
+        assert (ROOT / path).is_file(), f"CONTRIBUTING references nonexistent test file: {path}"
 
 
 # --- README stays short and points at the docs -----------------------------
@@ -216,16 +191,9 @@ def test_readme_one_liner_precedes_documentation_heading(readme: str):
     assert readme.index(INSTALL_ONE_LINER) < readme.index("## Documentation")
 
 
-# --- Feature documentation parity -------------------------------------------
-
-
 def test_docs_do_not_advertise_correction_learning(readme: str):
-    """The adaptive-correction feature was removed (tracked in issue #8);
-    docs must not claim Whispy learns from corrections."""
-    feature_matrix = (ROOT / "FEATURE_MATRIX.md").read_text(encoding="utf-8")
-    for doc in (readme, feature_matrix):
-        assert not re.search(r"[Ll]earns your words", doc)
-        assert "test_corrections.py" not in doc
+    """The adaptive-correction feature was removed (tracked in issue #8)."""
+    assert not re.search(r"[Ll]earns your words", readme)
 
 
 # --- CHANGELOG is English-only with a single open section ------------------

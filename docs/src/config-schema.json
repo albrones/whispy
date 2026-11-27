@@ -1,0 +1,39 @@
+{
+  "copy_to_clipboard": {
+    "group": "Typing",
+    "kind": "bool",
+    "default": true,
+    "platforms": ["macos"],
+    "description": "macOS: paste the text through the clipboard (⌘V) and put the previous clipboard back; false types it key by key and leaves the clipboard alone. Linux always types the text."
+  },
+  "trigger_mode": {
+    "group": "Trigger",
+    "kind": "choice",
+    "choices": ["hold", "toggle"],
+    "default": "hold",
+    "platforms": ["macos", "linux"],
+    "description": "hold: record while the key is held. toggle: one press starts, the next press stops."
+  },
+  "type_while_speaking": {
+    "group": "Trigger",
+    "kind": "bool",
+    "default": true,
+    "platforms": ["macos", "linux"],
+    "description": "Toggle mode only: type the words while you speak, about two seconds behind your voice, instead of all at once at the stop."
+  },
+  "trigger": {
+    "group": "Trigger",
+    "kind": "trigger",
+    "default": null,
+    "platforms": ["macos"],
+    "description": "macOS: the trigger key. Empty for Fn, or a keycode: 54 Right Command, 61 Right Option, 105 F13 (all in the menu). Linux under X11 always uses Right Ctrl; under Wayland your compositor binds the key."
+  },
+  "omarchy_trigger": {
+    "group": "Omarchy",
+    "kind": "choice",
+    "choices": ["right_option_hold", "right_ctrl_hold", "f9_hold", "left_option_space_toggle"],
+    "default": "right_option_hold",
+    "platforms": ["linux"],
+    "description": "Omarchy: the dictation key, written by the Whispy bar panel (pick it there: it also rewrites ~/.config/whispy/shortcuts.lua and reloads Hyprland)."
+  }
+}

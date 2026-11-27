@@ -44,128 +44,110 @@
     </nav>
     <main id="content" class="docs-main">
 <h1>Troubleshooting</h1>
-<p class="lede">Choose what you see, then open the likely causes. Each cause matches a check in <code>make doctor</code>, so you can confirm the fix.</p>
-<p data-os="macos">On macOS, Whispy V2 has no <code>make doctor</code> yet: its menu names the missing permission, and <code>~/.whispy/v2/whispy2.log</code> says what went wrong. The causes below that mention a port, a token or <code>~/.whispy.log</code> are V1's and apply to Linux.</p>
-<p data-os="linux">From the Whispy source folder, run the full diagnostic at any time:</p>
-<pre data-os="linux" data-copy><code>make doctor</code></pre>
+<p class="lede">Choose what you see, then open the likely causes. Whispy says what went wrong in its log, one line per dictation (never its text).</p>
+<pre data-copy><code>tail -f ~/.whispy/v2/whispy2.log</code></pre>
+<p data-os="macos">Its menu also names a missing permission, with a row that opens the right System Settings pane.</p>
+<p data-os="linux">Ask it what it is doing, and read the service's own output:</p>
+<pre data-os="linux" data-copy><code>whispy2 send status
+journalctl --user -u whispy2 -e</code></pre>
 
 <div class="symptoms">
 <details class="symptom" id="trigger-does-nothing">
 <summary>Pressing the trigger does nothing</summary>
-<p>No start sound and no recording. Work through the likely causes below.</p>
-<details class="cause" data-check="input-monitoring" data-os="macos">
-<summary>Input Monitoring</summary>
-<div class="fix" data-os="macos"><p>Whispy detects the <kbd>Fn</kbd> key through an event tap, which needs <strong>Input Monitoring</strong>. Open <strong>System Settings → Privacy &amp; Security → Input Monitoring</strong>, enable <strong>Whispy</strong>, then restart it from the menu bar (<strong>Restart</strong>).</p></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+<p>No recording starts. Work through the likely causes below.</p>
+<details class="cause" data-os="macos">
+<summary>Input Monitoring is off</summary>
+<div class="fix" data-os="macos"><p>Whispy reads the trigger key through a listen-only event tap, which needs <strong>Input Monitoring</strong>. Open <strong>System Settings → Privacy &amp; Security → Input Monitoring</strong>, enable <strong>Whispy V2</strong>, then restart it from the menu bar (<strong>Restart</strong>). Until then the menu says « The trigger key is not available… ».</p></div>
 </details>
-<details class="cause" data-check="display" data-os="linux">
-<summary>X11 session</summary>
-<div class="fix" data-os="linux"><p>The trigger key is captured from an <strong>X11 session</strong>. If <code>DISPLAY</code> is not set, no X server is available to listen on. Run Whispy from your graphical session, or restart the service with <code>systemctl --user restart whispy.service</code>. Under Wayland, see the Wayland entry below.</p></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+<details class="cause">
+<summary>Whispy is not running</summary>
+<div class="fix" data-os="linux"><p>Start it with <code>systemctl --user start whispy2</code> (or the switch in the Omarchy panel), then check <code>whispy2 send status</code>. If it stops again, read <code>journalctl --user -u whispy2 -e</code> and <code>~/.whispy/v2/whispy2.log</code>.</p></div>
+<div class="fix" data-os="macos"><p>Open <code>/Applications/Whispy V2.app</code>: its waveform appears in the menu bar. If it quits again, read <code>~/.whispy/v2/whispy2.log</code>.</p></div>
 </details>
-<details class="cause" data-check="daemon">
-<summary>Daemon</summary>
-<div class="fix" data-os="linux"><p>Start the service with <code>systemctl --user start whispy.service</code> and read <code>~/.whispy-error.log</code> if it stops again. If the doctor reports a token mismatch, restart it with <code>systemctl --user restart whispy.service</code>.</p></div>
-<div class="fix" data-os="macos"><p>The daemon is not answering on its local port. Open <code>/Applications/Whispy.app</code> (menu bar icon should appear) and check <code>~/.whispy-error.log</code>. If the doctor reports a token mismatch, quit and reopen the app.</p></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+<details class="cause">
+<summary>The models are still loading</summary>
+<div class="fix" data-os="linux"><p>At first launch Whispy downloads about 1.2 GB of models. <code>whispy2 send status</code> shows <code>"models_loaded":true</code> when you can dictate.</p></div>
+<div class="fix" data-os="macos"><p>At first launch Whispy downloads about 1.2 GB of models; the menu says <strong>Ready</strong> when you can dictate.</p></div>
 </details>
-<div class="cause-text"><p><strong>A custom trigger is set.</strong> If you changed <code>trigger</code> in the config, press that key instead of the default (Fn on macOS, Right Ctrl on Linux). See <a href="config.html#cfg-trigger"><code>trigger</code></a> and <a href="config.html#cfg-trigger_mode"><code>trigger_mode</code></a>. In toggle mode a single press starts and a second press stops.</p></div>
+<details class="cause" data-os="linux">
+<summary>No X server for the key (X11)</summary>
+<div class="fix" data-os="linux"><p>Under X11 Whispy listens to <kbd>Right Ctrl</kbd> through XInput 2 on your display. If the unit started without <code>DISPLAY</code>, Whispy says so in a notification and in <code>whispy2 send status</code>. From your graphical session, run <code>systemctl --user import-environment DISPLAY XAUTHORITY</code>, then <code>systemctl --user restart whispy2</code>. Under Wayland, see the Wayland entry below.</p></div>
+</details>
+<div class="cause-text"><p><strong>Another key or mode is set.</strong> On macOS, press the key shown in <strong>Settings → Trigger</strong> (see <a href="config.html#cfg-trigger"><code>trigger</code></a>). In toggle mode (<a href="config.html#cfg-trigger_mode"><code>trigger_mode</code></a>) a single press starts and a second press stops.</p></div>
 </details>
 <details class="symptom" id="no-text-appears">
 <summary>Recording works but no text appears</summary>
-<p>You hear the sounds, but nothing is typed into the focused field.</p>
-<details class="cause" data-check="accessibility" data-os="macos">
-<summary>Accessibility</summary>
-<div class="fix" data-os="macos"><p>Whispy types through <code>osascript</code>, which needs <strong>Accessibility</strong>. Open <strong>System Settings → Privacy &amp; Security → Accessibility</strong> and enable <strong>Whispy</strong>. A look at <code>~/.whispy.log</code> showing <code>osascript timeout</code> or error <code>(1002)</code> confirms it.</p><p>Upgrading from an older build? macOS keys grants to the app identity. Reset and re-grant:</p><pre data-copy><code>tccutil reset Accessibility com.whispy
-tccutil reset AppleEvents com.whispy</code></pre><p>Then relaunch Whispy and accept the prompts.</p></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+<p>Whispy records, but nothing is typed into the focused field.</p>
+<details class="cause" data-os="macos">
+<summary>Accessibility is off</summary>
+<div class="fix" data-os="macos"><p>Whispy pastes (⌘V) or types through System Events, which needs <strong>Accessibility</strong>. Open <strong>System Settings → Privacy &amp; Security → Accessibility</strong>, enable <strong>Whispy V2</strong> and restart it. A pasted text stays on the clipboard meanwhile: paste it by hand.</p></div>
 </details>
-<details class="cause" data-check="xdotool" data-os="linux">
-<summary>Xdotool</summary>
-<div class="fix" data-os="linux"><p>Text injection on Linux uses <code>xdotool</code>. Install it, then restart the service:</p><pre data-copy><code>sudo apt install xdotool      # Debian/Ubuntu
-sudo dnf install xdotool      # Fedora
-sudo pacman -S xdotool        # Arch</code></pre></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+<details class="cause">
+<summary>The microphone hears nothing</summary>
+<div class="fix" data-os="linux"><p>If Whispy says « Microphone heard nothing », the default ALSA/PulseAudio/PipeWire input is muted or wrong. Pick the right one in your sound settings (or <code>pactl set-default-source</code>): Whispy opens the current default at each dictation.</p></div>
+<div class="fix" data-os="macos"><p>If Whispy says « Microphone heard nothing », the default input device is muted or wrong. Pick the right one in <strong>System Settings → Sound → Input</strong>: Whispy opens the current default at each dictation. Check that <strong>Whispy V2</strong> is allowed in <strong>Privacy &amp; Security → Microphone</strong>.</p></div>
 </details>
-<details class="cause" data-check="clipboard-tool" data-os="linux">
-<summary>Clipboard tool</summary>
-<div class="fix" data-os="linux"><p><code>copy_to_clipboard</code> is on by default and needs <code>xclip</code> or <code>xsel</code>. Without one, delivery silently falls back to typing key by key. Install one:</p><pre data-copy><code>sudo apt install xclip        # Debian/Ubuntu
-sudo dnf install xclip        # Fedora
-sudo pacman -S xclip          # Arch</code></pre><p>In a terminal emulator, clipboard paste uses <kbd>Ctrl</kbd>+<kbd>V</kbd>, which most terminals do not treat as paste. If you mostly dictate into a terminal, set <a href="config.html#cfg-copy_to_clipboard"><code>copy_to_clipboard</code></a> to <code>false</code>.</p></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+<details class="cause" data-os="linux">
+<summary>The text cannot be typed (Wayland)</summary>
+<div class="fix" data-os="linux"><p>Under Wayland Whispy types through the virtual-keyboard protocol. Hyprland and sway support it; GNOME does not. The log line of the dictation says the insertion failed.</p></div>
 </details>
-<details class="cause" data-check="microphone" data-os="macos">
-<summary>Microphone</summary>
-<div class="fix" data-os="macos"><p>Whispy needs microphone access. Open <strong>System Settings → Privacy &amp; Security → Microphone</strong> and enable <strong>Whispy</strong>. If you clicked <em>Don't Allow</em> earlier, reset it and relaunch:</p><pre data-copy><code>tccutil reset Microphone com.whispy</code></pre></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
-</details>
-<details class="cause" data-check="audio-backend">
-<summary>Audio backend</summary>
-<div class="fix" data-os="linux"><p>The PortAudio runtime is missing. Install it, then restart the service:</p><pre data-copy><code>sudo apt install libportaudio2   # Debian/Ubuntu
-sudo dnf install portaudio       # Fedora
-sudo pacman -S portaudio         # Arch</code></pre></div>
-<div class="fix" data-os="macos"><p>The audio library (<code>sounddevice</code>/PortAudio) failed to load. Reinstall with the one-line installer, or rebuild with <code>make app</code>.</p></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
-</details>
-<div class="cause-text"><p><strong>The clip was discarded.</strong> A recording is dropped when it is shorter than <a href="config.html#cfg-min_recording_duration"><code>min_recording_duration</code></a> (a tap rather than a hold), near-silent, or has almost no detected voice. <code>~/.whispy.log</code> says which: <code>Recording too short</code>, <code>near-silent (RMS ...)</code> or <code>No speech detected</code>. Very short or quiet clips are dropped on purpose, so a stray filler word is never typed; see <a href="usage.html#model">how the model and its silence gates work</a>. Also check the input device and your distance from the microphone.</p></div>
+<div class="cause-text"><p><strong>The clip was discarded.</strong> A press under 0.3 s, a near-silent clip, or one with under 0.20 s of detected voice is ignored on purpose. <code>~/.whispy/v2/whispy2.log</code> has one line per dictation with its outcome. See <a href="usage.html#model">why short clips are ignored</a>.</p></div>
 </details>
 <details class="symptom" id="garbled-text">
 <summary>Text appears garbled / accents wrong</summary>
-<p>Characters such as <code>é</code> or <code>,</code> come out wrong, for example commas typed as full stops.</p>
-<div class="cause-text"><p><strong>Keystroke delivery on a non-US keyboard.</strong> With <a href="config.html#cfg-copy_to_clipboard"><code>copy_to_clipboard</code></a> set to <code>false</code>, Whispy synthesizes keystrokes, which are only correct on a US layout. Set it back to <code>true</code> (the default) so text is pasted byte-exact whatever your layout. See the <a href="config.html">configuration page</a> to build the change.</p></div>
-<details class="cause" data-check="clipboard-tool" data-os="linux">
-<summary>Clipboard tool</summary>
-<div class="fix" data-os="linux"><p>Clipboard delivery on Linux needs <code>xclip</code> or <code>xsel</code>; without one the text is typed key by key and may be garbled. Install one:</p><pre data-copy><code>sudo apt install xclip</code></pre></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+<p>Words arrive, but characters are wrong or missing.</p>
+<div class="cause-text"><p><strong>Keyboard layout.</strong> On macOS, keep <a href="config.html#cfg-copy_to_clipboard"><code>copy_to_clipboard</code></a> on (the default): the text is pasted, so accents arrive intact whatever your layout. Typing key by key depends on the layout.</p></div>
+<details class="cause" data-os="linux">
+<summary>Characters missing in some apps (Linux)</summary>
+<div class="fix" data-os="linux"><p>On Linux the text is typed one key at a time. An app that drops fast synthetic keys may lose some; dictate shorter passages, or report it with the app's name.</p></div>
 </details>
 </details>
 <details class="symptom" id="does-not-start">
 <summary>Whispy doesn&#x27;t start / no menu bar or tray icon</summary>
-<p>The app does not appear, or exits right after launching.</p>
-<details class="cause" data-check="daemon">
-<summary>Daemon</summary>
-<div class="fix" data-os="linux"><p>Check the service with <code>systemctl --user status whispy.service</code> and read <code>~/.whispy-error.log</code>. A port in use (9090 by default) prevents startup. Restart with <code>systemctl --user restart whispy.service</code>.</p></div>
-<div class="fix" data-os="macos"><p>Open <code>/Applications/Whispy.app</code> and wait a few seconds. If nothing appears, read <code>~/.whispy-error.log</code>. A port in use (9090 by default) prevents startup. A build older than your source also looks like a missing fix: run <code>make reinstall</code> to rebuild and relaunch.</p></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+<p>Nothing shows after launch.</p>
+<details class="cause">
+<summary>Another Whispy already runs</summary>
+<div class="fix" data-os="linux"><p>The control socket is a single-instance lock: a second Whispy finds the first one answering and exits. <code>whispy2 send status</code> answers if one runs; <code>systemctl --user status whispy2</code> shows whether it is the service.</p></div>
+<div class="fix" data-os="macos"><p>The control socket is a single-instance lock: a second Whispy finds the first one answering and exits. Look for its icon in the menu bar, or ask <code>status</code> on <code>~/.whispy/v2/control.sock</code>.</p></div>
 </details>
-<details class="cause" data-check="audio-backend">
-<summary>Audio backend</summary>
-<div class="fix" data-os="linux"><p>Install the PortAudio runtime (<code>libportaudio2</code> on Debian/Ubuntu, <code>portaudio</code> on Fedora and Arch), then restart the service.</p></div>
-<div class="fix" data-os="macos"><p>If the audio library cannot load, Whispy cannot start recording. Reinstall with the one-line installer, or rebuild with <code>make app</code>.</p></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+<details class="cause">
+<summary>It fails at start</summary>
+<div class="fix" data-os="linux"><p>Read <code>journalctl --user -u whispy2 -e</code> and <code>~/.whispy/v2/whispy2.log</code>. Rebuild and reinstall with the one-line installer, or <code>make reinstall</code> from a checkout.</p></div>
+<div class="fix" data-os="macos"><p>Read <code>~/.whispy/v2/whispy2.log</code>. Rebuild and reinstall with the one-line installer, or <code>make reinstall</code> from a checkout.</p></div>
 </details>
 </details>
 <details class="symptom" id="first-dictation-slow">
-<summary>First dictation is slow or fails (model)</summary>
-<p>The first run downloads the speech model, about 639 MB, once.</p>
-<details class="cause" data-check="model">
-<summary>Model</summary>
-<div class="fix" data-os="linux"><p>Wait for the download to finish: it needs a network connection once and is then cached under <code>~/.cache/huggingface/hub/models--istupakov--parakeet-tdt-0.6b-v3-onnx</code>. The doctor shows a warning, not a failure, until the model is cached. If it never finishes, check <code>~/.whispy-error.log</code> and your connection, then run <code>systemctl --user restart whispy.service</code>.</p></div>
-<div class="fix" data-os="macos"><p>Wait for the download to finish: it needs a network connection once and is then cached under <code>~/.cache/huggingface/hub/models--istupakov--parakeet-tdt-0.6b-v3-onnx</code>. The doctor shows a warning, not a failure, until the model is cached. If it never finishes, check <code>~/.whispy-error.log</code> and your connection, then restart Whispy.</p></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+<summary>First dictation is slow or fails (models)</summary>
+<p>The first dictation after launch takes long, or Whispy says the models are missing.</p>
+<details class="cause">
+<summary>The models did not download</summary>
+<div class="fix" data-os="linux"><p>Whispy downloads its models at first launch into <code>~/.whispy/models</code> (about 1.2 GB, SHA-256 checked) with <code>curl</code>. Without network, it retries at the next start (<code>systemctl --user restart whispy2</code>). The log names the file that failed.</p></div>
+<div class="fix" data-os="macos"><p>Whispy downloads its models at first launch into <code>~/.whispy/models</code> (about 1.2 GB, SHA-256 checked) and says so in a notification. Without network, it retries at the next launch. The log names the file that failed.</p></div>
 </details>
 </details>
 <details class="symptom" id="wayland" data-os="linux">
 <summary>Linux: the trigger key does nothing under Wayland</summary>
-<p>Under Wayland Whispy cannot listen to a key itself: your <strong>compositor's key binding</strong> must call <code>POST /start</code> on press and <code>POST /stop</code> on release, and Whispy types with <code>wtype</code>.</p>
-<details class="cause" data-check="display" data-os="linux">
-<summary>X11 session</summary>
-<div class="fix" data-os="linux"><p>On Omarchy, run <code>omarchy-dictation-use whispy</code>, then <code>hyprctl reload</code>, and hold <kbd>F9</kbd>. Omarchy binds the key only when a <code>whispy</code> command is on your PATH: rerun <code>./install.sh</code> if <code>command -v whispy</code> prints nothing. Elsewhere, bind a key in your compositor to <code>curl -X POST -H "Authorization: Bearer $(cat ~/.config/whispy/config.token)" http://127.0.0.1:9090/start</code> on press and <code>/stop</code> on release. Install <code>wtype</code> and <code>wl-clipboard</code> if <code>make doctor</code> reports them missing.</p></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+<p>Under Wayland no app may listen to a global key.</p>
+<details class="cause" data-os="linux">
+<summary>No compositor binding</summary>
+<div class="fix" data-os="linux"><p>Bind a key of your compositor to <code>whispy2 send start</code> on press and <code>whispy2 send stop</code> on release (or <code>whispy2 send toggle</code>). On Omarchy, run <code>omarchy-dictation-use whispy &amp;&amp; hyprctl reload</code> and pick the key in the Whispy bar panel. See <a href="install.html">Install</a>.</p></div>
+</details>
+<details class="cause" data-os="linux">
+<summary>whispy2 is not on the binding&#x27;s PATH</summary>
+<div class="fix" data-os="linux"><p>The installer puts <code>whispy2</code> in <code>~/.local/bin</code>. If your compositor's PATH lacks it, write the full path: <code>~/.local/bin/whispy2 send start</code>.</p></div>
 </details>
 </details>
 <details class="symptom" id="tray-icon" data-os="linux">
-<summary>Linux: Whispy does not start, or the tray icon does not show or crashes</summary>
-<p>Under X11 the tray icon is optional. If it cannot start, Whispy keeps running without it and posts one notification; errors then show as notifications.</p>
-<details class="cause" data-check="tray" data-os="linux">
-<summary>Tray icon</summary>
-<div class="fix" data-os="linux"><p>Run <code>whispy --doctor</code> to see whether the tray backend loads. To run without the tray, set <code>"tray_icon": false</code> in <code>~/.config/whispy/config.json</code> (see <a href="config.html#cfg-tray_icon"><code>tray_icon</code></a>), then run <code>systemctl --user restart whispy.service</code>. Dictation works the same; only the icon is gone. If Whispy crashes outright when the tray starts, this setting is the way out.</p></div>
-<p class="confirm">Run <code>make doctor</code> to confirm.</p>
+<summary>Linux: the tray icon does not show</summary>
+<p>Under X11 Whispy shows a tray icon (StatusNotifierItem).</p>
+<details class="cause" data-os="linux">
+<summary>No tray host in the panel</summary>
+<div class="fix" data-os="linux"><p>The icon needs a StatusNotifierItem host in your panel (KDE, XFCE and most bars have one). Without it Whispy posts one notification, « Tray icon unavailable », and runs on without it: dictation still works. Under Wayland there is no tray icon; on Omarchy, the bar panel shows the state.</p></div>
 </details>
 </details>
 </div>
 
-<p>Still stuck? Read <span data-os="macos"><code>~/.whispy/v2/whispy2.log</code></span><span data-os="linux"><code>~/.whispy.log</code> and <code>~/.whispy-error.log</code></span>, or <a href="https://github.com/albrones/whispy/issues">open an issue</a>.</p>
+<p>Still stuck? Read <code>~/.whispy/v2/whispy2.log</code>, or <a href="https://github.com/albrones/whispy/issues">open an issue</a>.</p>
 
     </main>
   </div>

@@ -1,8 +1,8 @@
 # Whispy V2 (Rust)
 
-A rewrite of Whispy's core in Rust, compared against V1 on a bench before it
-replaces anything. V1 (the Python app at the repository root) stays installed
-and untouched.
+Whispy, rewritten in Rust and compared against V1 on a bench before it replaced
+it. V1, the Python app, is gone from the repository (its last state is the git
+tag `v1`); it is still named below where V2 kept its behaviour or its files.
 
 It holds the transcription engines and the audio pipeline (`whispy-core`),
 the bench (`banc`), and the app built on them (`whispy2`): macOS, and Linux
@@ -28,8 +28,13 @@ v2/
 cd v2
 cargo test --release
 cargo clippy --release --all-targets -- -D warnings
-WHISPY_V1_PYTHON=../.venv/bin/python cargo run --release --bin banc
+cargo run --release --bin banc -- --skip-v1
 ```
+
+The bench can still run V1 on the same clips: V1 lives at the git tag `v1`.
+Check it out next to this repository and install it once
+(`git worktree add ../whispy-v1 v1 && make -C ../whispy-v1 install`), then
+run `WHISPY_V1_PYTHON=../../whispy-v1/.venv/bin/python cargo run --release --bin banc`.
 
 The first build downloads ONNX Runtime's prebuilt library (the `ort` crate)
 and compiles whisper.cpp (needs `cmake`). At run time nothing leaves the Mac:
@@ -52,18 +57,20 @@ its SHA-256 (`whispy_core::models::download_missing`, through the system
 
 ## The app: `whispy2`
 
-**Install (the way to use it day to day):** from the repository root,
+**Install (the way to use it day to day):** `scripts/bootstrap.sh`, or from the
+repository root,
 
 ```bash
-make v2-reinstall
+make reinstall
 ```
 
-builds `dist/Whispy V2.app` (bundle id `com.whispy.v2`, signed with V1's
-« Whispy Local Signing » identity, see `packaging/macos/create_signing_cert.sh`),
-installs it as `/Applications/Whispy V2.app` **next to** V1's `Whispy.app`
-(V1 is never modified, its executable's checksum is checked), launches it and
-waits until it answers on its control socket. Run it again after every change:
-a plain relaunch reruns the old build. `make v2-app` only builds the bundle.
+On macOS it builds `dist/Whispy V2.app` (bundle id `com.whispy.v2`, signed with
+the « Whispy Local Signing » identity, see `packaging/macos-v2/create_signing_cert.sh`),
+installs it as `/Applications/Whispy V2.app` (an older `Whispy.app` is never
+modified, its executable's checksum is checked), launches it and waits until
+it answers on its control socket. Run it again after every change: a plain
+relaunch reruns the old build. `make app` only builds the bundle. Under Linux,
+see [Under Linux](#under-linux).
 
 For development, `cargo build --release && ./target/release/whispy2` still
 works; it then logs to the terminal as well, and macOS attributes its
@@ -153,7 +160,7 @@ System Settings → Notifications; outside the installed bundle they are skipped
 (the log and the menu still show the problem).
 
 **Permissions, once.** Grant them to **Whispy V2** (System Settings → Privacy &
-Security); they stay granted across `make v2-reinstall`, because the signing
+Security); they stay granted across `make reinstall`, because the signing
 identity does not change:
 
 | permission | for | if missing |
@@ -246,12 +253,24 @@ p95 0.37 s). The real paste adds `pbpaste` + `pbcopy`
 ### Under Linux
 
 The same binary, built on Linux (`cargo build --release -p whispy2`), with a
-Linux layer next to `src/mac` (`src/linux`). Not installed by
-`scripts/bootstrap.sh` yet: Linux users run V1 until the installation card
-lands. Build needs `cmake`, `clang`, `pkg-config` and the ALSA and xkbcommon
-headers (`libasound2-dev libxkbcommon-dev` on Debian/Ubuntu, `alsa-lib
-libxkbcommon` on Arch). Logs, journal, models, settings and the control
-socket are the macOS ones, under `~/.whispy/` and `~/.config/whispy/`.
+Linux layer next to `src/mac` (`src/linux`). Build needs `cmake`, `clang`,
+`pkg-config` and the ALSA and xkbcommon headers (`libasound2-dev
+libxkbcommon-dev` on Debian/Ubuntu, `alsa-lib libxkbcommon` on Arch). Logs,
+journal, models, settings and the control socket are the macOS ones, under
+`~/.whispy/` and `~/.config/whispy/`.
+
+**Install:** `scripts/bootstrap.sh` installs the missing packages (apt, dnf or
+pacman) and Rust, then runs `packaging/linux/reinstall.sh` (also `make
+reinstall`): it builds `whispy2`, replaces a V1 install (its `whispy.service`
+unit is stopped and removed, its venv deleted, its settings kept), copies the
+binary to `~/.local/bin/whispy2` (with `~/.local/bin/whispy` linked to it, the
+program Omarchy looks for), links the Omarchy backend and bar panel when
+Omarchy is there, writes the `systemd --user` unit `whispy2.service`
+(`WantedBy=graphical-session.target` when the session activates it, else
+`default.target`; the session's display variables imported), enables and
+restarts it, and waits until the socket answers `status`. `--uninstall` undoes
+it and keeps `~/.whispy` and `~/.config/whispy`. Checked end to end in a fresh
+container: `whispy2/linux-e2e/install.sh` (see below).
 
 - **X11**: hold **Right Ctrl** (V1's Linux default) to dictate, release to
   insert; toggle mode works as on macOS. The key is read from XInput 2 raw
@@ -272,7 +291,9 @@ socket are the macOS ones, under `~/.whispy/` and `~/.config/whispy/`.
   (Quickshell's `Socket`): `status` for the icon and the pill's level, `last`
   for the last dictation. Its dictation key picker writes `omarchy_trigger` to
   `~/.config/whispy/config.json` and the Hyprland binding to
-  `~/.config/whispy/shortcuts.lua`; it needs no running Whispy.
+  `~/.config/whispy/shortcuts.lua`; it needs no running Whispy. Its switch
+  starts or stops the `whispy2.service` unit (`systemctl --user`), and **Start
+  at login** enables or disables it.
 - **Typing**: [enigo](https://crates.io/crates/enigo), one key at a time: XTest
   under X11, the virtual-keyboard protocol under Wayland (as `wtype`), so the
   text reaches terminals too. « Copy to clipboard » is ignored: Linux always
@@ -379,7 +400,7 @@ The thresholds are V1's, measured on real dictation (see the comments in
 
 through both engines and every strategy, alone and with the other engine as
 fallback, and runs V1 on the same clips through `bench/v1_replay.py` with V1's
-venv (`WHISPY_V1_PYTHON`). It measures, each in a fresh process, the memory
+venv (`WHISPY_V1_PYTHON`, a checkout of the tag `v1`; `--skip-v1` without it). It measures, each in a fresh process, the memory
 of a 180 s dictation per engine, and the default pipeline through a 180 s
 dictation, two reprises and 30 s of quiet (normal peak, reprise peak, the
 latency the first whisper load adds, whether whisper was freed). It writes

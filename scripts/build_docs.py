@@ -2,6 +2,9 @@
 """Generate the static documentation site (website/docs) from docs/src.
 
 Stdlib only. Deterministic: no timestamps, sorted iteration, ``\\n`` endings.
+The config reference comes from docs/src/config-schema.json (the keys Whispy
+reads, v2/whispy2/src/settings.rs), the troubleshooting tree from
+docs/src/troubleshooting.json.
 
     python scripts/build_docs.py          # write website/docs
     python scripts/build_docs.py --check  # exit 1 if website/docs is stale
@@ -10,21 +13,13 @@ Stdlib only. Deterministic: no timestamps, sorted iteration, ``\\n`` endings.
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import html
 import json
-import sys
 import tempfile
 from pathlib import Path
 from string import Template
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "src"))
-
-from whispy import doctor  # noqa: E402
-from whispy.core import segmentation  # noqa: E402
-from whispy.core.config import CONFIG_SCHEMA  # noqa: E402
-
 SRC = REPO / "docs" / "src"
 OUT = REPO / "website" / "docs"
 
@@ -40,13 +35,10 @@ PAGES = [
     ("usage", "Usage", "Usage"),
 ]
 
-CONFIG_EXTRA_HEAD = (
-    '  <link rel="stylesheet" href="widgets.css">\n'
-    '  <script src="config-builder.js" defer></script>\n'
-    '  <script src="segment-viz.js" defer></script>\n'
-)
+CONFIG_EXTRA_HEAD = '  <link rel="stylesheet" href="widgets.css">\n  <script src="config-builder.js" defer></script>\n'
 
 OS_LABELS = {"macos": "macOS", "linux": "Linux"}
+KINDS = {"bool", "choice", "trigger"}
 
 
 # --------------------------------------------------------------------------
@@ -54,54 +46,47 @@ OS_LABELS = {"macos": "macOS", "linux": "Linux"}
 # --------------------------------------------------------------------------
 
 
-def _num(value: float) -> str:
-    return str(int(value)) if float(value) == int(value) else str(value)
+def load_schema(src_dir: Path = SRC) -> dict:
+    schema = json.loads((src_dir / "config-schema.json").read_text(encoding="utf-8"))
+    for key, spec in schema.items():
+        if spec.get("kind") not in KINDS:
+            raise ValueError(f"config key {key!r}: kind must be one of {sorted(KINDS)}")
+        if not set(spec.get("platforms", ())) <= set(OS_LABELS) or not spec.get("platforms"):
+            raise ValueError(f"config key {key!r}: platforms must be a non-empty subset of {sorted(OS_LABELS)}")
+        if spec["kind"] == "choice" and spec["default"] not in spec.get("choices", ()):
+            raise ValueError(f"config key {key!r}: default is not one of its choices")
+    return schema
 
 
-def accepted_values(spec) -> str:
-    """Human-readable description of what the daemon accepts for a key."""
-    if spec.kind == "bool":
+def accepted_values(spec: dict) -> str:
+    """Human-readable description of what Whispy accepts for a key."""
+    if spec["kind"] == "bool":
         return "true / false"
-    if spec.kind == "choice":
-        return " or ".join(spec.choices or ())
-    if spec.kind == "trigger":
-        return "empty (platform default), a key name, a combo like cmd+shift+space, or a keycode"
-    if spec.kind == "str_list":
-        return "list of words"
-    noun = "integer" if spec.kind == "int" else "number"
-    unit = f" ({spec.unit})" if spec.unit else ""
-    if spec.ge is not None and spec.le is not None:
-        return f"{noun} {_num(spec.ge)}–{_num(spec.le)}{unit}"
-    parts = []
-    if spec.gt is not None:
-        parts.append(f"> {_num(spec.gt)}")
-    if spec.ge is not None:
-        parts.append(f"≥ {_num(spec.ge)}")
-    if spec.gt_key is not None:
-        parts.append(f"> {spec.gt_key}")
-    if spec.le is not None:
-        parts.append(f"≤ {_num(spec.le)}")
-    return f"{noun} {', '.join(parts)}{unit}".strip()
+    if spec["kind"] == "choice":
+        return " or ".join(spec["choices"])
+    return "null (Fn) or a keycode"
 
 
-def render_config_table() -> str:
-    groups: dict[str, list[tuple[str, object]]] = {}
-    for key, spec in CONFIG_SCHEMA.items():
-        groups.setdefault(spec.group, []).append((key, spec))
+def render_config_table(schema: dict) -> str:
+    groups: dict[str, list[tuple[str, dict]]] = {}
+    for key, spec in schema.items():
+        groups.setdefault(spec["group"], []).append((key, spec))
     lines = [
         '<table id="config-reference">',
-        "<thead><tr><th>Key</th><th>Default</th><th>Accepted values</th><th>Description</th></tr></thead>",
+        "<thead><tr><th>Key</th><th>Default</th><th>Accepted values</th><th>Platforms</th><th>Description</th></tr></thead>",
     ]
     for group, items in groups.items():
         lines.append("<tbody>")
-        lines.append(f'<tr class="group-row"><th colspan="4" scope="colgroup">{html.escape(group)}</th></tr>')
+        lines.append(f'<tr class="group-row"><th colspan="5" scope="colgroup">{html.escape(group)}</th></tr>')
         for key, spec in items:
-            default = html.escape(json.dumps(spec.default))
+            default = html.escape(json.dumps(spec["default"]))
+            platforms = ", ".join(OS_LABELS[p] for p in spec["platforms"])
             lines.append(
                 f'<tr id="cfg-{key}"><td><code>{key}</code></td>'
                 f"<td><code>{default}</code></td>"
                 f"<td>{html.escape(accepted_values(spec))}</td>"
-                f"<td>{html.escape(spec.description)}</td></tr>"
+                f"<td>{platforms}</td>"
+                f"<td>{html.escape(spec['description'])}</td></tr>"
             )
         lines.append("</tbody>")
     lines.append("</table>")
@@ -113,19 +98,8 @@ def _embed_json(script_id: str, data) -> str:
     return f'<script type="application/json" id="{script_id}">\n{text}\n</script>'
 
 
-def render_config_schema_json() -> str:
-    return _embed_json("config-schema", {k: dataclasses.asdict(v) for k, v in CONFIG_SCHEMA.items()})
-
-
-def render_segmenter_constants() -> str:
-    return _embed_json(
-        "segmenter-constants",
-        {
-            "hard_max_factor": segmentation.HARD_MAX_FACTOR,
-            "frame_ms": segmentation.FRAME_MS,
-            "sentence_break_ms": None,
-        },
-    )
+def render_config_schema_json(schema: dict) -> str:
+    return _embed_json("config-schema", schema)
 
 
 # --------------------------------------------------------------------------
@@ -133,31 +107,19 @@ def render_segmenter_constants() -> str:
 # --------------------------------------------------------------------------
 
 
-def _check_index(checks) -> dict:
-    return {c.check_id: c for c in checks}
-
-
-def _leaves(symptoms):
-    for sym in symptoms:
+def validate_troubleshooting(data: dict) -> None:
+    for sym in data["symptoms"]:
+        sym_os = set(sym.get("os", OS_LABELS))
+        if not sym_os <= set(OS_LABELS):
+            raise ValueError(f"troubleshooting symptom {sym['id']!r}: unknown os")
         for step in sym["steps"]:
-            if "check" in step:
-                yield sym, step
-
-
-def validate_troubleshooting(data: dict, checks) -> None:
-    known = _check_index(checks)
-    used = set()
-    for sym, step in _leaves(data["symptoms"]):
-        cid = step["check"]
-        if cid not in known:
-            raise ValueError(f"troubleshooting symptom {sym['id']!r} references unknown doctor check {cid!r}")
-        used.add(cid)
-        for osname in known[cid].platforms:
-            if osname not in step.get("fix", {}):
-                raise ValueError(f"troubleshooting check {cid!r} in {sym['id']!r} has no fix for {osname}")
-    missing = sorted(set(known) - used)
-    if missing:
-        raise ValueError(f"doctor checks without a troubleshooting entry: {', '.join(missing)}")
+            if "text" in step:
+                continue
+            fix = step.get("fix") or {}
+            if not step.get("title") or not fix:
+                raise ValueError(f"troubleshooting symptom {sym['id']!r}: a cause needs a title and a fix")
+            if not set(fix) <= sym_os:
+                raise ValueError(f"troubleshooting cause {step['title']!r} in {sym['id']!r} has a fix for another OS")
 
 
 def _os_attr(platforms) -> str:
@@ -165,9 +127,8 @@ def _os_attr(platforms) -> str:
     return f' data-os="{platforms[0]}"' if len(platforms) == 1 else ""
 
 
-def render_troubleshooting(data: dict, checks) -> str:
-    validate_troubleshooting(data, checks)
-    known = _check_index(checks)
+def render_troubleshooting(data: dict) -> str:
+    validate_troubleshooting(data)
     out = ['<div class="symptoms">']
     for sym in data["symptoms"]:
         sym_os = sym.get("os", ["macos", "linux"])
@@ -176,16 +137,14 @@ def render_troubleshooting(data: dict, checks) -> str:
         if sym.get("intro"):
             out.append(f"<p>{sym['intro']}</p>")
         for step in sym["steps"]:
-            if "check" in step:
-                chk = known[step["check"]]
-                out.append(f'<details class="cause" data-check="{chk.check_id}"{_os_attr(chk.platforms)}>')
-                out.append(f"<summary>{html.escape(chk.check_name[:1].upper() + chk.check_name[1:])}</summary>")
-                for osname in sorted(chk.platforms):
-                    out.append(f'<div class="fix" data-os="{osname}">{step["fix"][osname]}</div>')
-                out.append('<p class="confirm">Run <code>make doctor</code> to confirm.</p>')
-                out.append("</details>")
-            else:
+            if "text" in step:
                 out.append(f'<div class="cause-text">{step["text"]}</div>')
+                continue
+            out.append(f'<details class="cause"{_os_attr(step["fix"])}>')
+            out.append(f"<summary>{html.escape(step['title'])}</summary>")
+            for osname in sorted(step["fix"]):
+                out.append(f'<div class="fix" data-os="{osname}">{step["fix"][osname]}</div>')
+            out.append("</details>")
         out.append("</details>")
     out.append("</div>")
     return "\n".join(out)
@@ -214,18 +173,17 @@ def _write(path: Path, text: str) -> None:
         fh.write(text)
 
 
-def build(out_dir: Path, src_dir: Path = SRC, checks=None) -> None:
+def build(out_dir: Path, src_dir: Path = SRC) -> None:
     """Generate the whole site into ``out_dir``."""
-    checks = list(doctor.CHECKS if checks is None else checks)
     out_dir = Path(out_dir)
+    schema = load_schema(src_dir)
     layout = Template((src_dir / "layout.html").read_text(encoding="utf-8"))
     tshoot = json.loads((src_dir / "troubleshooting.json").read_text(encoding="utf-8"))
 
     shared = {
-        "config_table": render_config_table(),
-        "config_schema_json": render_config_schema_json(),
-        "segmenter_constants_json": render_segmenter_constants(),
-        "troubleshooting": render_troubleshooting(tshoot, checks),
+        "config_table": render_config_table(schema),
+        "config_schema_json": render_config_schema_json(schema),
+        "troubleshooting": render_troubleshooting(tshoot),
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     for pid, _label, title in PAGES:

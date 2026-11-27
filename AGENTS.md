@@ -30,41 +30,32 @@ The main thread orchestrates and reviews; subagents execute and report.
 
 ## 🛠️ Core Tech Stack & Environment
 - **Platform:** macOS (Apple Silicon/Intel) and Linux (X11 and Wayland sessions).
-- **Language:** Python 3.
-- **Key Dependencies:** `faster-whisper`, `sounddevice`/PortAudio (audio capture). macOS: `rumps` (menu bar), `pyobjc-framework-Quartz` (Fn key detection via CGEventTap). Linux: `pynput` (global hotkey listener), `pystray` (tray UI), `Pillow` (tray icon rendering).
-- **Environment:** Uses a Python virtual environment (`.venv`).
+- **Language:** Rust (`v2/`: `whispy-core` the engines and pipeline, `whispy2` the app, `banc` the bench). The Python app (V1) is gone; its last state is the git tag `v1`. Python remains only as repository tooling: `scripts/release.py`, `scripts/build_docs.py` and the pytest guards in `tests/` (dependencies in `requirements-dev.txt`, `make install`).
+- **Key Dependencies:** ONNX Runtime (`ort`, Parakeet TDT 0.6b v3 int8), whisper.cpp (`whisper-rs`, whisper small fallback, needs cmake), `cpal` (microphone). macOS: `objc2` (menu bar, pill, SMAppService), `core-graphics` (Fn event tap). Linux: `x11rb` (XInput 2 trigger), `enigo` (XTest / virtual keyboard typing), `ksni` (tray).
 
 ## 🚀 Operational Commands
-- **Install/Setup:** `./install.sh` provisions the venv/dependencies; `make app` builds & signs `dist/Whispy.app`. Autostart is the in-app "Start at login" toggle (SMAppService) on macOS, a `systemd --user` service on Linux — **no LaunchAgent is created**.
-- **After a code change (macOS):** `make reinstall` — rebuilds and signs the bundle, replaces `/Applications/Whispy.app`, relaunches it, and waits until the daemon answers on `:9090`. Use this, not a bare relaunch: `open /Applications/Whispy.app` restarts the **installed** build, so a source change you have not rebuilt will appear to have no effect. The build refuses a branch behind `origin/main` or uncommitted `src/` changes (the bundle would silently drop merged fixes); commit, rebase, or set `WHISPY_ALLOW_STALE_BUILD=1` to test a branch on purpose. A worktree needs its own `.venv` (`make install`): the build bundles whatever `src/` the venv imports.
+- **Install:** `scripts/bootstrap.sh` (the one-liner) installs the toolchain and builds Whispy. macOS: `Whispy V2.app` in `/Applications`, autostart through its in-app "Start at login" (SMAppService). Linux: `~/.local/bin/whispy2` run by the `systemd --user` unit `whispy2.service`.
+- **After a code change:** `make reinstall` — macOS: `packaging/macos-v2/reinstall.sh` (rebuild, sign, replace `/Applications/Whispy V2.app`, relaunch); Linux: `packaging/linux/reinstall.sh` (rebuild, replace `~/.local/bin/whispy2`, restart the unit). Both wait until the control socket answers. A bare relaunch reruns the installed build.
   ```bash
   make reinstall
   ```
-- **Live Logs:** `tail -f ~/.whispy.log ~/.whispy-error.log`
-- **API Interaction:** every request requires the per-install bearer token stored at `~/.config/whispy/config.token`.
-  - `curl -H "Authorization: Bearer $(cat ~/.config/whispy/config.token)" http://localhost:9090/status` (Check daemon status)
-  - `curl -H "Authorization: Bearer $(cat ~/.config/whispy/config.token)" -X POST http://localhost:9090/start` (Manual start)
-  - `curl -H "Authorization: Bearer $(cat ~/.config/whispy/config.token)" -X POST http://localhost:9090/stop` (Manual stop)
+- **Tests and lint:** `make test` (`cargo test` + pytest), `make lint` (fmt, clippy `-D warnings`, ruff).
+- **Live Logs:** `tail -f ~/.whispy/v2/whispy2.log` (Linux also: `journalctl --user -u whispy2 -f`).
+- **Control socket** (`~/.whispy/v2/control.sock`, no network port, no token): `whispy2 send status`, `start`, `stop`, `toggle`, `last`.
 
 ## 🏗️ Architecture & Workflow
-- **The Daemon:** The application runs as a menu-bar/tray app (macOS: signed `Whispy.app`, optionally a login item via SMAppService; Linux: `systemd --user` service). It consists of:
-  - **Trigger Listener:** macOS uses `CGEventTap` to detect the Fn key (requires **Input Monitoring**); Linux uses `pynput` to detect the trigger key (Right Ctrl by default) under an X11 session; under Wayland there is no in-process listener — the compositor binding (Omarchy: `packaging/omarchy/omarchy-dictation-whispy`) calls `POST /start` / `POST /stop`.
-  - **Recording:** Uses `sounddevice`/PortAudio to capture audio in-process (both platforms).
-  - **Transcription:** Uses `faster-whisper` for local inference (both platforms).
-  - **Text Injection:** macOS uses `osascript` to simulate keystrokes or paste via clipboard (requires **Accessibility**); Linux uses `xdotool` to simulate keystrokes (`xclip`/`xsel` for clipboard-paste mode).
-  - **UI:** `rumps`-based menu bar app on macOS; `pystray`-based tray app on Linux (no floating overlay window on Linux in v1 — state is shown through the tray).
-- **Permissions (Critical):**
-  - **Microphone:** Required for recording (both platforms).
-  - **Accessibility (macOS):** Required to type text into active fields via `osascript`.
-  - **Input Monitoring (macOS):** Required for the Fn key listener (`CGEventTap`).
-  - **Linux:** No macOS-style permission prompts; X11 needs `xdotool` (+ `xclip`/`xsel`); Wayland needs `wtype` (+ `wl-copy`) and a compositor key binding.
+- **The app (`v2/whispy2`):** one binary per platform, with a pure, unit-tested state machine (`machine.rs`) and a platform layer: `src/mac/` (menu bar, pill, event tap, paste through System Events) and `src/linux/` (X11 trigger, tray, typing, notifications).
+  - **Trigger:** macOS listens to Fn (or Right Command, Right Option, F13) through a listen-only event tap (**Input Monitoring**). Linux X11 listens to Right Ctrl through XInput 2 raw events, without grabbing it. Under Wayland there is no in-process listener: the compositor binding (Omarchy: `packaging/omarchy/omarchy-dictation-whispy`) calls `whispy2 send start|stop|toggle`.
+  - **Transcription:** `whispy-core` (Parakeet, then whisper small when Parakeet hears nothing; gates for silence and noise; French numbers in digits).
+  - **Text insertion:** macOS pastes through the clipboard (⌘V by System Events) or types (`keystroke`), which needs **Accessibility**. Linux always types with `enigo`.
+  - **UI:** macOS menu bar and pill; Linux X11 tray icon; Omarchy bar panel (`packaging/omarchy/whispy-panel/`, Quickshell) reading the control socket and driving the `whispy2.service` unit.
+- **Permissions (Critical):** macOS needs **Microphone**, **Accessibility** and **Input Monitoring** for `Whispy V2`. Linux has no permission prompts.
 
 ## 📝 Development Conventions
-- **Config:** Stored in `~/.config/whispy/config.json`.
-- **Logging:** Logs are written to `~/.whispy.log` and `~/.whispy-error.log`.
-- **Language:** All code, documentation, and UI strings must be in English (though the current UI has some French).
+- **Config:** `~/.config/whispy/config.json` (keys: `copy_to_clipboard`, `trigger_mode`, `trigger`, `type_while_speaking`, `omarchy_trigger`); every other key is kept as found.
+- **Language:** All code, documentation, and UI strings must be in English.
 - **Keep the website in sync:** any user-facing change (new feature, changed install flow, renamed setting, dropped option) MUST update `website/index.html` in the same change — install commands, feature cards, and the menu-bar demo. `tests/test_website.py` guards some of this; treat it as a floor, not the whole job. User docs live in `docs/src/` and must be regenerated with `make docs` (commit `website/docs/`); `tests/test_docs_site.py` fails on stale output.
-|- **Testing:** A test suite exists in `tests/` with files for core, audio, integration, e2e, event tap, API, config validation, and stress testing. Run with `./.venv/bin/pytest`.
+- **Releases:** every `feat` or `fix` merged on `main` publishes a version (`.github/workflows/release.yml`, `scripts/release.py`).
 
 **Language Policy**
 
@@ -74,26 +65,10 @@ All documentation, code comments, and user-facing messages in the codebase must 
 
 ## 💡 High-Signal Context for Agents
 
-### 🛠️ Environment & Permissions
-- **Cross-platform, OS-coupled seams:** macOS uses `pyobjc`, `rumps`, `osascript`; Linux X11 uses `pynput`, `pystray`, `xdotool` instead; Linux Wayland uses `wtype` and desktop notifications (no tray); on Omarchy a Quickshell bar widget (`packaging/omarchy/whispy-panel/`) shows state, settings, the dictation key picker and the recording pill through the HTTP API.
-- **Permissions are Key:** On macOS, if the Fn key doesn't trigger recording or text isn't typed, check **Input Monitoring** and **Accessibility** permissions in System Settings. On Linux, run `make doctor`: it checks `xdotool` under X11 and `wtype` under Wayland.
-- **Python Interpreter:** The daemon uses the `.venv/bin/python3` interpreter. Ensure permissions are granted to this specific executable if required (macOS).
-
-### 🏗️ Architecture
-|- **Modular architecture:** Main logic is in `src/whispy/core/engine.py`. Entry point is `whispy_daemon.py`. Package structure: `src/whispy/core/` (engine, state machine, audio), `src/whispy/hardware/` (event tap, text injection), `src/whispy/ui/` (menu bar, waveform window), `src/whispy/api/` (HTTP server).
-- **Concurrency:** Uses `threading` for the HTTP server, model loading, and transcription workers.
-- **State Management:** A global `state` object (`DictationState`) manages recording, transcription, and model status across threads.
-
-### 🚀 Operational Commands
-- **After code changes:** `make reinstall` (rebuild + replace `/Applications/Whispy.app` + relaunch + wait for the API). A plain relaunch reruns the old build. For permission updates only, quitting and relaunching from the menu bar is enough.
-- **Model Swapping:** Changing `model_size` in config triggers an asynchronous model reload.
-- **Logging:** Always check `~/.whispy.log` and `~/.whispy-error.log` for debugging.
-
-### 📝 Development Guidelines
-- **English Only:** All code, comments, and UI strings must be in English.
-|- **Testing:** A test suite exists in `tests/`. Run with `./.venv/bin/pytest`.
-- **Avoid Breaking the Loop:** The `_fn_event_callback` must be non-blocking. Use threads or async processes for heavy tasks like transcription.
-
+- **Permissions are Key:** On macOS, if the trigger doesn't record or text isn't typed, check **Input Monitoring** and **Accessibility** for `Whispy V2` in System Settings; the menu names a missing one.
+- **Linux sessions:** X11 needs a display reachable from the `systemd --user` unit (`systemctl --user import-environment DISPLAY XAUTHORITY`); Wayland needs a compositor key binding. The end-to-end checks run in Docker: `v2/whispy2/linux-e2e/run.sh <models-dir>`.
+- **Never block the event tap callback** (macOS): heavy work goes to the controller thread.
+- More in [`v2/README.md`](v2/README.md).
 
 ---
 

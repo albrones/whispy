@@ -41,7 +41,7 @@ info "=== 1/5 Building ==="
 [ -d "$APP_SRC" ] || die "Build reported success but $APP_SRC is missing."
 if codesign -dvv "$APP_SRC" 2>&1 | grep -q 'Signature=adhoc'; then
     warn "Bundle is ad-hoc signed — TCC grants will NOT persist."
-    warn "Fix: ./packaging/macos/create_signing_cert.sh, then rerun."
+    warn "Fix: ./packaging/macos-v2/create_signing_cert.sh, then rerun."
 fi
 
 # --- 2. Quit the running V2 -------------------------------------------------

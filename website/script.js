@@ -2,7 +2,7 @@
 //
 // The WAVEROWS frames are vendored from unicode-animations (MIT,
 // github.com/gunnargray-dev/unicode-animations) and kept in sync with the app's
-// src/whispy/ui/unicode_anim.py. A sine wave scrolls left->right across 4
+// v2/whispy2/src/title_anim.rs. A sine wave scrolls left->right across 4
 // braille characters; it reads like an audio waveform. IDLE_FRAME is the calm
 // glyph the real menu bar rests on when Whispy is not listening.
 
@@ -53,7 +53,7 @@ class BrailleAnimator {
 }
 
 // Audio-reactive bar pill — a faithful port of the app's WaveformView math
-// (src/whispy/ui/waveform_window.py): symmetric envelope, per-bar sine wobble,
+// (v2/whispy2/src/mac/pill.rs): symmetric envelope, per-bar sine wobble,
 // bars driven by a smoothed level. Here the "level" is a synthesized speech
 // envelope since there's no real microphone on the page.
 class WaveformPill {

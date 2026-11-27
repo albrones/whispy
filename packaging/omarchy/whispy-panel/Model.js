@@ -1,8 +1,8 @@
 // Pure logic of the Whispy bar widget, shared by the QML and its node test
 // (tests/test_omarchy_panel_model.py). No Qt, no I/O.
 
-// The dictation keys the panel offers, in the order of
-// OMARCHY_TRIGGER_PRESETS (src/whispy/core/config.py).
+// The dictation keys the panel offers, in the order of the backend's presets
+// (omarchy-dictation-whispy) and of omarchy_trigger in docs/src/config-schema.json.
 var PRESETS = [
   { value: "right_option_hold", label: "Right Option (hold)" },
   { value: "right_ctrl_hold", label: "Right Ctrl (hold)" },
@@ -10,7 +10,7 @@ var PRESETS = [
   { value: "left_option_space_toggle", label: "Left Option + Space (toggle)" }
 ]
 
-// The macOS menu bar's braille waveform (src/whispy/ui/unicode_anim.py):
+// The macOS menu bar's braille waveform (v2/whispy2/src/title_anim.rs):
 // a calm frame at rest, a scrolling wave while Whispy works.
 var IDLE_FRAME = "⣀⣤⣶⣤"
 var WAVEROWS = [
@@ -19,10 +19,10 @@ var WAVEROWS = [
 ]
 var FRAME_INTERVAL_MS = 90
 
-// V2 reports V1's level, 10 x RMS; below the transcription silence gate
-// (RMS 0.005, src/whispy/core/audio.py) nothing is speech, so the wave is flat.
+// Whispy reports the level as 10 x RMS; below the transcription silence gate
+// (RMS 0.005, whispy-core) nothing is speech, so the wave is flat.
 var SILENCE_LEVEL = 0.05
-// The macOS pill's perceptual boost (waveform_window.py: LEVEL_GAMMA, LEVEL_GAIN).
+// The macOS pill's perceptual boost (v2/whispy2/src/pill_geometry.rs).
 var LEVEL_GAMMA = 0.5
 var LEVEL_GAIN = 2.0
 
@@ -52,7 +52,7 @@ function phaseLabel(value) {
   if (value === "loading") return "Loading model"
   if (value === "no-model") return "Model not loaded"
   if (value === "stopped") return "Whispy stopped"
-  if (value === "yielded") return "Whispy V1 is running"
+  if (value === "yielded") return "An older Whispy is running"
   return "Ready"
 }
 
