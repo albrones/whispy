@@ -424,6 +424,7 @@ def test_macos_reinstall_quits_the_app_that_runs_it():
             assert not apple_event.exists(), "unattended: no Apple Event"
             assert opened.exists()
             assert (app / "Contents" / "MacOS" / "whispy2").read_text(encoding="utf-8") == "new\n"
+            assert not (repo / "dist" / "Whispy V2.app").exists(), "no second launchable copy left in dist/"
         finally:
             if fake_app.poll() is None:
                 fake_app.kill()

@@ -100,7 +100,11 @@ still="$(running_pids)"
 info "=== 3/5 Installing to $APP_DST ==="
 rm -rf "$APP_STAGE"
 trap 'rm -rf "$APP_STAGE"' EXIT
+# Moved, not copied: a second launchable copy left in dist/ is offered by
+# Spotlight and Launch Services next to the installed one, and launching it
+# runs an old build (#50). The next build makes a new one.
 ditto "$APP_SRC" "$APP_STAGE"
+rm -rf "$APP_SRC"
 rm -rf "$APP_DST"
 mv "$APP_STAGE" "$APP_DST"
 trap - EXIT
