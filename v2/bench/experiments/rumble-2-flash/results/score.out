@@ -1,0 +1,253 @@
+| Model | Set | WER | Median latency | p95 latency | RTF |
+|---|---|---|---|---|---|
+| Parakeet (Whispy, ONNX int8, CPU) | tts (20) | 16.4 % | 0.17 s | 0.18 s | 0.038 |
+| Parakeet (Whispy, ONNX int8, CPU) | fleurs (20) | 11.2 % | 0.28 s | 0.38 s | 0.027 |
+| Parakeet (Whispy, ONNX int8, CPU) | all (40) | 13.0 % | 0.18 s | 0.38 s | 0.031 |
+| Rumble-2-Flash (French forced, MPS fp16) | tts (20) | 14.7 % | 0.23 s | 0.30 s | 0.055 |
+| Rumble-2-Flash (French forced, MPS fp16) | fleurs (20) | 6.9 % | 0.38 s | 0.49 s | 0.040 |
+| Rumble-2-Flash (French forced, MPS fp16) | all (40) | 9.6 % | 0.32 s | 0.49 s | 0.045 |
+| Rumble-2-Flash (auto language, MPS fp16) | tts (20) | 18.1 % | 0.25 s | 0.27 s | 0.055 |
+| Rumble-2-Flash (auto language, MPS fp16) | fleurs (20) | 6.9 % | 0.41 s | 0.51 s | 0.042 |
+| Rumble-2-Flash (auto language, MPS fp16) | all (40) | 10.8 % | 0.28 s | 0.51 s | 0.046 |
+| Rumble-2-Flash (French forced, CPU fp32) | tts (20) | 14.7 % | 1.33 s | 1.59 s | 0.302 |
+| Rumble-2-Flash (French forced, CPU fp32) | fleurs (20) | 6.9 % | 2.44 s | 3.68 s | 0.254 |
+| Rumble-2-Flash (French forced, CPU fp32) | all (40) | 9.6 % | 1.65 s | 3.36 s | 0.269 |
+
+fleurs-01
+  REF l' accident a eu lieu en terrain montagneux et il semblerait que cela ait été causé par un incendie malveillant
+  Parakeet (Whispy, ONNX int8, CPU):
+
+fleurs-02
+  REF il a ajouté qu' on ne devrait cependant pas leur demander d' assumer des obligations qui dépassent leur stade de développement leur responsabilité et leurs capacités
+  Parakeet (Whispy, ONNX int8, CPU): il ajouté qu' on ne devrait cependant pas leur demander d' assumer des obligations qui dépassent leur stade de développement de responsabilité et leur capacité
+  Rumble-2-Flash (French forced, MPS fp16): il ajoutait qu' on ne devrait cependant pas leur demander d' assumer des obligations qui dépassent leur stade de développement leurs responsabilités et leurs capacités
+  Rumble-2-Flash (auto language, MPS fp16): il ajoutait qu' on ne devrait cependant pas leur demander d' assumer des obligations qui dépassent leur stade de développement leurs responsabilités et leurs capacités
+  Rumble-2-Flash (French forced, CPU fp32): il ajoutait qu' on ne devrait cependant pas leur demander d' assumer des obligations qui dépassent leur stade de développement leurs responsabilités et leurs capacités
+
+fleurs-03
+  REF le rugissement du tigre ne ressemble pas au rugissement ample du lion mais plutôt à une phrase dont les mots seraient des cris et des grondements
+  Parakeet (Whispy, ONNX int8, CPU): leugissement du tig ne ressemble pas au jugissement ample du lien mais plutôt à une phrase dont les mots seraient des cris et des grondements
+  Rumble-2-Flash (French forced, MPS fp16): rugissement du tigre n' en ressemble pas au rugissement en pluie du lion mais plutôt à une phrase dont les mots seraient des cris et des grondements
+  Rumble-2-Flash (auto language, MPS fp16): rugissement du tigre n' en ressemble pas au rugissement en pluie du lion mais plutôt à une phrase dont les mots seraient des cris et des grondements
+  Rumble-2-Flash (French forced, CPU fp32): rugissement du tigre n' en ressemble pas au rugissement en pluie du lion mais plutôt à une phrase dont les mots seraient des cris et des grondements
+
+fleurs-04
+  REF le même mois un autre avion de ligne a fait une sortie de piste à mashhad et a heurté un mur tuant ainsi dix sept personnes
+  Parakeet (Whispy, ONNX int8, CPU): le même mois un autre avion de ligne a fait une sortie de piste à machad et heurté un mur tuant ainsi dix sept personnes
+  Rumble-2-Flash (French forced, MPS fp16): le même mois un autre avion de ligne a fait une sortie de piste à machad et heurté un mur tuant ainsi dix sept personnes
+  Rumble-2-Flash (auto language, MPS fp16): le même mois un autre avion de ligne a fait une sortie de piste à machad et heurté un mur tuant ainsi dix sept personnes
+  Rumble-2-Flash (French forced, CPU fp32): le même mois un autre avion de ligne a fait une sortie de piste à machad et heurté un mur tuant ainsi dix sept personnes
+
+fleurs-05
+  REF giancarlo fisichella a perdu le contrôle de sa voiture et a terminé la course peu après le démarrage
+  Parakeet (Whispy, ONNX int8, CPU): giancarlo ficella a perdu le contrôle de sa voiture et a terminé la course peu après le démarrage
+  Rumble-2-Flash (French forced, MPS fp16): jean carlo fittella a perdu le contrôle de sa voiture et a terminé la course peu après le démarrage
+  Rumble-2-Flash (auto language, MPS fp16): jean carlo fittella a perdu le contrôle de sa voiture et a terminé la course peu après le démarrage
+  Rumble-2-Flash (French forced, CPU fp32): jean carlo fittella a perdu le contrôle de sa voiture et a terminé la course peu après le démarrage
+
+fleurs-06
+  REF malgré le net avantage de del potro pendant le deuxième set il a fallu passer par un tie break une fois que le score a atteint six six
+  Rumble-2-Flash (French forced, MPS fp16): malgré le net avantage du del potro pendant le deuxième set il a fallu passer par un tie break une fois que le score a atteint six six
+  Rumble-2-Flash (auto language, MPS fp16): malgré le net avantage du del potro pendant le deuxième set il a fallu passer par un tie break une fois que le score a atteint six six
+  Rumble-2-Flash (French forced, CPU fp32): malgré le net avantage du del potro pendant le deuxième set il a fallu passer par un tie break une fois que le score a atteint six six
+
+fleurs-07
+  REF malheureusement il est difficile d' étudier le flux de circulation car le comportement des conducteurs ne peut être prédit avec cent pour cent de certitude
+  Parakeet (Whispy, ONNX int8, CPU): malheureusement il est difficile d' étudier le flux de circulation car les comportements des conducteurs ne peuvent être prédits avec cent de certitude
+  Rumble-2-Flash (French forced, MPS fp16): malheureusement il est difficile d' étudier le flux de circulation car les comportements des conducteurs ne peuvent être prévus avec cent de certitude
+  Rumble-2-Flash (auto language, MPS fp16): malheureusement il est difficile d' étudier le flux de circulation car les comportements des conducteurs ne peuvent être prévus avec cent de certitude
+  Rumble-2-Flash (French forced, CPU fp32): malheureusement il est difficile d' étudier le flux de circulation car les comportements des conducteurs ne peuvent être prévus avec cent de certitude
+
+fleurs-08
+  REF les deux composés réagissent l' un avec l' autre pour former des cristaux qui peuvent bloquer la fonction rénale ont déclaré des chercheurs de l' université
+
+fleurs-09
+  REF par exemple des étudiants de l' école bennet en caroline du nord conçoivent chaque année un site web consacré à leur visite de la capitale de l' état chaque année le site est remis à jour mais les anciennes versions sont conservées en ligne pour servir d' album
+  Parakeet (Whispy, ONNX int8, CPU): par exemple des étudiants de l' école bénet en caroline du nord conçoivent chaque année un site web consacré à leur visite de la capitale de l' état chaque année le site est remis à jour mais les anciennes versions sont conservées en ligne pour servir d' album
+  Rumble-2-Flash (French forced, MPS fp16): par exemple des étudiants de l' école bénin en caroline du nord conçoivent chaque année un site web consacré à leur visite de la capitale de l' état chaque année le site est remis à jour mais les anciennes versions sont conservées en ligne pour servir d' album
+  Rumble-2-Flash (auto language, MPS fp16): par exemple des étudiants de l' école bénin en caroline du nord conçoivent chaque année un site web consacré à leur visite de la capitale de l' état chaque année le site est remis à jour mais les anciennes versions sont conservées en ligne pour servir d' album
+  Rumble-2-Flash (French forced, CPU fp32): par exemple des étudiants de l' école bénin en caroline du nord conçoivent chaque année un site web consacré à leur visite de la capitale de l' état chaque année le site est remis à jour mais les anciennes versions sont conservées en ligne pour servir d' album
+
+fleurs-10
+  REF par exemple le format de photographie le plus courant au monde est le trente cinq mm c' était le format de pellicule le plus répandu à la fin de l' ère des films analogiques
+  Parakeet (Whispy, ONNX int8, CPU): par exemple le form de photographie le plus courant du monde est le trente cinq mm c' était le format de pellicule le plus répandu à la fin de l' ère des films analogiques
+  Rumble-2-Flash (French forced, MPS fp16): par exemple le format de photographie le plus courant du monde est le trente cinq mégapixels c' était le format de pellicule le plus répandu à la fin de l' ère des films analogiques
+  Rumble-2-Flash (auto language, MPS fp16): par exemple le format de photographie le plus courant du monde est le trente cinq mégapixels c' était le format de pellicule le plus répandu à la fin de l' ère des films analogiques
+  Rumble-2-Flash (French forced, CPU fp32): par exemple le format de photographie le plus courant du monde est le trente cinq mégapixels c' était le format de pellicule le plus répandu à la fin de l' ère des films analogiques
+
+fleurs-11
+  REF tout bien considéré nous ne devrions pas être surpris si nos propres ancêtres ont résolu leur problème de protéines un peu de la même manière que les chimpanzés de la savane le font aujourd' hui
+  Parakeet (Whispy, ONNX int8, CPU): tout bien considéré nous ne devrions pas être surpris si nos propres ancêtres ont résolu leurs problèmes de protéines un peu de la même manière que les chimpanzés de la savane le font aujourd' hui
+  Rumble-2-Flash (French forced, MPS fp16): tout bien considéré nous ne devrions pas être surpris si nos propres ancêtres ont résolu leurs problèmes de protéines un peu de la même manière que les chimpanzés de la savane le font aujourd' hui
+  Rumble-2-Flash (auto language, MPS fp16): tout bien considéré nous ne devrions pas être surpris si nos propres ancêtres ont résolu leurs problèmes de protéines un peu de la même manière que les chimpanzés de la savane le font aujourd' hui
+  Rumble-2-Flash (French forced, CPU fp32): tout bien considéré nous ne devrions pas être surpris si nos propres ancêtres ont résolu leurs problèmes de protéines un peu de la même manière que les chimpanzés de la savane le font aujourd' hui
+
+fleurs-12
+  REF le bus quatre cent trois de scotturb se rend régulièrement à sintra avec un arrêt à cabo da roca
+  Parakeet (Whispy, ONNX int8, CPU): le bus quatre cent trois de scouturb se rend régulièrement à cintra avec un arrêt à cabo d' aroca
+  Rumble-2-Flash (French forced, MPS fp16): le bus quatre cent trois de scooturb serait régulièrement à sintra avec un arrêt à cabo de aruga
+  Rumble-2-Flash (auto language, MPS fp16): le bus quatre cent trois de scooturb serait régulièrement à sintra avec un arrêt à cabo de aruga
+  Rumble-2-Flash (French forced, CPU fp32): le bus quatre cent trois de scooturb serait régulièrement à sintra avec un arrêt à cabo de aruga
+
+fleurs-13
+  REF les troupes de lions agissent comme des meutes de loups ou de chiens des animaux étonnamment semblables aux lions mais pas aux autres grands félins dans leur comportement et aussi très mortels pour leurs proies
+  Parakeet (Whispy, ONNX int8, CPU): les troupes de lions agissent comme des meutes de loups ou de chiens des animaux étonnamment semblables aux lions mais pas aux autres grands félins dont leur comportement est aussi très mortel pour leur proie
+
+fleurs-14
+  REF sa réputation en tant qu' épicentre du luxe a débuté aux environs de l' an quatre cents et duré jusqu' à mille cent environ
+  Parakeet (Whispy, ONNX int8, CPU): sa réputation en tant qu' épicentre du luxe a débuté aux environs de l' an quatre cents et a duré jusqu' à mille cent environ
+  Rumble-2-Flash (French forced, MPS fp16): sa réputation en tant qu' épicentre du luxe a débuté aux environs de l' enquête cent et a duré jusqu' à mille cent environ
+  Rumble-2-Flash (auto language, MPS fp16): sa réputation en tant qu' épicentre du luxe a débuté aux environs de l' enquête cent et a duré jusqu' à mille cent environ
+  Rumble-2-Flash (French forced, CPU fp32): sa réputation en tant qu' épicentre du luxe a débuté aux environs de l' enquête cent et a duré jusqu' à mille cent environ
+
+fleurs-15
+  REF la professeur pamela ferguson de l' université de dundee note que les journalistes semblent suivre une ligne dangereuse s' ils publient des photos etc de suspects
+  Parakeet (Whispy, ONNX int8, CPU): la professeure pamela ferguson de l' université de dundee note que les journalistes semblent suivre une ligne dangereuse s' ils publient des photos etc de suspects
+  Rumble-2-Flash (French forced, MPS fp16): la professeure pamela ferguson de l' université de dundee note que les journalistes semblent suivre une ligne dangereuse s' ils publient des photos etc de suspects
+  Rumble-2-Flash (auto language, MPS fp16): la professeure pamela ferguson de l' université de dundee note que les journalistes semblent suivre une ligne dangereuse s' ils publient des photos etc de suspects
+  Rumble-2-Flash (French forced, CPU fp32): la professeure pamela ferguson de l' université de dundee note que les journalistes semblent suivre une ligne dangereuse s' ils publient des photos etc de suspects
+
+fleurs-16
+  REF la plupart des petites îles sont des nations indépendantes ou associées à la france et sont connues pour être des stations balnéaires de luxe
+  Parakeet (Whispy, ONNX int8, CPU): la plupart des petites îles sont des nations indépendantes ou associées à la france et sont connues pour être des stations bannéaires de luxe
+
+fleurs-17
+  REF les scientifiques espèrent comprendre comment les planètes se forment et plus particulièrement comment la terre s' est formée puisque des comètes sont entrées en collision avec elle il y a longtemps
+  Parakeet (Whispy, ONNX int8, CPU): les scientifiques espèrent comment les planètes se forment et plus particulièrement comment la terre s' est formée puisque les comètes sont entrées en collision avec elles il y a longtemps
+  Rumble-2-Flash (French forced, MPS fp16): les scientifiques espèrent comprendre comment les planètes se forment et plus particulièrement comment la terre s' est formée puisque les comètes sont entrées en collision avec elle il y a longtemps
+  Rumble-2-Flash (auto language, MPS fp16): les scientifiques espèrent comprendre comment les planètes se forment et plus particulièrement comment la terre s' est formée puisque les comètes sont entrées en collision avec elle il y a longtemps
+  Rumble-2-Flash (French forced, CPU fp32): les scientifiques espèrent comprendre comment les planètes se forment et plus particulièrement comment la terre s' est formée puisque les comètes sont entrées en collision avec elle il y a longtemps
+
+fleurs-18
+  REF l' île de hong kong donne son nom au territoire de hong kong et représente le principal centre d' intérêt pour de nombreux touristes
+  Parakeet (Whispy, ONNX int8, CPU): l' île de hong kong donne son nom au territoire de hongkong et représente le principal centre d' intérêt pour de nombreux touristes
+
+fleurs-19
+  REF des éléments comme le calcium et le potassium sont considérés comme des métaux bien sûr il y a aussi des métaux comme l' argent et l' or
+
+fleurs-20
+  REF le chocolat chaud est conforme aux normes belges les jus de fruits sont chers mais excellents
+
+tts-01
+  REF peux tu relancer le build et vérifier que les tests passent avant de merger la pull request
+  Parakeet (Whispy, ONNX int8, CPU): peux tu relancer le build et vérifier que les tests passent avant de merger la poule request
+
+tts-02
+  REF le déploiement sur kubernetes a échoué parce que le pod n' arrivait pas à joindre la base de données
+  Parakeet (Whispy, ONNX int8, CPU): le déploiement sur kubernetes a échoué parce que le pont n' arrivait pas à joindre la base de données
+  Rumble-2-Flash (French forced, MPS fp16): le déploiement sur kubernetes a échoué parce que le fond n' arrivait pas à joindre la base de données
+  Rumble-2-Flash (auto language, MPS fp16): le déploiement sur kubernetes a échoué parce que le fond n' arrivait pas à joindre la base de données
+  Rumble-2-Flash (French forced, CPU fp32): le déploiement sur kubernetes a échoué parce que le fond n' arrivait pas à joindre la base de données
+
+tts-03
+  REF j' ai ajouté un endpoint rest qui renvoie la liste des utilisateurs au format json
+  Parakeet (Whispy, ONNX int8, CPU): j' ai ajouté un nom point rest qui renvoie la liste des utilisateurs au format json
+  Rumble-2-Flash (French forced, MPS fp16): j' ai ajouté un nom rest qui renvoie la liste des utilisateurs au format json
+  Rumble-2-Flash (auto language, MPS fp16): j' ai ajouté un nom rest qui renvoie la liste des utilisateurs au format json
+  Rumble-2-Flash (French forced, CPU fp32): j' ai ajouté un nom rest qui renvoie la liste des utilisateurs au format json
+
+tts-04
+  REF il faut mettre à jour la dépendance react et corriger les warnings du linter
+  Parakeet (Whispy, ONNX int8, CPU): il faut mettre vour la dépendance correct et corriger les warning du lanté
+  Rumble-2-Flash (French forced, MPS fp16): il faut mettre à jour la dépendance croate et corriger les warnings du lancer
+  Rumble-2-Flash (auto language, MPS fp16): il faut mettre à jour la dépendance croate et corriger les warnings du lancer
+  Rumble-2-Flash (French forced, CPU fp32): il faut mettre à jour la dépendance croate et corriger les warnings du lancer
+
+tts-05
+  REF le cache redis expire au bout de trente minutes ce qui explique la latence le matin
+  Parakeet (Whispy, ONNX int8, CPU): le cash redit expire au bout de trente minutes ce qui explique la latence le matin
+  Rumble-2-Flash (French forced, MPS fp16): le cache ready expire au bout de trente minutes ce qui explique la latence le matin
+  Rumble-2-Flash (auto language, MPS fp16): le cache ready expire au bout de trente minutes ce qui explique la latence le matin
+  Rumble-2-Flash (French forced, CPU fp32): le cache ready expire au bout de trente minutes ce qui explique la latence le matin
+
+tts-06
+  REF ouvre une issue sur github pour suivre le bug du mode sombre
+  Parakeet (Whispy, ONNX int8, CPU): ou les sujets pour suivre le but de votre sombre
+  Rumble-2-Flash (French forced, MPS fp16): pour réussir ce riche pour suivre le but de mal sombre
+  Rumble-2-Flash (auto language, MPS fp16): pour réussir ce riche pour suivre le but de mal sombre
+  Rumble-2-Flash (French forced, CPU fp32): pour réussir ce riche pour suivre le but de mal sombre
+
+tts-07
+  REF on garde le feature flag désactivé en production jusqu' à la fin de la recette
+  Parakeet (Whispy, ONNX int8, CPU): on garde le féature flag désactivé en production jusqu' à la fin de la recette
+  Rumble-2-Flash (French forced, MPS fp16): on garde le fait à turflag désactivé en production jusqu' à la fin de la recette
+  Rumble-2-Flash (auto language, MPS fp16): on garde le fait à turflag désactivé en production jusqu' à la fin de la recette
+  Rumble-2-Flash (French forced, CPU fp32): on garde le fait à turflag désactivé en production jusqu' à la fin de la recette
+
+tts-08
+  REF la pipeline ci tourne sur github actions et publie l' image docker sur le registry
+  Parakeet (Whispy, ONNX int8, CPU): la pubile s' y tourne sur juste d' action et publie l' image bloquer sur le registri
+  Rumble-2-Flash (French forced, MPS fp16): la pubm s' y tourne surgit une action et publie l' image docker sur le registre
+  Rumble-2-Flash (auto language, MPS fp16): la pubm s' y tourne surgit une action et publie l' image docker sur le registre
+  Rumble-2-Flash (French forced, CPU fp32): la pubm s' y tourne surgit une action et publie l' image docker sur le registre
+
+tts-09
+  REF je préfère un rebase plutôt qu' un merge commit pour garder un historique propre
+  Parakeet (Whispy, ONNX int8, CPU): je préfère un rebass plutôt qu' un merge commis pour garder un historique propre
+  Rumble-2-Flash (French forced, MPS fp16): je préfère un rebas plutôt qu' un merge commis pour garder un historique propre
+  Rumble-2-Flash (auto language, MPS fp16): je préfère un rebas plutôt qu' un merge commis pour garder un historique propre
+  Rumble-2-Flash (French forced, CPU fp32): je préfère un rebas plutôt qu' un merge commis pour garder un historique propre
+
+tts-10
+  REF le modèle de reconnaissance vocale tourne en local avec onnx runtime sur le mac
+  Parakeet (Whispy, ONNX int8, CPU): le modèle de reconnaissance vocale tourne locale avec onnx transime sur le mac
+  Rumble-2-Flash (French forced, MPS fp16): le modèle de reconnaissance vocale tourne au local avec onux france info sur le mac
+  Rumble-2-Flash (auto language, MPS fp16): modell der erkenntnisse lokal turnor lokal auf der knnx von simsylomak
+  Rumble-2-Flash (French forced, CPU fp32): le modèle de reconnaissance vocale tourne au local avec onux france info sur le mac
+
+tts-11
+  REF ajoute un test unitaire qui couvre le cas où le fichier de configuration est vide
+
+tts-12
+  REF la réunion de demain est décalée à quatorze heures pense à prévenir l' équipe
+  Parakeet (Whispy, ONNX int8, CPU): la réunion de demain est décalée à quatorze h pense à prévenir l' équipe
+  Rumble-2-Flash (French forced, MPS fp16): la réunion de demain est décalée à quatorze h pense à prévenir l' équipe
+  Rumble-2-Flash (auto language, MPS fp16): la réunion de demain est décalée à quatorze h pense à prévenir l' équipe
+  Rumble-2-Flash (French forced, CPU fp32): la réunion de demain est décalée à quatorze h pense à prévenir l' équipe
+
+tts-13
+  REF le serveur renvoie une erreur cinq cent quand le token d' authentification a expiré
+  Parakeet (Whispy, ONNX int8, CPU): le serveur renvoie une erre cinq cents quand le token d' authentification a expiré
+  Rumble-2-Flash (French forced, MPS fp16): le serveur renvoie une erreur cinq cents quand le token d' authentification a expiré
+  Rumble-2-Flash (auto language, MPS fp16): le serveur renvoie une erreur cinq cents quand le token d' authentification a expiré
+  Rumble-2-Flash (French forced, CPU fp32): le serveur renvoie une erreur cinq cents quand le token d' authentification a expiré
+
+tts-14
+  REF il faudrait refactorer ce composant pour séparer la logique métier de l' affichage
+  Parakeet (Whispy, ONNX int8, CPU): il faut refactorer ces composants pour séparer la logique métier de l' affichage
+  Rumble-2-Flash (French forced, MPS fp16): il faut devoir refactorer ses composants pour séparer la logique métier de l' affichage
+  Rumble-2-Flash (auto language, MPS fp16): il faut devoir refactorer ses composants pour séparer la logique métier de l' affichage
+  Rumble-2-Flash (French forced, CPU fp32): il faut devoir refactorer ses composants pour séparer la logique métier de l' affichage
+
+tts-15
+  REF on a trois tickets en review et deux en attente de déploiement sur la staging
+
+tts-16
+  REF le microphone ne capte rien tant que l' application n' a pas l' autorisation dans les réglages
+  Rumble-2-Flash (French forced, MPS fp16): le microphone ne capture rien sans que l' application n' a pas l' autorisation dans les réglages
+  Rumble-2-Flash (auto language, MPS fp16): le microphone ne capture rien sans que l' application n' a pas l' autorisation dans les réglages
+  Rumble-2-Flash (French forced, CPU fp32): le microphone ne capture rien sans que l' application n' a pas l' autorisation dans les réglages
+
+tts-17
+  REF envoie moi le lien du dashboard grafana avec les métriques de la semaine dernière
+
+tts-18
+  REF la migration de la base postgresql prendra environ vingt minutes de downtime
+  Parakeet (Whispy, ONNX int8, CPU): la migration de la base postgres condra environ vingt minutes de dante
+  Rumble-2-Flash (French forced, MPS fp16): la migration de la base postgresql prendra environ vingt minutes de temps
+  Rumble-2-Flash (auto language, MPS fp16): la migration de la base postgresql prendra environ vingt minutes de temps
+  Rumble-2-Flash (French forced, CPU fp32): la migration de la base postgresql prendra environ vingt minutes de temps
+
+tts-19
+  REF pense à lancer cargo clippy avant de pousser sinon la ci va refuser la branche
+  Parakeet (Whispy, ONNX int8, CPU): pense cargo clippy avant de pousser sinon la scie va refuser la branche
+  Rumble-2-Flash (French forced, MPS fp16): pense à lancer cargo clippie avant de pousser sinon la scie va refuser la branche
+  Rumble-2-Flash (auto language, MPS fp16): pense à lancer cargo clippie avant de pousser sinon la scie va refuser la branche
+  Rumble-2-Flash (French forced, CPU fp32): pense à lancer cargo clippie avant de pousser sinon la scie va refuser la branche
+
+tts-20
+  REF le webhook slack notifie le canal quand une release est publiée sur main
+  Parakeet (Whispy, ONNX int8, CPU): le webbooks like notifie le canal quand une release est publiée sur ma
+  Rumble-2-Flash (French forced, MPS fp16): le webux like notifie le canal quand une release est publiée sur ma
+  Rumble-2-Flash (auto language, MPS fp16): le webux like notifie le canal quand une release est publiée sur ma
+  Rumble-2-Flash (French forced, CPU fp32): le webux like notifie le canal quand une release est publiée sur ma
