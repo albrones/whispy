@@ -82,6 +82,15 @@ as_user bash -c "curl -fsSL $RAW/v1/scripts/bootstrap.sh | WHISPY_REF=v1 DISPLAY
 wait_for 60 bash -c "pgrep -u $U -f whispy_daemon.py" || true
 say "V1 unit: enabled=$(uctl is-enabled whispy.service 2>&1) active=$(uctl is-active whispy.service 2>&1); V1 process: $(pgrep -u $U -fc whispy_daemon.py || true); venv: $(test -d $H/.local/share/whispy/.venv && echo yes || echo no)"
 
+# A setting chosen under V1, that V2 must keep (V1 and V2 share the file).
+as_user python3 -c "
+import json, os
+p = os.path.expanduser('~/.config/whispy/config.json')
+d = json.load(open(p)) if os.path.exists(p) else {}
+d['type_while_speaking'] = False
+os.makedirs(os.path.dirname(p), exist_ok=True)
+json.dump(d, open(p, 'w'))
+"
 say "### 2. The one-line installer of $REF, over V1"
 start=$(date +%s)
 as_user bash -c "curl -fsSL $RAW/$REF/scripts/bootstrap.sh | WHISPY_REF=$REF DISPLAY=:99 XDG_SESSION_TYPE=x11 bash" > /tmp/v2-install.log 2>&1 \
@@ -92,7 +101,7 @@ say "toolchain now: cargo=$(as_user bash -c 'command -v cargo') cmake=$(command 
 say "V1 unit: enabled=$(uctl is-enabled whispy.service 2>&1 || true) active=$(uctl is-active whispy.service 2>&1 || true) file=$(test -e $H/.config/systemd/user/whispy.service && echo present || echo absent)"
 say "V1 process: $(pgrep -u $U -fc whispy_daemon.py || true); venv: $(test -d $H/.local/share/whispy/.venv && echo present || echo absent); V1 sources: $(test -e $H/.local/share/whispy/whispy_daemon.py && echo present || echo absent)"
 say "V2 unit: enabled=$(uctl is-enabled whispy2.service) active=$(uctl is-active whispy2.service); WantedBy: $(grep WantedBy $H/.config/systemd/user/whispy2.service)"
-say "settings kept: $(cat $H/.config/whispy/config.json 2>/dev/null | tr -d '\n' | cut -c1-120)"
+say "settings kept: type_while_speaking=$(python3 -c "import json; print(json.load(open('$H/.config/whispy/config.json'))['type_while_speaking'])")"
 wait_for 120 ready || { as_user whispy2 send status; tail -20 $H/.whispy/v2/whispy2.log; exit 1; }
 say "status: $(as_user whispy2 send status)"
 say "### 3. Dictation with Right Ctrl"

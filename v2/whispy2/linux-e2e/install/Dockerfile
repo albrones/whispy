@@ -7,6 +7,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     systemd systemd-sysv dbus dbus-user-session sudo procps ca-certificates curl git python3 \
     xvfb xdotool xterm x11-utils pulseaudio pulseaudio-utils libasound2-plugins \
     && rm -rf /var/lib/apt/lists/*
+# The virtual microphone lives in PulseAudio: it must not exit when idle.
+RUN sed -i 's/^;* *exit-idle-time = .*/exit-idle-time = -1/' /etc/pulse/daemon.conf
 RUN useradd -m -s /bin/bash e2e && echo 'e2e ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/e2e \
     && mkdir -p /var/lib/systemd/linger && touch /var/lib/systemd/linger/e2e
 STOPSIGNAL SIGRTMIN+3

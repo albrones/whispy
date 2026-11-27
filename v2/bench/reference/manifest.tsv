@@ -28,5 +28,5 @@ fr-sentence-numbers-annee.wav	fr	sentence	en deux mille vingt-six nous visons di
 fr-short-numbers-compose.wav	fr	short	quatre-vingt-dix-sept
 fr-sentence-numbers-un-peu.wav	fr	sentence	il y a un peu plus de soixante-dix personnes et une fois de plus deux ou trois choses
 en-sentence-numbers.wav	en	sentence	I will buy three apples and six eggs at four o'clock
-../../../tests/fixtures/audio/fr_speech.wav	fr	sentence	test un deux trois, le test est fini
-../../../tests/fixtures/audio/en_speech.wav	en	sentence	testing one two three, the test is done
+fr-sentence-fixture.wav	fr	sentence	test un deux trois, le test est fini
+en-sentence-fixture.wav	en	sentence	testing one two three, the test is done
