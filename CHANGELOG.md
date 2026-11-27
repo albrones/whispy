@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.5.2] — 2026-11-27
+
+### Fixes
+
+- **v2:** the macOS update from the menu quits and replaces the running app (#69)
+
 ## [2.5.1] — 2026-11-27
 
 ### Fixes
