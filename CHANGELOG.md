@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-11-27
+
+### Features
+
+- **v2:** update Whispy from its menu (macOS and Linux) (#65)
+
 ## [2.4.0] — 2026-11-27
 
 ### Changed
