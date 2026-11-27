@@ -25,6 +25,7 @@ use crate::mac::{
 use crate::machine::Event;
 use crate::menu_model::Alert;
 use crate::microphone::Microphone;
+use crate::update::Updater;
 use crate::v1;
 
 /// The watchdog's clock and the tap's health check.
@@ -111,9 +112,12 @@ pub fn run() {
         },
     );
     let inputs = controller.inputs.clone();
+    let updater = Updater::new();
     if let Some(control) = control.borrow().as_ref() {
         let for_socket = inputs.clone();
-        control.serve(move |request| control::dispatch(&for_socket, request));
+        let socket_updater = updater.clone();
+        control
+            .serve(move |request| control::dispatch(&for_socket, Some(&socket_updater), request));
     }
 
     // Before the first trigger event can arrive: V1 already running means the key is not ours.
@@ -154,6 +158,7 @@ pub fn run() {
             trigger_key: trigger.as_ref().ok().map(|tap| tap.key.clone()),
             inputs: inputs.clone(),
             socket: control::default_path(),
+            updater: updater.clone(),
         },
         move || {
             // `terminate:` exits without running destructors: remove the socket here.
@@ -163,6 +168,10 @@ pub fn run() {
             }
         },
     );
+
+    // After the menu exists: the first check's row lands in it.
+    updater.set_on_change(|_| menu_bar::refresh());
+    updater.start_daily();
 
     thread::Builder::new()
         .name("whispy2-housekeeping".into())

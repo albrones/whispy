@@ -41,7 +41,7 @@ The main thread orchestrates and reviews; subagents execute and report.
   ```
 - **Tests and lint:** `make test` (`cargo test` + pytest), `make lint` (fmt, clippy `-D warnings`, ruff).
 - **Live Logs:** `tail -f ~/.whispy/v2/whispy2.log` (Linux also: `journalctl --user -u whispy2 -f`).
-- **Control socket** (`~/.whispy/v2/control.sock`, no network port, no token): `whispy2 send status`, `start`, `stop`, `toggle`, `last`.
+- **Control socket** (`~/.whispy/v2/control.sock`, no network port, no token): `whispy2 send status`, `start`, `stop`, `toggle`, `last`, `check-update`, `update`.
 
 ## 🏗️ Architecture & Workflow
 - **The app (`v2/whispy2`):** one binary per platform, with a pure, unit-tested state machine (`machine.rs`) and a platform layer: `src/mac/` (menu bar, pill, event tap, paste through System Events) and `src/linux/` (X11 trigger, tray, typing, notifications).

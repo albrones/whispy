@@ -22,6 +22,7 @@ use crate::log;
 use crate::machine::Event;
 use crate::menu_model::Alert;
 use crate::microphone::Microphone;
+use crate::update::Updater;
 use crate::v1;
 
 /// The watchdog's clock.
@@ -69,8 +70,9 @@ pub fn run() {
 
     // The icon first: the controller's feedback and status go through it.
     let (quit, quit_requested) = mpsc::channel::<()>();
+    let updater = Updater::new();
     let tray = match session {
-        Session::X11 => match tray::spawn(quit.clone()) {
+        Session::X11 => match tray::spawn(quit.clone(), updater.clone()) {
             Ok(handle) => Some(handle),
             Err(reason) => {
                 log::line(&format!(
@@ -84,6 +86,8 @@ pub fn run() {
     };
     let surface = Surface::new(tray);
     let status_surface = surface.clone();
+    let update_surface = surface.clone();
+    updater.set_on_change(move |row| update_surface.update_row(row));
 
     let controller = Controller::start(
         Microphone::new,
@@ -107,7 +111,9 @@ pub fn run() {
     let inputs = controller.inputs.clone();
     if let Some(control) = control.as_ref() {
         let for_socket = inputs.clone();
-        control.serve(move |request| control::dispatch(&for_socket, request));
+        let socket_updater = updater.clone();
+        control
+            .serve(move |request| control::dispatch(&for_socket, Some(&socket_updater), request));
     }
 
     let mut is_v1_running = v1::is_running();
@@ -140,6 +146,8 @@ pub fn run() {
             "no graphical session: no key is listened to and text cannot be typed; the control socket still answers",
         ),
     }
+
+    updater.start_daily();
 
     let housekeeping = inputs.clone();
     thread::Builder::new()

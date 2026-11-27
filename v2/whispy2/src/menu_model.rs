@@ -40,6 +40,10 @@ pub enum MenuAction {
     SelectTrigger(Option<i64>),
     ToggleLogin,
     OpenPermissionSettings,
+    /// « Check for Updates », and the result a hand-made check shows.
+    CheckForUpdates,
+    /// « Update to X.Y.Z ».
+    InstallUpdate,
     Restart,
     Quit,
 }
@@ -122,6 +126,8 @@ pub struct MenuInput {
     pub trigger_label: String,
     pub login: LoginRow,
     pub permission_warning: bool,
+    /// The update row (see [`crate::update`]).
+    pub update: crate::update::Row,
     pub dark: bool,
 }
 
@@ -251,6 +257,7 @@ pub fn build(input: &MenuInput) -> Vec<MenuRow> {
     }
 
     rows.push(separator());
+    rows.push(update_row(&input.update));
     rows.push(MenuRow::new(
         RowKind::Action {
             action: MenuAction::Restart,
@@ -268,6 +275,23 @@ pub fn build(input: &MenuInput) -> Vec<MenuRow> {
         true,
     ));
     rows
+}
+
+/// The update row: disabled while a check or an install runs.
+pub fn update_row(row: &crate::update::Row) -> MenuRow {
+    use crate::update::Action;
+    let action = match row.action {
+        Some(Action::Install) => MenuAction::InstallUpdate,
+        Some(Action::Check) | None => MenuAction::CheckForUpdates,
+    };
+    MenuRow::new(
+        RowKind::Action {
+            action,
+            key_equivalent: None,
+        },
+        Title::plain(row.title.clone()),
+        row.action.is_some(),
+    )
 }
 
 fn separator() -> MenuRow {
@@ -527,6 +551,13 @@ mod tests {
             trigger_label: trigger_label(FN_KEYCODE),
             login: LoginRow::Hidden,
             permission_warning: false,
+            update: crate::update::Updater::with(
+                crate::update::Version(2, 4, 0),
+                || crate::update::Checked::Failed("test".into()),
+                |_| crate::update::Installed::Done,
+                std::time::Duration::from_secs(1),
+            )
+            .row(),
             dark: true,
         }
     }
@@ -574,6 +605,7 @@ mod tests {
                 "Type while speaking   ✓",
                 "Trigger: Fn",
                 "",
+                "Check for Updates",
                 "Restart",
                 "Quit",
             ]
@@ -588,7 +620,15 @@ mod tests {
             }
         );
         assert_eq!(
-            rows[11].kind,
+            rows[10].kind,
+            RowKind::Action {
+                action: MenuAction::CheckForUpdates,
+                key_equivalent: None
+            }
+        );
+        assert!(rows[10].enabled);
+        assert_eq!(
+            rows[12].kind,
             RowKind::Action {
                 action: MenuAction::Quit,
                 key_equivalent: Some("q")
@@ -663,6 +703,31 @@ mod tests {
                 checked: false
             }
         );
+    }
+
+    #[test]
+    fn the_update_row_installs_an_offer_and_waits_while_busy() {
+        use crate::update::{Action, Row};
+        let offer = update_row(&Row {
+            title: "Update to 2.5.0".into(),
+            action: Some(Action::Install),
+            transient: false,
+        });
+        assert_eq!(offer.title.text, "Update to 2.5.0");
+        assert!(offer.enabled);
+        assert_eq!(
+            offer.kind,
+            RowKind::Action {
+                action: MenuAction::InstallUpdate,
+                key_equivalent: None
+            }
+        );
+        let busy = update_row(&Row {
+            title: "Checking for Updates\u{2026}".into(),
+            action: None,
+            transient: true,
+        });
+        assert!(!busy.enabled);
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! The X11 tray icon (StatusNotifierItem): the state at a glance (a grey ring
-//! at rest, a red dot while listening), the status line, and Quit.
+//! at rest, a red dot while listening), the status line, the update row
+//! (« Check for Updates », « Update to X.Y.Z ») and Quit.
 //!
 //! V1's rule holds: an icon is decoration and must never stop dictation. When
 //! it cannot start (no D-Bus session, no tray host in the panel) the caller
@@ -12,6 +13,7 @@ use ksni::menu::StandardItem;
 use ksni::{Icon, MenuItem, ToolTip};
 
 use crate::log;
+use crate::update::{Row, Updater};
 
 /// The icon's side, in pixels: panels scale it, 22 is the usual tray size.
 pub const ICON_SIZE: i32 = 22;
@@ -24,14 +26,19 @@ pub struct WhispyTray {
     pub listening: bool,
     /// The status line (« Ready — hold the trigger key to dictate », a problem).
     pub status: String,
+    /// The update row, as the updater last reported it.
+    pub update: Row,
+    updater: Updater,
     quit: Sender<()>,
 }
 
 impl WhispyTray {
-    pub fn new(quit: Sender<()>) -> WhispyTray {
+    pub fn new(quit: Sender<()>, updater: Updater) -> WhispyTray {
         WhispyTray {
             listening: false,
             status: crate::controller::LOADING_NOTE.to_string(),
+            update: updater.row(),
+            updater,
             quit,
         }
     }
@@ -94,6 +101,17 @@ impl ksni::Tray for WhispyTray {
             .into(),
             MenuItem::Separator,
             StandardItem {
+                label: self.update.title.clone(),
+                enabled: self.update.action.is_some(),
+                activate: Box::new(|tray: &mut Self| {
+                    if let Some(action) = tray.update.action {
+                        tray.updater.choose(action);
+                    }
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
                 label: "Quit".into(),
                 activate: Box::new(|tray: &mut Self| {
                     let _ = tray.quit.send(());
@@ -114,8 +132,8 @@ impl ksni::Tray for WhispyTray {
 }
 
 /// Starts the icon. `Err` says why it cannot be shown.
-pub fn spawn(quit: Sender<()>) -> Result<Handle<WhispyTray>, String> {
-    WhispyTray::new(quit)
+pub fn spawn(quit: Sender<()>, updater: Updater) -> Result<Handle<WhispyTray>, String> {
+    WhispyTray::new(quit, updater)
         .spawn()
         .map_err(|error| error.to_string())
 }
@@ -141,10 +159,20 @@ mod tests {
         assert_eq!(pixel(&listening, 0, 0), [0, 0, 0, 0]);
     }
 
+    fn test_updater() -> Updater {
+        use crate::update::{Checked, Installed, Version};
+        Updater::with(
+            Version(2, 4, 0),
+            || Checked::Latest(Version(2, 4, 0)),
+            |_| Installed::Done,
+            std::time::Duration::from_secs(5),
+        )
+    }
+
     #[test]
     fn the_menu_shows_the_status_and_quit_reaches_the_app() {
         let (quit, quitted) = std::sync::mpsc::channel();
-        let mut tray = WhispyTray::new(quit);
+        let mut tray = WhispyTray::new(quit, test_updater());
         tray.status = "Ready".into();
         let menu = ksni::Tray::menu(&tray);
         let labels: Vec<_> = menu
@@ -154,10 +182,28 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(labels, ["Ready", "Quit"]);
-        if let MenuItem::Standard(quit_item) = &menu[2] {
+        assert_eq!(labels, ["Ready", "Check for Updates", "Quit"]);
+        if let MenuItem::Standard(quit_item) = &menu[3] {
             (quit_item.activate)(&mut tray);
         }
         assert!(quitted.try_recv().is_ok());
+    }
+
+    #[test]
+    fn the_update_item_runs_the_rows_action() {
+        let (quit, _quitted) = std::sync::mpsc::channel();
+        let updater = test_updater();
+        let mut tray = WhispyTray::new(quit, updater.clone());
+        let menu = ksni::Tray::menu(&tray);
+        let MenuItem::Standard(item) = &menu[2] else {
+            panic!("the update item is a standard item")
+        };
+        assert!(item.enabled);
+        (item.activate)(&mut tray);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while updater.row().title != "Whispy is up to date" {
+            assert!(std::time::Instant::now() < deadline, "{:?}", updater.row());
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
     }
 }

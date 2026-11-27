@@ -8,6 +8,7 @@
 //! - [`control`]: the local socket that drives V2 and keeps it single.
 //! - [`feedback`]: the indicator and alert sound, behind a port.
 //! - [`journal`] and [`log`]: what V2 records about its dictations and itself.
+//! - [`update`]: checks for a newer release and installs it from the menu.
 //! - [`v1`]: tells whether Whispy V1 is running, so only one of them listens to Fn.
 
 pub mod control;
@@ -29,4 +30,5 @@ pub mod settings;
 pub mod theme;
 pub mod title_anim;
 pub mod trigger_key;
+pub mod update;
 pub mod v1;

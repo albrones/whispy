@@ -8,6 +8,7 @@ use super::tray::WhispyTray;
 use crate::controller::Status;
 use crate::feedback::{Feedback, Phase};
 use crate::menu_model::Alert;
+use crate::update::Row;
 
 /// A handle on the icon, if it started. Cloned into the controller (feedback)
 /// and the status callback.
@@ -29,6 +30,16 @@ impl Surface {
             .unwrap_or_else(|| status.headline().to_string());
         if let Some(tray) = &self.tray {
             tray.update(|tray| tray.status = line);
+        }
+    }
+}
+
+impl Surface {
+    /// The update row in the icon's menu.
+    pub fn update_row(&self, row: &Row) {
+        if let Some(tray) = &self.tray {
+            let row = row.clone();
+            tray.update(|tray| tray.update = row);
         }
     }
 }

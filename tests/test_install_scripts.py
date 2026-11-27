@@ -89,6 +89,44 @@ def test_bootstrap_installs_linux_build_packages_with_each_package_manager(boots
     assert "cmake" in bootstrap and "clang" in bootstrap and "pkg-config" in bootstrap
 
 
+def _stub(directory: Path, name: str, body: str) -> None:
+    path = directory / name
+    path.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IEXEC)
+
+
+def test_bootstrap_unattended_never_asks_for_sudo_and_exits_3(tmp_path: Path):
+    """Whispy's « Update to X.Y.Z » runs bootstrap.sh with WHISPY_UNATTENDED=1:
+    missing system packages stop it, before any change, with exit code 3
+    (Whispy then shows the command to run), and sudo is never called."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    sudo_called = tmp_path / "sudo-called"
+    _stub(bin_dir, "uname", "echo Linux")
+    _stub(bin_dir, "apt-get", "exit 0")
+    _stub(bin_dir, "dpkg-query", "exit 1")  # nothing installed
+    _stub(bin_dir, "sudo", f"touch '{sudo_called}'; exit 0")
+    _stub(bin_dir, "id", "echo 1000")
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "WHISPY_HOME": str(tmp_path / "whispy"),
+        "WHISPY_UNATTENDED": "1",
+        "XDG_SESSION_TYPE": "wayland",
+    }
+    result = subprocess.run(["bash", str(BOOTSTRAP)], env=env, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert not sudo_called.exists()
+    assert "need sudo" in result.stdout and "libasound2-dev" in result.stdout
+    assert not (tmp_path / "whispy").exists(), "nothing is cloned before the stop"
+
+    # Attended (the one-liner in a terminal), the same machine goes through sudo.
+    del env["WHISPY_UNATTENDED"]
+    env["WHISPY_REPO"] = str(tmp_path / "no-such-repo")
+    subprocess.run(["bash", str(BOOTSTRAP)], env=env, capture_output=True, text=True, timeout=60)
+    assert sudo_called.exists()
+
+
 def test_bootstrap_linux_builds_v2_and_never_v1(bootstrap: str):
     code = _code(bootstrap)
     linux = code[code.index("install_linux() {") :]
