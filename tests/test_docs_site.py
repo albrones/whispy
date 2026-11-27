@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import importlib.util
 import json
 import re
@@ -11,12 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from whispy import doctor
-from whispy.core.config import CONFIG_SCHEMA
-
 REPO = Path(__file__).resolve().parent.parent
 DOCS = REPO / "website" / "docs"
 PAGES = ["index", "install", "troubleshooting", "config", "usage"]
+CONFIG_SCHEMA = json.loads((REPO / "docs" / "src" / "config-schema.json").read_text(encoding="utf-8"))
 
 
 def _load_generator():
@@ -59,34 +58,46 @@ def _copy_src(tmp_path) -> Path:
     return src
 
 
-def test_check_without_troubleshooting_entry_fails(tmp_path):
+def test_a_cause_without_a_fix_fails(tmp_path):
     src = _copy_src(tmp_path)
     path = src / "troubleshooting.json"
     data = json.loads(path.read_text(encoding="utf-8"))
-    victim = doctor.CHECKS[0].check_id
-    for sym in data["symptoms"]:
-        sym["steps"] = [s for s in sym["steps"] if s.get("check") != victim]
+    data["symptoms"][0]["steps"].append({"title": "Broken cause"})
     path.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(ValueError, match=victim):
+    with pytest.raises(ValueError, match="title and a fix"):
         gen.build(tmp_path / "out", src_dir=src)
 
 
-def test_unknown_check_id_fails(tmp_path):
+def test_a_fix_for_an_os_the_symptom_lacks_fails(tmp_path):
     src = _copy_src(tmp_path)
     path = src / "troubleshooting.json"
     data = json.loads(path.read_text(encoding="utf-8"))
-    data["symptoms"][0]["steps"].append({"check": "no-such-check", "fix": {"macos": "x", "linux": "x"}})
+    linux_only = next(sym for sym in data["symptoms"] if sym["os"] == ["linux"])
+    linux_only["steps"].append({"title": "Mac cause", "fix": {"macos": "<p>x</p>"}})
     path.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(ValueError, match="no-such-check"):
+    with pytest.raises(ValueError, match="another OS"):
         gen.build(tmp_path / "out", src_dir=src)
 
 
-def test_every_check_is_reachable_with_its_name():
+def test_an_unknown_config_kind_fails(tmp_path):
+    src = _copy_src(tmp_path)
+    path = src / "config-schema.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["trigger_mode"]["kind"] = "str_list"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="kind"):
+        gen.build(tmp_path / "out", src_dir=src)
+
+
+def test_every_cause_shows_its_title_and_fixes():
     text = (DOCS / "troubleshooting.html").read_text(encoding="utf-8")
-    for fn in doctor.CHECKS:
-        assert f'data-check="{fn.check_id}"' in text
-        assert f"<summary>{fn.check_name[:1].upper() + fn.check_name[1:]}</summary>" in text
-    assert "Run <code>make doctor</code> to confirm." in text
+    data = json.loads((gen.SRC / "troubleshooting.json").read_text(encoding="utf-8"))
+    for sym in data["symptoms"]:
+        assert f'id="{sym["id"]}"' in text
+        for step in sym["steps"]:
+            if "title" in step:
+                assert f"<summary>{html.escape(step['title'])}</summary>" in text
+    assert "make doctor" not in text
 
 
 class _TableParser(HTMLParser):
@@ -121,17 +132,16 @@ def test_reference_table_matches_schema():
     parser.feed((DOCS / "config.html").read_text(encoding="utf-8"))
     assert set(parser.rows) == set(CONFIG_SCHEMA)
     for key, spec in CONFIG_SCHEMA.items():
-        assert parser.rows[key][1] == json.dumps(spec.default)
+        assert parser.rows[key][1] == json.dumps(spec["default"])
 
 
 def test_embedded_schema_matches():
     text = (DOCS / "config.html").read_text(encoding="utf-8")
     m = re.search(r'<script type="application/json" id="config-schema">(.*?)</script>', text, re.S)
     schema = json.loads(m.group(1).replace("<\\/", "</"))
-    assert list(schema) == list(CONFIG_SCHEMA)
-    consts = re.search(r'id="segmenter-constants">(.*?)</script>', text, re.S)
-    assert json.loads(consts.group(1))["hard_max_factor"] == 1.5
-    assert 'id="config-builder"' in text and 'id="segment-viz"' in text
+    assert schema == CONFIG_SCHEMA
+    assert 'id="config-builder"' in text
+    assert "segment-viz" not in text
 
 
 class _Refs(HTMLParser):
@@ -175,7 +185,9 @@ def test_install_has_both_os_blocks_without_js():
     assert 'data-os="linux"' in text
 
 
-def test_usage_api_examples_are_authenticated():
+def test_usage_documents_the_control_socket_not_an_http_api():
     text = (DOCS / "usage.html").read_text(encoding="utf-8")
-    assert text.count("Authorization: Bearer $(cat ~/.config/whispy/config.token)") >= 3
-    assert "The port is defined near the top of <code>src/whispy/api/server.py</code>." in text
+    assert "whispy2 send status" in text
+    assert "~/.whispy/v2/control.sock" in text
+    assert "Authorization: Bearer" not in text
+    assert "9090" not in text

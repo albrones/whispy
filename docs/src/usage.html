@@ -4,47 +4,37 @@
 <h2>Dictating</h2>
 <ol>
   <li>Put the cursor in any text field.</li>
-  <li>Hold the trigger key: <kbd>Fn</kbd> on macOS, <kbd>Right Ctrl</kbd> on Linux. A sound confirms recording.</li>
+  <li>Hold the trigger key: <kbd>Fn</kbd> on macOS, <kbd>Right Ctrl</kbd> under X11, the key your compositor binds under Wayland (Right Option by default on Omarchy). <span data-os="macos">A sound confirms recording, and a pill with your voice's level shows at the bottom of the screen.</span><span data-os="linux">The tray icon turns into a red dot under X11; on Omarchy, a waveform pill shows at the bottom of the screen.</span></li>
   <li>Speak.</li>
-  <li>Release the key. The text is transcribed and inserted.</li>
+  <li>Release the key. The text is transcribed and inserted. A press under 0.3 s is ignored.</li>
 </ol>
-<p><span data-os="macos">On macOS you can change the key from the menu bar (<strong>Settings → Trigger</strong>).</span> <span data-os="linux">On Linux the trigger is Right Ctrl unless you set <a href="config.html#cfg-trigger"><code>trigger</code></a>.</span></p>
+<p><span data-os="macos">On macOS you can change the key from the menu bar (<strong>Settings → Trigger</strong>): Fn, Right Command, Right Option or F13.</span> <span data-os="linux">Under X11 the key is Right Ctrl: it is only listened to, never grabbed, so it still works as a modifier, and Right Ctrl + another key is a shortcut, not a dictation. Under Wayland your compositor's binding calls <code>whispy2 send start</code> and <code>whispy2 send stop</code> (see <a href="install.html">Install</a>).</span></p>
 
 <h3>Hold or toggle</h3>
-<p>The default <strong>hold</strong> mode is push-to-talk. With <a href="config.html#cfg-trigger_mode"><code>trigger_mode</code></a> set to <code>"toggle"</code>, press the trigger once to start and again to stop. In toggle mode, <a href="config.html#cfg-type_while_speaking"><code>type_while_speaking</code></a> types each chunk about a second after each pause instead of all at once; switching windows mid-dictation scatters the text across them.</p>
+<p>The default <strong>hold</strong> mode is push-to-talk. With <a href="config.html#cfg-trigger_mode"><code>trigger_mode</code></a> set to <code>"toggle"</code>, press the trigger once to start and again to stop. In toggle mode, <a href="config.html#cfg-type_while_speaking"><code>type_while_speaking</code></a> (on by default) types the words while you speak, about two seconds behind your voice: a word is typed once it is stable, and nothing typed is ever erased or rewritten. Switching windows mid-dictation scatters the text across them.</p>
 
 <h3>Numbers</h3>
-<p>On macOS (Whispy V2; Linux gets it with V2), numbers dictated in French are written in digits: « quatorze heures trente » becomes « 14 h 30 » and « dix pour cent » becomes « 10 % ». « un » and « une » stay in letters, and English text is left as is.</p>
+<p>Numbers dictated in French are written in digits: « quatorze heures trente » becomes « 14 h 30 » and « dix pour cent » becomes « 10 % ». « un » and « une » stay in letters, and English text is left as is.</p>
 
-<h3>Menu bar and tray</h3>
-<p data-os="macos">Whispy lives in the menu bar. From there you can switch the trigger, toggle <strong>Type while speaking</strong> and <strong>Start at login</strong>, restart, and quit. If it cannot type, a <strong>Can't type — fix permissions…</strong> row appears.</p>
-<p data-os="linux">Under X11, Whispy shows its state in the system tray. Set options such as <code>type_while_speaking: false</code> in the config and restart the service.</p>
-<p data-os="linux">On <strong>Omarchy</strong>, the installer puts a Whispy icon on the right of the bar: a still waveform when ready, a green moving one while it listens, a moving one while it transcribes, greyed when Whispy is stopped. Click it for a panel with the <strong>dictation key</strong> (Right Option, Right Ctrl or F9 held, or Left Option + Space to toggle) and your last dictation (click to copy it; Whispy keeps it in memory only). A new key applies at once, even while Whispy is stopped. The bar talks to Whispy V2 through its private control socket, never a network port. While you speak, a waveform pill shows at the bottom of the screen; it never takes the keyboard focus. The chosen key is written to <code>~/.config/whispy/shortcuts.lua</code>, which Omarchy loads while Whispy is the dictation backend: a dictation key you bound by hand in <code>~/.config/hypr/bindings.lua</code> still applies on top of it.</p>
-
-<h3>Custom vocabulary</h3>
-<p>Linux only for now: Whispy V2 on macOS does not read it yet. Add names, brands and jargon to <a href="config.html#cfg-custom_vocabulary"><code>custom_vocabulary</code></a>. After transcription, an output word is corrected when its spelling or pronunciation is close to one of your terms (<em>wispy</em> becomes <em>Whispy</em>). It fixes close misses only and never adds words you did not say.</p>
+<h3>Menu bar, tray and Omarchy bar</h3>
+<p data-os="macos">Whispy lives in the menu bar, as a braille waveform that moves while it records or transcribes. Its menu shows the status and holds <strong>Copy to clipboard</strong>, <strong>Toggle mode</strong>, <strong>Type while speaking</strong>, <strong>Trigger</strong> and <strong>Start at login</strong>, then <strong>Restart</strong> and <strong>Quit</strong>. If a permission is missing, a <strong>⚠ Missing permission — fix in System Settings…</strong> row appears.</p>
+<p data-os="linux">Under X11, Whispy shows its state in the system tray: a grey ring at rest, a red dot while it listens; its menu shows the status and <strong>Quit</strong>. Without a tray host, Whispy posts one notification and runs on without the icon. Alerts are desktop notifications (<code>notify-send</code>).</p>
+<p data-os="linux">On <strong>Omarchy</strong>, the installer puts a Whispy icon on the right of the bar: a still waveform when ready, a green moving one while it listens, a moving one while it transcribes, greyed when Whispy is stopped. Click it for a panel with a switch that starts or stops Whispy (its <code>systemd --user</code> unit), the <strong>dictation key</strong> (Right Option, Right Ctrl or F9 held, or Left Option + Space to toggle), <strong>Start at login</strong> and your last dictation (click to copy it; Whispy keeps it in memory only). A new key applies at once, even while Whispy is stopped. While you speak, a waveform pill shows at the bottom of the screen; it never takes the keyboard focus. The chosen key is written to <code>~/.config/whispy/shortcuts.lua</code>, which Omarchy loads while Whispy is the dictation backend: a dictation key you bound by hand in <code>~/.config/hypr/bindings.lua</code> still applies on top of it.</p>
 
 <h2>Logs</h2>
-<div data-os="macos">
-<p>Whispy V2 writes one log, with one line per dictation (never its text):</p>
+<p>Whispy writes one log, with one line per dictation (never its text), rotated past 5 MB:</p>
 <pre data-copy><code>tail -f ~/.whispy/v2/whispy2.log</code></pre>
-</div>
-<div data-os="linux">
-<ul>
-  <li>Standard log: <code>~/.whispy.log</code></li>
-  <li>Error log: <code>~/.whispy-error.log</code></li>
-</ul>
-<pre data-copy><code>tail -f ~/.whispy.log ~/.whispy-error.log</code></pre>
-</div>
+<p data-os="linux">The service's own output is in the journal: <code>journalctl --user -u whispy2 -f</code>.</p>
 
 <h2>Restart</h2>
 <p data-os="macos">Menu bar → <strong>Restart</strong>, or quit and reopen <code>/Applications/Whispy V2.app</code>.</p>
-<div data-os="linux"><pre data-copy><code>systemctl --user restart whispy.service</code></pre></div>
-<p data-os="linux">From a source checkout, <code>make run</code> runs the daemon in the foreground against your working tree.</p>
+<div data-os="linux"><pre data-copy><code>systemctl --user restart whispy2</code></pre></div>
+<p data-os="linux">On Omarchy, the switch at the top of the Whispy panel stops and starts it.</p>
 
 <h2 id="uninstall">Uninstall</h2>
 <p>If you installed with the one-liner:</p>
 <pre data-copy><code>curl -fsSL https://raw.githubusercontent.com/albrones/whispy/main/scripts/bootstrap.sh | bash -s -- --uninstall</code></pre>
+<p>It keeps your settings (<code>~/.config/whispy</code>) and the models (<code>~/.whispy</code>).</p>
 <div data-os="macos">
 <p>Or by hand:</p>
 <pre data-copy><code># 1. Quit Whispy (menu bar → Quit), then delete the app (this also drops the Start at login item)
@@ -54,61 +44,49 @@ rm -rf ~/.whispy ~/.config/whispy</code></pre>
 <p>Permission grants are tied to the <code>Whispy V2.app</code> identity. After reinstalling, macOS may ask you to approve them again.</p>
 </div>
 <div data-os="linux">
-<p>Or by hand, which removes the <code>systemd --user</code> unit and the venv:</p>
-<pre data-copy><code>./install.sh --uninstall</code></pre>
+<p>Or by hand:</p>
+<pre data-copy><code>systemctl --user disable --now whispy2
+rm -f ~/.config/systemd/user/whispy2.service ~/.local/bin/whispy2 ~/.local/bin/whispy ~/.local/bin/omarchy-dictation-whispy
+rm -f ~/.config/omarchy/plugins/whispy-panel
+# Optional: wipe the models, logs and settings
+rm -rf ~/.whispy ~/.config/whispy</code></pre>
 </div>
 
-<h2>Local control</h2>
-<div data-os="macos">
-<p>Whispy V2 opens no network port. It listens on a Unix socket readable only by you, one request per line:</p>
+<h2 id="control">Local control</h2>
+<p>Whispy opens no network port. It listens on a Unix socket readable only by you, <code>~/.whispy/v2/control.sock</code>, one request per line, one JSON line back:</p>
+<pre data-copy><code>whispy2 send status</code></pre>
+<p><code>status</code> reports the state, whether the models are loaded, the last problem and the input level; <code>start</code> and <code>stop</code> act like pressing and releasing the trigger, <code>toggle</code> like one press in toggle mode; <code>last</code> returns the text of the last dictation, kept in memory only. <code>whispy2 send</code> exits 0 on an answer, 1 when Whispy refuses, 2 when no Whispy answers. Any socket client works too:</p>
 <pre data-copy><code>printf 'status\n' | nc -U ~/.whispy/v2/control.sock</code></pre>
-<p><code>status</code> reports the state, <code>start</code> and <code>stop</code> act like pressing and releasing the trigger, <code>toggle</code> like one press in toggle mode.</p>
-</div>
-<div data-os="linux">
-<p>The API listens on loopback only and requires a per-install token, so a web page in your browser cannot drive the daemon. Every request must send the token from <code>~/.config/whispy/config.token</code> as a bearer header. The port is defined near the top of <code>src/whispy/api/server.py</code>.</p>
-<pre data-copy><code>curl -H "Authorization: Bearer $$(cat ~/.config/whispy/config.token)" http://localhost:9090/status</code></pre>
-<pre data-copy><code>curl -H "Authorization: Bearer $$(cat ~/.config/whispy/config.token)" -X POST http://localhost:9090/start</code></pre>
-<pre data-copy><code>curl -H "Authorization: Bearer $$(cat ~/.config/whispy/config.token)" -X POST http://localhost:9090/stop</code></pre>
-<p><code>/status</code> checks the daemon, <code>/start</code> begins recording and <code>/stop</code> stops and transcribes. <code>/level</code> returns the live input level (0 to 1) while recording, which the Omarchy pill draws.</p>
-</div>
+<p data-os="macos">The bundled command is <code>"/Applications/Whispy V2.app/Contents/MacOS/whispy2" send status</code>.</p>
 
-<h2 id="model">The model</h2>
-<p>Whispy ships one model, <code>nvidia/parakeet-tdt-0.6b-v3</code>, int8-quantized to ONNX and run on your CPU. There is nothing to choose, so there is no model setting. The download is about 639 MB, automatic on first use, cached at <code>~/.cache/huggingface/hub/models--istupakov--parakeet-tdt-0.6b-v3-onnx</code>. On macOS, Whispy V2 reuses that cache when V1 filled it, else downloads the model at first launch into <code>~/.whispy/models</code>, with whisper small (about 1.2 GB together). It uses about 1.4 GB of memory while loaded.</p>
+<h2 id="model">The models</h2>
+<p>Whispy transcribes with <code>nvidia/parakeet-tdt-0.6b-v3</code>, int8-quantized to ONNX and run on your CPU. When Parakeet hears nothing in a dictation that holds voice, whisper small tries it again. Both download automatically at first launch (about 1.2 GB together) into <code>~/.whispy/models</code>; there is nothing to choose, so there is no model setting. Parakeet uses about 1.4 GB of memory while loaded; whisper small loads only when needed and is freed when idle.</p>
 <h3>No language setting</h3>
-<p>The model detects the language of each utterance and copes with switching languages mid-recording. Forcing a language was measurably wrong (English speech came back translated into French), so there is no such setting. See the <a href="install.html#first-run-the-model">supported languages</a>.</p>
+<p>The model detects the language of each utterance and copes with switching languages mid-recording, so there is no language setting. See the <a href="install.html#first-run-the-models">supported languages</a>.</p>
 <h3>Short sounds and silence are ignored</h3>
 <p>Given silence or room noise, the model answers with a short filler such as <code>Yeah.</code> or <code>Okay.</code>, which would be typed into whatever you have focused. Two gates run first, and a clip must clear both:</p>
 <ul>
 <li><strong>Loudness.</strong> Anything below 0.005 normalized RMS is discarded: a muted mic, a misfire, a quiet room.</li>
 <li><strong>Voice detection.</strong> Anything with under 0.20 s of detected voice is discarded: steady noise, a fan, mains hum.</li>
 </ul>
-<p>Both fail open: a clip that cannot be measured is transcribed rather than dropped, because losing real dictation is worse than an occasional stray word. Whispy never filters by what was said, since <code>Okay.</code> and <code>No.</code> are legitimate one-word dictations. Pausing to think while holding the trigger is fine too.</p>
-<p>In a genuinely loud room (noise above roughly 0.04 RMS) voice detection can no longer tell noise from speech and you rely on the model alone. A stray word in a noisy environment is that gap.</p>
-<h3>Upgrading from a Whisper-era Whispy</h3>
-<p>The old model cache at <code>~/.cache/huggingface/hub/models--Systran--faster-whisper-*</code> is no longer used. <code>./install.sh --uninstall</code> will not delete it; remove it by hand to reclaim the space.</p>
-<h3 data-os="linux">Upgrading the speech runtime</h3>
-<p data-os="linux">From the source folder:</p>
-<div data-os="linux"><pre data-copy><code>./.venv/bin/pip install --upgrade onnx-asr</code></pre></div>
+<p>Whispy never filters by what was said, since <code>Okay.</code> and <code>No.</code> are legitimate one-word dictations. A dictation of half a second or more in which the microphone heard nothing at all says « Microphone heard nothing », with the input device's name.</p>
 
 <h2>FAQ</h2>
 <details><summary>Will Whispy start automatically at each reboot?</summary>
-<p data-os="macos">Yes, if you enable <strong>Settings → Start at login</strong> in the menu bar (it uses <code>SMAppService</code>, no LaunchAgent).</p>
-<p data-os="linux">Yes. The <code>systemd --user</code> unit installed by <code>install.sh</code> starts it at login.</p>
+<p data-os="macos">Yes, if you enable <strong>Start at login</strong> in the menu bar menu (it uses <code>SMAppService</code>, no LaunchAgent).</p>
+<p data-os="linux">Yes. The installer enables the <code>systemd --user</code> unit <code>whispy2.service</code>, which starts with your session. Turn it off with <code>systemctl --user disable whispy2</code>, or <strong>Start at login</strong> in the Omarchy panel.</p>
 </details>
 <details><summary>How do I update Whispy?</summary>
 <p>Run the one-line installer again. It pulls the latest code into <code>~/.local/share/whispy</code>, then:</p>
-<p data-os="macos">rebuilds <code>Whispy V2.app</code> when the code changed, replaces it in <code>/Applications</code> and relaunches it. From your own checkout, <code>make v2-reinstall</code> does the same.</p>
-<p data-os="linux">reinstalls the venv and reloads the systemd unit.</p>
+<p data-os="macos">rebuilds <code>Whispy V2.app</code> when the code changed, replaces it in <code>/Applications</code> and relaunches it. From your own checkout, <code>make reinstall</code> does the same.</p>
+<p data-os="linux">rebuilds <code>whispy2</code>, replaces <code>~/.local/bin/whispy2</code> and restarts the unit. From your own checkout, <code>make reinstall</code> does the same.</p>
 </details>
 <details><summary>Can I use a different model or language?</summary>
 <p>No. Whispy ships one model, <code>nvidia/parakeet-tdt-0.6b-v3</code>, which covers 25 languages and detects them automatically. There is no model or language setting. Speech outside those languages will not transcribe.</p>
 </details>
 <details><summary>I spoke and nothing was typed.</summary>
-<p>The clip may have been discarded: shorter than <a href="config.html#cfg-min_recording_duration"><code>min_recording_duration</code></a> (a tap rather than a hold), near-silent, or with too little detected voice. On Linux, <code>~/.whispy.log</code> shows <code>Recording too short</code>, <code>near-silent (RMS ...)</code> or <code>No speech detected</code>. A muted or wrong input device is another usual cause. <a href="#model">Why short clips are ignored</a>. See <a href="troubleshooting.html">Troubleshooting</a>.</p>
+<p>The clip may have been discarded: a tap rather than a hold (under 0.3 s), near-silent, or with too little detected voice. <code>~/.whispy/v2/whispy2.log</code> has one line per dictation with its outcome. A muted or wrong input device is another usual cause: Whispy opens the current default input at each dictation. <a href="#model">Why short clips are ignored</a>. See <a href="troubleshooting.html">Troubleshooting</a>.</p>
 </details>
 <details><summary>How do I know whether Whispy is running?</summary>
-<p><span data-os="macos">Its menu bar icon shows it, or ask the socket for <code>status</code> as shown above.</span><span data-os="linux">Call <code>/status</code> as shown above, or look for the process in your system monitor.</span></p>
-</details>
-<details data-os="linux"><summary>Can I use my own Python version or environment?</summary>
-<p>The install script creates and uses its own virtual environment in <code>.venv</code>; you do not need to manage it.</p>
+<p><span data-os="macos">Its menu bar icon shows it.</span><span data-os="linux">Its tray icon (X11) or Omarchy bar icon shows it, or <code>systemctl --user status whispy2</code>.</span> Either way, <code>whispy2 send status</code> answers when it runs.</p>
 </details>

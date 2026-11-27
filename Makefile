@@ -1,5 +1,6 @@
-.PHONY: help install update reinstall test lint format check run app uninstall clean validate validate-unattended docs v2-app v2-reinstall
+.PHONY: help install reinstall app test lint format check docs uninstall clean
 
+UNAME := $(shell uname -s)
 VENV := .venv
 PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
@@ -7,69 +8,56 @@ RUFF := $(VENV)/bin/ruff
 PYTEST := $(VENV)/bin/pytest
 
 help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-install: ## Create venv and install the package with dev dependencies
+reinstall: ## Rebuild Whispy V2, replace the installed copy, relaunch it and wait for its control socket
+ifeq ($(UNAME),Darwin)
+	./packaging/macos-v2/reinstall.sh
+else
+	./packaging/linux/reinstall.sh
+endif
+
+v2-reinstall: reinstall
+
+app: ## macOS: build & sign the Whispy V2 bundle (dist/Whispy V2.app)
+	./packaging/macos-v2/build_bundle.sh
+
+v2-app: app
+
+uninstall: ## Remove the installed Whispy V2 (settings and models are kept)
+ifeq ($(UNAME),Darwin)
+	rm -rf "/Applications/Whispy V2.app"
+else
+	./packaging/linux/reinstall.sh --uninstall
+endif
+
+# The repository tooling (release versioning, the docs generator, the guards
+# of the website, docs and install scripts) is plain Python with pytest.
+install: ## Create the tooling venv (pytest, ruff)
 	python3 -m venv $(VENV)
 	$(PIP) install --upgrade pip
-	$(PIP) install -e ".[dev]"
+	$(PIP) install -r requirements-dev.txt
 
-test: ## Run the test suite
+test: ## Run the Rust tests and the tooling tests
+	cd v2 && cargo test --release
 	$(PYTEST) -q
 
-cov: ## Run tests with coverage report
-	$(PYTEST) --cov=src/whispy --cov-report=term-missing --cov-fail-under=84
-
-lint: ## Lint with ruff
-	$(RUFF) check .
-
-format: ## Auto-format with ruff
-	$(RUFF) format .
-
-check: ## CI-equivalent checks (lint + format check + tests)
+lint: ## Lint: clippy, rustfmt, ruff
+	cd v2 && cargo fmt --check
+	cd v2 && cargo clippy --release --all-targets -- -D warnings
 	$(RUFF) check .
 	$(RUFF) format --check .
-	$(PYTEST) -q
 
-run: ## Run the daemon in the foreground (for development)
-	$(PY) whispy_daemon.py
+format: ## Auto-format Rust and Python
+	cd v2 && cargo fmt
+	$(RUFF) format .
 
-doctor: ## Diagnose the environment (audio, model, permissions, daemon)
-	$(PY) whispy_daemon.py --doctor
-
-validate: ## Full release validation: preflight + live-drive (real daemon over HTTP) + operator checklist
-	$(PY) -m tests.validation.run $(ARGS)
-
-validate-unattended: ## Validation without the human operator layer (preflight + live-drive only)
-	$(PY) -m tests.validation.run --no-operator $(ARGS)
+check: lint test ## CI-equivalent checks
 
 docs: ## Regenerate the documentation site (website/docs) from docs/src
 	$(PY) scripts/build_docs.py
 
-update: ## Pull latest, rebuild the app, and relaunch
-	git pull --ff-only
-	@osascript -e 'tell application "Whispy" to quit' 2>/dev/null || true
-	@sleep 1
-	$(MAKE) app
-	open dist/Whispy.app
-	@echo "✓ Whispy updated and relaunched"
-
-reinstall: ## Rebuild, replace /Applications/Whispy.app, relaunch, and wait for the API (dev loop)
-	./packaging/macos/reinstall.sh
-
-app: ## Build & sign the native macOS bundle (self-signed "Whispy Local Signing" cert, ad-hoc fallback) (dist/Whispy.app)
-	./packaging/macos/build_app.sh
-
-v2-app: ## Build & sign the Whispy V2 (Rust) bundle (dist/Whispy V2.app)
-	./packaging/macos-v2/build_bundle.sh
-
-v2-reinstall: ## Rebuild V2, replace /Applications/Whispy V2.app, relaunch, and wait for its control socket
-	./packaging/macos-v2/reinstall.sh
-
-uninstall: ## Remove the venv and any legacy LaunchAgents
-	./install.sh --uninstall
-
 clean: ## Remove caches and build artifacts
-	rm -rf .pytest_cache .ruff_cache .coverage htmlcov
+	rm -rf .pytest_cache .ruff_cache dist
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +

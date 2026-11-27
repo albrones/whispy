@@ -58,7 +58,7 @@ for entry in "${clips[@]}"; do
   printf '%s\t%s\t%s\t%s\n' "$name.wav" "$lang" "$kind" "$text" >> manifest.tsv
 done
 
-# V1's committed validation clips (tests/fixtures/audio, also `say`) ride along.
-printf '%s\t%s\t%s\t%s\n' "../../../tests/fixtures/audio/fr_speech.wav" fr sentence "test un deux trois, le test est fini" >> manifest.tsv
-printf '%s\t%s\t%s\t%s\n' "../../../tests/fixtures/audio/en_speech.wav" en sentence "testing one two three, the test is done" >> manifest.tsv
+# V1's two validation clips (also `say`, kept from the tag v1) ride along.
+printf '%s\t%s\t%s\t%s\n' "fr-sentence-fixture.wav" fr sentence "test un deux trois, le test est fini" >> manifest.tsv
+printf '%s\t%s\t%s\t%s\n' "en-sentence-fixture.wav" en sentence "testing one two three, the test is done" >> manifest.tsv
 echo "Regenerated $(wc -l < manifest.tsv | tr -d ' ') reference clips"

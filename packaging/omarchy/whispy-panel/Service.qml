@@ -17,6 +17,10 @@ import "Model.js" as Model
 //
 // The dictation key is saved in ~/.config/whispy/config.json by the backend
 // (`omarchy-dictation-whispy trigger`); the panel reads it from the file.
+//
+// Whispy runs as the `systemd --user` unit whispy2.service (installed by
+// scripts/bootstrap.sh): the power switch starts or stops it, Start at login
+// enables or disables it.
 Item {
   id: root
 
@@ -25,6 +29,9 @@ Item {
   property string socketPath: Quickshell.env("WHISPY_V2_SOCKET") || (home + "/.whispy/v2/control.sock")
   readonly property string backend: home + "/.local/bin/omarchy-dictation-whispy"
   readonly property string configPath: (Quickshell.env("XDG_CONFIG_HOME") || (home + "/.config")) + "/whispy/config.json"
+  readonly property string unit: "whispy2.service"
+  // Replaced by tests, so they never reach a real service.
+  property string serviceControl: "systemctl"
 
   property bool reachable: false
   property var status: null
@@ -37,6 +44,11 @@ Item {
   property string message: ""
   property bool messageIsError: false
   property bool changingTrigger: triggerProcess.running
+  // The switch asked systemd to start Whispy; cleared once the socket answers.
+  property bool starting: false
+  // The switch asked systemd to stop it; cleared once the socket stops answering.
+  property bool stopping: false
+  property bool startAtLogin: false
 
   // ---- The control socket ---------------------------------------------------
 
@@ -107,6 +119,8 @@ Item {
     reachable = data !== null && typeof data === "object" && typeof data.state === "string"
     status = reachable ? data : null
     level = reachable && data.state === "recording" ? Number(data.level) || 0 : 0
+    if (reachable) starting = false
+    else stopping = false
     if (reachable && !wasReachable) fetchLast()
     if (wasPhase === "transcribing" && phase !== "transcribing") fetchLast()
   }
@@ -115,7 +129,7 @@ Item {
   Timer {
     interval: root.phase === "recording" ? 50 : 500
     repeat: true
-    running: root.active
+    running: root.active || root.starting || root.stopping
     onTriggered: root.refresh()
   }
 
@@ -163,6 +177,67 @@ Item {
       else if (last.indexOf("Warning: ") === 0) root.flash(last.slice(9), false)
       root.fetchConfig()
     }
+  }
+
+  // ---- The service ----------------------------------------------------------
+
+  function readStartAtLogin() {
+    loginReader.running = true
+  }
+
+  Process {
+    id: loginReader
+    command: [root.serviceControl, "--user", "is-enabled", root.unit]
+    stdout: StdioCollector { id: loginStdout; waitForEnd: true }
+    onExited: root.startAtLogin = String(loginStdout.text || "").trim() === "enabled"
+  }
+
+  function setStartAtLogin(on) {
+    if (loginWriter.running) return
+    startAtLogin = on
+    loginWriter.command = [serviceControl, "--user", on ? "enable" : "disable", unit]
+    loginWriter.running = true
+  }
+
+  Process {
+    id: loginWriter
+    onExited: function(exitCode) {
+      if (exitCode !== 0) root.flash("Could not change Start at login", true)
+      root.readStartAtLogin()
+    }
+  }
+
+  function setRunning(on) {
+    if (powerProcess.running) return
+    starting = on
+    stopping = !on
+    // systemd refuses a burst of starts meant for a crashing service, not for
+    // someone flipping the switch; clear that first.
+    powerProcess.command = on
+      ? ["sh", "-c", '"$0" --user reset-failed "$1" 2>/dev/null; exec "$0" --user start "$1"', serviceControl, unit]
+      : [serviceControl, "--user", "stop", unit]
+    powerProcess.running = true
+    startDeadline.restart()
+  }
+
+  Process {
+    id: powerProcess
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        root.starting = false
+        root.stopping = false
+        root.flash("systemctl could not change Whispy", true)
+      }
+      root.refresh()
+    }
+  }
+
+  // A service that never answers releases the wait and shows where it is
+  // (loading the models takes a few seconds; downloading them, minutes).
+  Timer {
+    id: startDeadline
+    interval: 60000
+    onTriggered: { root.starting = false; root.stopping = false; root.refresh() }
   }
 
   function copyLast() {

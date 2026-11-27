@@ -4,7 +4,7 @@ import Quickshell.Wayland
 import qs.Commons
 import "Model.js" as Model
 
-// The macOS recording pill (src/whispy/ui/waveform_window.py): bottom centre,
+// The macOS recording pill (v2/whispy2/src/mac/pill.rs): bottom centre,
 // eleven bars that follow the microphone while Whispy listens. A layer-shell
 // overlay with no keyboard interactivity and an empty input region, so the
 // window being dictated into keeps the focus and every click.

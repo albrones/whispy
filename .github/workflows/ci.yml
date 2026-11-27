@@ -8,19 +8,21 @@ on:
   workflow_call:
 
 jobs:
+  # Repository tooling (scripts/release.py, scripts/build_docs.py) and the
+  # guards of the website, docs, install scripts and Omarchy packaging.
   lint:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install ruff
-        # Pinned to match .pre-commit-config.yaml so `format --check` is
-        # deterministic (a floating newer ruff reformats differently).
+        # Pinned to match .pre-commit-config.yaml and requirements-dev.txt so
+        # `format --check` is deterministic.
         run: pip install "ruff==0.15.21"
 
       - name: Ruff lint
@@ -29,62 +31,27 @@ jobs:
       - name: Ruff format check
         run: ruff format --check .
 
-  test:
-    runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Create venv and install deps
+      - name: Shell syntax
         run: |
-          python3 -m venv .venv
-          .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install -e ".[dev]"
+          for f in scripts/bootstrap.sh packaging/linux/reinstall.sh packaging/macos-v2/*.sh packaging/omarchy/omarchy-dictation-whispy; do
+            bash -n "$f"
+          done
 
-      - name: Run tests with coverage
-        run: .venv/bin/pytest -v --tb=short --cov=src/whispy --cov-report=term-missing --cov-fail-under=84
-
-  test-macos-real-seam:
-    runs-on: macos-latest
+  tooling:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-      - name: Create venv and install deps
-        run: |
-          python3 -m venv .venv
-          .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install -e ".[dev]"
+      - name: Install the test tools
+        run: pip install -r requirements-dev.txt
 
-      # The model is 639 MB and does not change between runs. Measured on this
-      # job: a cache hit restores it in ~10s and downloads nothing.
-      - name: Cache the Parakeet weights
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/huggingface/hub
-          key: hf-parakeet-tdt-0.6b-v3-onnx-int8
-
-      # test_transcription_quality.py is deliberately excluded rather than
-      # skipped by accident. It asserts on `say`-synthesized speech, whose
-      # output is not byte-stable between runs, so individual phrases flip
-      # (measured: "oui" comes back as "We" on roughly half the draws). It is
-      # also the only remaining reason anything here would want sox, which CI
-      # therefore does not install. It stays a local tool. Everything else is
-      # deterministic -- numpy-synthesized noise and committed recordings.
-      - name: Run macOS real-seam tests
-        run: .venv/bin/pytest -m macos -v --tb=short --timeout=300 --ignore=tests/test_transcription_quality.py
+      - name: Run the tooling tests
+        run: pytest -v --tb=short
 
   # Whispy V2 (v2/, Rust): unit tests and lint. The engines' model files are
   # not needed here; the bench that uses them runs on a Mac with the models.
@@ -131,26 +98,3 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --release --locked -p whispy2 -p whispy-core --all-targets -- -D warnings
-
-  test-linux:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Create venv and install deps
-        run: |
-          python3 -m venv .venv
-          .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install -e ".[dev]"
-
-      - name: Run tests with coverage
-        run: .venv/bin/pytest -v --tb=short --cov=src/whispy --cov-report=term-missing --cov-fail-under=84

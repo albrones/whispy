@@ -1,71 +1,58 @@
 # Contributing to Whispy
 
 Thanks for your interest in improving Whispy! This document explains how to set up a
-development environment, run the test suite, and submit changes.
+development environment, run the tests, and submit changes.
 
-Whispy targets **macOS and Linux (X11 and Wayland)**. Most of the codebase runs and tests cleanly on
-any platform (the OS-coupled dependencies are mocked in the test suite); the app runs end
-to end on macOS and on an X11 or Wayland Linux session.
+Whispy is a Rust app (`v2/`) for **macOS and Linux (X11 and Wayland)**. The repository
+also holds its packaging (`packaging/`), the installer (`scripts/bootstrap.sh`), the
+website (`website/`) and a little Python tooling (`scripts/release.py`,
+`scripts/build_docs.py`) with the pytest guards of the website, docs and install scripts.
 
 ## Development setup
 
 ```bash
 git clone https://github.com/albrones/whispy.git
 cd whispy
-
-# Create a virtual environment and install the package in editable mode with dev deps
-python3 -m venv .venv
-./.venv/bin/pip install --upgrade pip
-./.venv/bin/pip install -e ".[dev]"
 ```
 
-Audio capture uses `sounddevice`/PortAudio, installed automatically as a Python
-dependency — no `sox` or other system audio package is required on macOS. On Linux,
-install `xdotool`/`xclip` for text injection (see the [install guide](https://whispy-dun.vercel.app/docs/install.html)).
+You need Rust (<https://rustup.rs>) and cmake. On Linux, also the build libraries the
+installer lists (a C/C++ toolchain, clang, pkg-config, the ALSA, xkbcommon and OpenSSL headers:
+see the [install guide](https://whispy-dun.vercel.app/docs/install.html)). For the
+tooling tests, `make install` creates a `.venv` with pytest and ruff.
 
 ## Trying a change in the real app
 
 ```bash
-make run          # run the daemon from source, in the foreground — no bundle needed
-make reinstall    # macOS: rebuild + sign, replace /Applications/Whispy.app, relaunch
+make reinstall    # rebuild, replace the installed Whispy, relaunch it, wait for its socket
 ```
 
-`make run` is the fast loop and covers most work. Reach for `make reinstall` when
-the change only manifests in the signed bundle — the event tap, text injection,
-or anything depending on macOS permission grants, which attach to the
-`Whispy.app` identity rather than to a bare interpreter.
-
-Relaunching `/Applications/Whispy.app` by hand after editing source does *not*
-pick the edit up: it restarts the previously built bundle.
+On macOS it rebuilds and signs `Whispy V2.app` and replaces `/Applications/Whispy V2.app`;
+on Linux it rebuilds `whispy2`, replaces `~/.local/bin/whispy2` and restarts the
+`whispy2.service` unit. A plain relaunch reruns the old build. For a quick loop,
+`cd v2 && cargo run --release --bin whispy2` runs it in the foreground (stop the
+installed one first: the control socket is a single-instance lock).
 
 ## Running the tests
 
 ```bash
-./.venv/bin/pytest                 # full suite
-./.venv/bin/pytest -v              # verbose
-./.venv/bin/pytest --cov=src/whispy --cov-report=term-missing   # with coverage
+make test         # cargo test (v2/) and the tooling tests (pytest)
+make lint         # cargo fmt --check, clippy -D warnings, ruff
 ```
 
-The macOS-only dependencies (`Quartz`, `rumps`) are mocked in `tests/conftest.py`, so the
-suite runs on non-macOS machines and in CI.
-
-## Test suite
-
-Test files are organized by scope:
+The app's own tests, end-to-end checks and bench are described in
+[`v2/README.md`](v2/README.md). The pytest files under `tests/` guard the repository
+around it:
 
 | File | Scope |
 |------|-------|
-| `tests/test_engine.py` | Core engine, state machine, config |
-| `tests/test_audio.py` | AudioEngine, transcription, audio duration detection |
-| `tests/test_integration.py` | Multi-module integration |
-| `tests/test_e2e.py` | End-to-end workflow tests |
-| `tests/test_event_tap_e2e.py` | EventTapListener E2E tests |
-| `tests/test_api/test_server.py` | HTTP API server tests |
-| `tests/test_text_cleaning.py` | whitespace normalization, custom-vocabulary correction |
-| `tests/test_config_validation.py` | Config validation and migration |
-| `tests/test_error_handling.py` | Error cases (capture-backend failure, mic unavailable) |
-| `tests/test_docs_site.py` | Generated docs freshness, determinism, troubleshooting coverage, config reference |
-| `tests/test_docs_widgets.py` | Config builder output accepted by the loader; widget logic via node when available |
+| `tests/test_release.py` | `scripts/release.py`: the next version from the conventional commits |
+| `tests/test_install_scripts.py` | `scripts/bootstrap.sh`, `packaging/linux/reinstall.sh`, the macOS packaging and the Makefile |
+| `tests/test_omarchy_adapter.py` | the Omarchy dictation backend (`packaging/omarchy/omarchy-dictation-whispy`) |
+| `tests/test_omarchy_panel_model.py` | the Omarchy bar panel's model and its service control |
+| `tests/test_website.py` | the landing page |
+| `tests/test_docs.py` | README, CHANGELOG and docs facts that must not drift |
+| `tests/test_docs_site.py` | generated docs freshness, determinism, troubleshooting and config reference |
+| `tests/test_docs_widgets.py` | the config builder's logic (through node when available) |
 
 ## Regenerating the docs
 
@@ -81,24 +68,17 @@ Commit the regenerated `website/docs/` together with your change, and never edit
 
 ## Code style
 
-Whispy uses [Ruff](https://docs.astral.sh/ruff/) for linting and formatting.
-
-```bash
-./.venv/bin/ruff check .           # lint
-./.venv/bin/ruff format .          # auto-format
-./.venv/bin/ruff format --check .  # verify formatting (what CI runs)
-```
-
-If a `Makefile` is present, `make lint`, `make format`, and `make test` wrap these
-commands.
+`cargo fmt` and `cargo clippy -- -D warnings` for Rust; [Ruff](https://docs.astral.sh/ruff/)
+for the Python tooling. `make lint` runs all of them, `make format` formats.
 
 ## Submitting changes
 
 1. Fork the repo and create a feature branch (`feat/...` or `fix/...`).
 2. Add at least one test that covers your change.
-3. Make sure `ruff check .`, `ruff format --check .`, and `pytest` all pass locally.
+3. Make sure `make lint` and `make test` pass locally.
 4. Open a pull request describing **what** changed and **why**. Reference any related
-   issue.
+   issue. Commit messages follow Conventional Commits: on `main`, a `feat` or `fix`
+   publishes a new version.
 
 By contributing, you agree that your contributions are licensed under the project's
 GPLv3 license (see [LICENSE](LICENSE)).
@@ -106,5 +86,4 @@ GPLv3 license (see [LICENSE](LICENSE)).
 ## Reporting bugs and requesting features
 
 Use the GitHub issue templates. For bugs, include your OS (macOS version, or Linux
-distro + X11/Wayland), the model in use, and the relevant lines from `~/.whispy.log` /
-`~/.whispy-error.log`.
+distro + X11/Wayland) and the relevant lines from `~/.whispy/v2/whispy2.log`.

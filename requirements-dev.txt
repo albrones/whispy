@@ -1,0 +1,7 @@
+# Repository tooling (see pyproject.toml): tests and lint.
+pytest>=7.0
+pytest-timeout>=2.3
+# Exact, not a floor: CI runs `ruff format --check` and a newer ruff formats
+# differently. Bump this, .pre-commit-config.yaml and ci.yml together.
+ruff==0.15.21
+pre-commit>=3.0

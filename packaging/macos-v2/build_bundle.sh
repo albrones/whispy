@@ -3,7 +3,7 @@
 #
 # Produces dist/Whispy V2.app: the release binary plus every non-system dylib
 # it loads, all resolved through @executable_path so the bundle runs without
-# the v2/target build tree. Signed like V1 (see packaging/macos/build_app.sh).
+# the v2/target build tree. Signed with a stable local identity (create_signing_cert.sh).
 #
 # Usage (from anywhere):  ./packaging/macos-v2/build_bundle.sh
 set -euo pipefail
@@ -12,7 +12,6 @@ YELLOW='\033[1;33m'; GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-V1_PKG="$REPO_ROOT/packaging/macos"
 TARGET_DIR="$REPO_ROOT/v2/target/release"
 APP="$REPO_ROOT/dist/Whispy V2.app"
 MACOS_DIR="$APP/Contents/MacOS"
@@ -27,21 +26,9 @@ echo -e "${YELLOW}Building whispy2 (cargo, release)...${NC}"
 (cd "$REPO_ROOT/v2" && cargo build --release -p whispy2)
 [ -x "$TARGET_DIR/$BIN_NAME" ] || die "$TARGET_DIR/$BIN_NAME not found after build."
 
-# 1b. The app icon is generated, not committed: V1's build makes it, and a
-#     fresh clone (scripts/bootstrap.sh) has none. Pillow comes from the
-#     repository venv when there is one, else from a throwaway venv.
-ICNS="$V1_PKG/whispy.icns"
-if [ ! -f "$ICNS" ]; then
-    echo -e "${YELLOW}Generating the app icon...${NC}"
-    ICON_PY="$REPO_ROOT/.venv/bin/python3"
-    if ! { [ -x "$ICON_PY" ] && "$ICON_PY" -c "import PIL" 2>/dev/null; }; then
-        ICON_VENV="$REPO_ROOT/v2/target/icon-venv"
-        [ -x "$ICON_VENV/bin/python3" ] || python3 -m venv "$ICON_VENV"
-        "$ICON_VENV/bin/pip" install --quiet Pillow
-        ICON_PY="$ICON_VENV/bin/python3"
-    fi
-    "$ICON_PY" "$V1_PKG/make_icns.py"
-fi
+# 1b. The app icon, committed (rendered once from website/assets/logo.svg).
+ICNS="$SCRIPT_DIR/whispy.icns"
+[ -f "$ICNS" ] || die "$ICNS is missing."
 
 # 2. Layout.
 rm -rf "$APP"
@@ -122,9 +109,9 @@ leaks="$( { for f in "$MACOS_DIR"/*; do otool -L "$f" | tail -n +2; otool -l "$f
 [ -z "$leaks" ] || die "load commands still reference the build tree:
 $leaks"
 
-# 4. Sign exactly like V1 (stable identity so TCC grants persist).
+# 4. Sign with a stable identity, so TCC grants persist across rebuilds.
 CERT_NAME="Whispy Local Signing"
-"$V1_PKG/create_signing_cert.sh" || true
+"$SCRIPT_DIR/create_signing_cert.sh" || true
 if security find-identity -p codesigning 2>/dev/null | grep -q "$CERT_NAME"; then
     SIGN_ID="$CERT_NAME"
     echo -e "${YELLOW}Code-signing with '$CERT_NAME' (stable identity, TCC persists)...${NC}"

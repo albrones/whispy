@@ -1,6 +1,20 @@
-# Changelog V1 — Whispy
+# Changelog — Whispy
 
 ## [Unreleased]
+
+### Changed
+- **Whispy V2 on Linux.** The one-line installer now builds Whispy V2 on Linux
+  too: it installs the build tools (apt, dnf or pacman) and Rust if needed,
+  installs `~/.local/bin/whispy2` and runs it as the `systemd --user` unit
+  `whispy2.service`. A Python install is stopped and replaced; settings are
+  kept. On Omarchy, the bar panel gets its power switch and Start at login
+  back, on that unit.
+
+### Removed
+- **The Python app (V1).** Its code, packaging and tests are gone; its last
+  state is the git tag `v1`. Not carried over to V2: `custom_vocabulary`,
+  `POST /transcribe` and `GET /level` (the control socket's `status` carries
+  the level).
 
 ## [2.3.0] — 2026-11-26
 

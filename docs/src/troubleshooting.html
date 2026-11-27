@@ -1,9 +1,11 @@
 <h1>Troubleshooting</h1>
-<p class="lede">Choose what you see, then open the likely causes. Each cause matches a check in <code>make doctor</code>, so you can confirm the fix.</p>
-<p data-os="macos">On macOS, Whispy V2 has no <code>make doctor</code> yet: its menu names the missing permission, and <code>~/.whispy/v2/whispy2.log</code> says what went wrong. The causes below that mention a port, a token or <code>~/.whispy.log</code> are V1's and apply to Linux.</p>
-<p data-os="linux">From the Whispy source folder, run the full diagnostic at any time:</p>
-<pre data-os="linux" data-copy><code>make doctor</code></pre>
+<p class="lede">Choose what you see, then open the likely causes. Whispy says what went wrong in its log, one line per dictation (never its text).</p>
+<pre data-copy><code>tail -f ~/.whispy/v2/whispy2.log</code></pre>
+<p data-os="macos">Its menu also names a missing permission, with a row that opens the right System Settings pane.</p>
+<p data-os="linux">Ask it what it is doing, and read the service's own output:</p>
+<pre data-os="linux" data-copy><code>whispy2 send status
+journalctl --user -u whispy2 -e</code></pre>
 
 $troubleshooting
 
-<p>Still stuck? Read <span data-os="macos"><code>~/.whispy/v2/whispy2.log</code></span><span data-os="linux"><code>~/.whispy.log</code> and <code>~/.whispy-error.log</code></span>, or <a href="https://github.com/albrones/whispy/issues">open an issue</a>.</p>
+<p>Still stuck? Read <code>~/.whispy/v2/whispy2.log</code>, or <a href="https://github.com/albrones/whispy/issues">open an issue</a>.</p>

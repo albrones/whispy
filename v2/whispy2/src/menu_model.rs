@@ -542,14 +542,14 @@ mod tests {
 
     #[test]
     fn the_header_names_the_version_of_the_last_release() {
-        // scripts/release.py stamps the same version into the crate and the V1
-        // package on each release; the menu shows the crate's.
-        let pyproject = include_str!("../../../pyproject.toml");
-        let stamped = pyproject
-            .lines()
-            .find_map(|l| l.strip_prefix("version = \""))
-            .and_then(|v| v.strip_suffix('"'))
-            .expect("pyproject.toml has a version");
+        // scripts/release.py stamps the same version into the crate and the
+        // website's menu demo on each release; the menu shows the crate's.
+        let website = include_str!("../../../website/index.html");
+        let stamped = website
+            .split("<div class=\"dd-header\">Whispy ")
+            .nth(1)
+            .and_then(|rest| rest.split(' ').next())
+            .expect("website/index.html states the version");
         assert_eq!(VERSION, stamped);
         assert_eq!(
             build(&idle_input())[0].title.text,

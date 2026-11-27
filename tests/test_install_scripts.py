@@ -1,31 +1,33 @@
-"""Structural tests for the install scripts (install.sh, scripts/bootstrap.sh)
-and the CI workflow's dependency list.
+"""Tests for the install scripts: scripts/bootstrap.sh (the one-liner),
+packaging/linux/reinstall.sh (Linux: build, replace V1, systemd --user unit)
+and packaging/macos-v2/reinstall.sh, plus the Makefile entry points.
 
-CI has no clean macOS/Linux box to run the install scripts end to end, so we
-guard the release-critical invariants as text: the scripts (and the CI
-workflow) must not gate on or install sox (the audio backend is
-sounddevice/PortAudio now), the one-liner must be safe under `curl | bash`
-(no blocking prompt),
-uninstall must scope model-cache deletion to Whispy's own snapshot, and
-install.sh must branch per-OS rather than writing a macOS LaunchAgent on
-Linux.
+The Linux installer also runs for real here, in a throwaway checkout, with
+stubs for cargo and systemctl (Linux only): it must replace a V1 install and
+leave whispy2 running as its unit. The real end to end, on a fresh Debian with
+systemd, is v2/whispy2/linux-e2e/install.sh.
 """
 
 import os
+import platform
 import re
+import shutil
+import stat
+import subprocess
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-INSTALL = ROOT / "install.sh"
 BOOTSTRAP = ROOT / "scripts" / "bootstrap.sh"
-CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+LINUX_REINSTALL = ROOT / "packaging" / "linux" / "reinstall.sh"
+MAC_REINSTALL = ROOT / "packaging" / "macos-v2" / "reinstall.sh"
+MAKEFILE = ROOT / "Makefile"
 
 
-@pytest.fixture(scope="module")
-def install() -> str:
-    return INSTALL.read_text(encoding="utf-8")
+def _code(text: str) -> str:
+    """The script without its comment lines: ordering assertions look at what it does."""
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
 
 @pytest.fixture(scope="module")
@@ -34,214 +36,8 @@ def bootstrap() -> str:
 
 
 @pytest.fixture(scope="module")
-def ci_workflow() -> str:
-    return CI_WORKFLOW.read_text(encoding="utf-8")
-
-
-def test_scripts_exist():
-    assert INSTALL.is_file() and BOOTSTRAP.is_file()
-
-
-def test_install_does_not_gate_on_sox(install: str):
-    # The old `command -v sox` gate hard-exited on a clean machine.
-    assert "command -v sox" not in install
-    assert "brew install sox" not in install
-
-
-def test_bootstrap_does_not_gate_on_sox(bootstrap: str):
-    assert "command -v sox" not in bootstrap
-    assert "brew install sox" not in bootstrap
-
-
-def _ci_job(workflow: str, name: str) -> str:
-    """Return one job's block from the workflow text (same text-guard style as the rest)."""
-    match = re.search(rf"^  {re.escape(name)}:\n(.*?)(?=^  \w[\w-]*:\n|\Z)", workflow, re.M | re.S)
-    assert match, f"job {name!r} not found in ci.yml"
-    return match.group(1)
-
-
-def test_ci_workflow_does_not_install_sox(ci_workflow: str):
-    # The audio backend is sounddevice/PortAudio, not sox; no CI job may install
-    # a dependency the project does not have. The real-model tests synthesize
-    # their clips with numpy for exactly this reason.
-    assert "command -v sox" not in ci_workflow
-    assert "brew install sox" not in ci_workflow
-    # A job may install other system libraries (the V2 Linux job needs ALSA and
-    # xkbcommon headers); no apt-get line may install sox.
-    install_lines = [line for line in ci_workflow.splitlines() if "apt-get install" in line]
-    assert not any(re.search(r"\bsox\b", line) for line in install_lines)
-
-
-def test_real_seam_job_excludes_the_tts_module(ci_workflow: str):
-    """The `say`-dependent module must stay out of CI, and explicitly.
-
-    Its synthesis is not byte-stable between runs, so it flakes; it earns its
-    keep locally. Pinning the exclusion keeps it from silently coming back in,
-    and keeps the reason attached to it.
-    """
-    job = _ci_job(ci_workflow, "test-macos-real-seam")
-    assert "--ignore=tests/test_transcription_quality.py" in job
-
-
-def test_bootstrap_has_no_blocking_prompt(bootstrap: str):
-    # A `read -p` prompt defaults to abort under `curl | bash` (no TTY).
-    assert "read -r -p" not in bootstrap
-    assert "read -p" not in bootstrap
-
-
-def test_install_has_no_model_selection(install: str):
-    # There is one model. WHISPER_MODEL selected among Whisper's five size
-    # presets; with a single-size backend it selects nothing, so it must not
-    # linger as dead surface in the installer.
-    assert "WHISPER_MODEL" not in install
-    assert "model_size" not in install
-
-
-def test_bootstrap_has_no_model_selection(bootstrap: str):
-    assert "WHISPER_MODEL" not in bootstrap
-
-
-def test_install_branches_per_os(install: str):
-    # Linux must get a systemd user unit, not a macOS LaunchAgent.
-    assert 'OS="$(uname -s)"' in install
-    assert 'if [ "$OS" = "Linux" ]' in install
-    assert "systemctl --user" in install
-    assert "whispy.service" in install
-
-
-# --- Linux first run -------------------------------------------------------
-# A clean Linux box has none of these by default, and the daemon degrades
-# silently without them: no xdotool means dictation transcribes and types
-# nothing, with the only clue in a log file nobody has been told to open.
-
-
-def test_install_checks_the_linux_runtime_dependencies(install: str):
-    for binary in ("xdotool", "xclip", "xsel", "wtype", "wl-copy"):
-        assert binary in install, f"install.sh must check for {binary}"
-    assert "import sounddevice" in install, "install.sh must verify PortAudio is usable"
-
-
-def test_install_detects_the_session_before_finishing(install: str):
-    assert "WAYLAND_DISPLAY" in install and "XDG_SESSION_TYPE" in install
-    # The check has to precede the systemd branch, which exits 0 early when
-    # systemctl is absent -- otherwise the session guidance never prints there.
-    assert install.index("WAYLAND_DISPLAY") < install.index("if ! command -v systemctl")
-
-
-def test_install_links_the_omarchy_backend_when_omarchy_is_present(install: str):
-    assert "command -v omarchy-dictation" in install
-    assert "packaging/omarchy/omarchy-dictation-whispy" in install
-    assert (ROOT / "packaging" / "omarchy" / "omarchy-dictation-whispy").stat().st_mode & 0o111
-
-
-def test_install_links_the_omarchy_bar_widget_and_puts_it_on_the_bar(install: str):
-    assert 'packaging/omarchy/whispy-panel" "$PLUGIN_DIR/whispy-panel"' in install
-    assert "omarchy-bar put whispy.panel --section right" in install
-    assert 'packaging/omarchy/omarchy-dictation-whispy" shortcuts' in install
-    assert '/omarchy/plugins/whispy-panel"' in install.split("--uninstall", 1)[1].split("exit 0", 1)[0]
-    assert (ROOT / "packaging" / "omarchy" / "whispy-panel" / "manifest.json").is_file()
-
-
-def test_install_puts_a_whispy_command_on_path(install: str):
-    # Omarchy binds its dictation keys only when a program named like the
-    # selected backend exists: no `whispy` on PATH, no F9 after a login.
-    assert '"$HOME/.local/bin/whispy"' in install
-    assert 'exec "$PYTHON_BIN" "$DAEMON_PATH"' in install
-
-
-def test_unit_follows_the_graphical_session_when_it_is_active(install: str):
-    # Under Hyprland the Wayland variables reach the user manager only with
-    # graphical-session.target; started earlier, wtype has no display.
-    assert "is-active --quiet graphical-session.target" in install
-    assert "WantedBy=$START_TARGET" in install
-
-
-def test_install_hashing_works_without_shasum(install: str):
-    # shasum is a macOS-ism; under `set -e` its absence aborted the install
-    # before a single dependency was installed.
-    assert "sha256sum" in install
-
-
-def test_a_missing_systemd_user_bus_does_not_abort_the_install(install: str):
-    # SSH without lingering, containers and WSL have systemctl but no user bus.
-    assert "systemctl --user daemon-reload 2>/dev/null" in install
-
-
-def test_install_uninstall_offers_user_data_removal(install: str):
-    # The venv/LaunchAgent/systemd-unit removal leaves behind the config
-    # (has the API token), the logs, and the downloaded model cache (639 MB)
-    # -- uninstall must at least offer to clean those up too.
-    assert ".config/whispy" in install
-    assert ".whispy.log" in install
-    assert "models--istupakov--parakeet-tdt-0.6b-v3-onnx" in install
-
-
-def test_uninstall_never_deletes_the_shared_hub_cache(install: str):
-    # The hub cache holds other tools' models; only Whispy's snapshot may go.
-    assert "rm -rf $MODEL_CACHE_GLOB" in install
-    assert 'rm -rf "$HOME/.cache/huggingface/hub"' not in install
-    assert "rm -rf $HOME/.cache/huggingface/hub\n" not in install
-
-
-def test_uninstall_reports_the_stale_whisper_cache_without_deleting_it(install: str):
-    # Upgraders keep a 466 MB orphan; name it, do not delete another era's data.
-    assert "STALE_WHISPER_GLOB" in install
-    assert "models--Systran--faster-whisper-*" in install
-    assert "rm -rf $STALE_WHISPER_GLOB" not in install
-
-
-def test_install_uninstall_scopes_model_cache_deletion(install: str):
-    # The HuggingFace hub cache is shared with other tools (any project using
-    # huggingface_hub caches there) -- uninstall must only ever remove the
-    # faster-whisper model snapshots, never the whole hub directory.
-    assert "models--Systran--faster-whisper-*" in install
-    assert 'rm -rf "$HOME/.cache/huggingface/hub"' not in install
-    assert "rm -rf $HOME/.cache/huggingface/hub\n" not in install
-    assert 'rm -rf "$HOME/.cache/huggingface"' not in install
-
-
-def test_install_uninstall_data_removal_defaults_to_keep(install: str):
-    # Deleting the model cache means a reinstall re-downloads 0.5-3 GB, so
-    # the default answer must be "no" (keep), not "yes" (remove).
-    assert 'REMOVE_DATA="n"' in install
-    assert re.search(r"\[y/N\]", install, re.IGNORECASE)
-
-
-def test_install_uninstall_data_prompt_is_tty_gated(install: str):
-    # A `read -p` here must not block a non-interactive run (e.g. bootstrap.sh
-    # piping install.sh --uninstall under `curl | bash`, no TTY).
-    assert "[ -t 0 ]" in install
-    assert "read -r -p" in install
-
-
-def test_bootstrap_uninstall_delegates_to_install(bootstrap: str):
-    # bootstrap.sh must not duplicate the user-data prompt itself (that would
-    # risk a second, un-gated blocking read); it delegates to install.sh.
-    assert '"$WHISPY_HOME/install.sh" --uninstall' in bootstrap
-
-
-# ---------------------------------------------------------------------------
-# packaging/macos/reinstall.sh (make reinstall)
-# ---------------------------------------------------------------------------
-
-REINSTALL = ROOT / "packaging" / "macos" / "reinstall.sh"
-MAKEFILE = ROOT / "Makefile"
-
-
-@pytest.fixture(scope="module")
-def reinstall() -> str:
-    return REINSTALL.read_text(encoding="utf-8")
-
-
-@pytest.fixture(scope="module")
-def reinstall_code(reinstall: str) -> str:
-    """reinstall.sh with comment lines stripped.
-
-    Ordering and absence assertions must look at what the script *does*, not at
-    what its comments say about it -- several comments deliberately quote the
-    very commands the script must not run.
-    """
-    return "\n".join(line for line in reinstall.splitlines() if not line.lstrip().startswith("#"))
+def linux() -> str:
+    return LINUX_REINSTALL.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -249,206 +45,283 @@ def makefile() -> str:
     return MAKEFILE.read_text(encoding="utf-8")
 
 
-def test_reinstall_script_exists_and_is_executable():
-    assert REINSTALL.is_file()
-    assert os.access(REINSTALL, os.X_OK), "make reinstall invokes it directly"
-
-
-def test_reinstall_uses_strict_bash(reinstall: str):
-    assert "set -euo pipefail" in reinstall
-
-
-def test_reinstall_builds_before_stopping_the_app(reinstall_code: str):
-    # Order is the whole fail-safe: a build failure must leave the running app
-    # untouched. Quitting first trades a working app for a broken build.
-    build = reinstall_code.index("build_app.sh")
-    quit_ = reinstall_code.index("to quit")
-    assert build < quit_, "the build must run before the running app is quit"
-
-
-def test_reinstall_checks_for_a_running_process_before_the_apple_event(reinstall_code: str):
-    # `tell application "Whispy" to quit` resolves through LaunchServices and
-    # can LAUNCH the app to deliver the event -- so it must be gated on a real
-    # process, or a fresh install would start the app it is about to replace.
-    pgrep = reinstall_code.index("pgrep")
-    quit_ = reinstall_code.index("to quit")
-    assert pgrep < quit_
-
-
-def test_reinstall_waits_on_pids_not_only_on_the_port(reinstall: str):
-    # The daemon's SIGTERM handler releases :9090 before the process exits, so
-    # a free port does not prove the old instance is gone.
-    assert "kill -0" in reinstall
-
-
-def test_reinstall_replaces_applications_only_after_the_app_is_stopped(reinstall_code: str):
-    quit_ = reinstall_code.index("to quit")
-    replace = reinstall_code.index('rm -rf "$APP_DST"')
-    assert quit_ < replace, "never replace a bundle that is still executing"
-
-
-def test_reinstall_installs_to_applications(reinstall: str):
-    assert 'APP_DST="/Applications/Whispy.app"' in reinstall
-    assert 'mv "$APP_STAGE" "$APP_DST"' in reinstall
-
-
-def test_reinstall_stages_the_copy(reinstall: str):
-    # An interrupted copy must not leave a half-written bundle at $APP_DST.
-    assert "APP_STAGE=" in reinstall
-    assert 'ditto "$APP_SRC" "$APP_STAGE"' in reinstall
-
-
-def test_reinstall_launches_the_installed_copy_not_dist(reinstall_code: str):
-    # Both bundles declare com.whispy, so `open dist/Whispy.app` may start the
-    # /Applications copy instead -- the exact trap this target exists to avoid.
-    assert '/usr/bin/open "$APP_DST"' in reinstall_code
-    assert "open dist/Whispy.app" not in reinstall_code
-
-
-def test_reinstall_never_skips_the_build_on_a_build_hash(reinstall_code: str):
-    # bootstrap.sh skips when .whispy-build-hash == git HEAD. That is correct
-    # for bootstrap and a footgun here: uncommitted edits do not move HEAD, so
-    # the skip would ship the previous bundle while reporting success.
-    assert "rev-parse HEAD" not in reinstall_code
-    assert "INSTALLED_HASH" not in reinstall_code
-
-
-def test_reinstall_waits_for_the_daemon_to_answer(reinstall: str):
-    assert "check_daemon" in reinstall
-    assert "9090" in reinstall
-
-
-def test_reinstall_warns_when_the_bundle_is_adhoc_signed(reinstall: str):
-    # Ad-hoc signing silently breaks TCC grant persistence.
-    assert "Signature=adhoc" in reinstall
-    assert "create_signing_cert.sh" in reinstall
-
-
-def test_makefile_exposes_reinstall(makefile: str):
-    assert "\nreinstall:" in makefile
-    assert "./packaging/macos/reinstall.sh" in makefile
-    phony = next(line for line in makefile.splitlines() if line.startswith(".PHONY:"))
-    assert "reinstall" in phony
-
-
-def test_reinstall_never_touches_user_settings(reinstall_code: str):
-    # Settings, the bearer token and the model cache all live outside the
-    # bundle (~/.config/whispy, ~/.cache). Reinstalling must replace the app
-    # and nothing else -- a reinstall that resets the user's trigger key or
-    # rotates their API token would be worse than the manual steps it replaces.
-    assert ".config/whispy" not in reinstall_code
-    assert "config.json" not in reinstall_code
-    assert "config.token" not in reinstall_code
-    assert "$HOME" not in reinstall_code
-    assert ".cache" not in reinstall_code
-    # The only paths it may remove are the bundle and its staging directory.
-    # rstrip("'") because one removal lives inside a trap: trap 'rm -rf "$APP_STAGE"' EXIT
-    removed = {m.rstrip("'") for m in re.findall(r"rm -rf (\S+)", reinstall_code)}
-    assert removed <= {'"$APP_DST"', '"$APP_STAGE"'}, removed
+@pytest.mark.parametrize("script", [BOOTSTRAP, LINUX_REINSTALL, MAC_REINSTALL])
+def test_scripts_are_strict_executable_bash(script: Path):
+    assert os.access(script, os.X_OK)
+    assert "set -euo pipefail" in script.read_text(encoding="utf-8")
+    subprocess.run(["bash", "-n", str(script)], check=True)
 
 
 # ---------------------------------------------------------------------------
-# packaging/macos/build_app.sh — the stale-build guard
-# ---------------------------------------------------------------------------
-
-BUILD_APP = ROOT / "packaging" / "macos" / "build_app.sh"
-
-
-def _git(cwd: Path, *args: str) -> None:
-    import subprocess
-
-    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
-
-
-def _run_build_guard(tmp_path: Path, *, behind_main: bool, extra_env: dict[str, str] | None = None):
-    """Run build_app.sh in a throwaway clone whose branch is (or is not) behind origin/main.
-
-    The fake venv python imports the clone's own src, so only the git checks
-    can trip; past the guard the build fails on the missing py2app, which is
-    fine — the assertions only look at the guard's verdict.
-    """
-    import shutil
-    import subprocess
-    import sys
-
-    origin = tmp_path / "origin"
-    (origin / "src" / "whispy").mkdir(parents=True)
-    (origin / "src" / "whispy" / "__init__.py").write_text("")
-    _git(origin, "init", "-q", "-b", "main")
-    _git(origin, "-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
-    _git(origin, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
-    if behind_main:
-        _git(origin, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "fix")
-
-    clone = tmp_path / "clone"
-    _git(tmp_path, "clone", "-q", str(origin), str(clone))
-    if behind_main:
-        _git(clone, "checkout", "-q", "-b", "feature", "HEAD~1")
-    (clone / "packaging" / "macos").mkdir(parents=True)
-    shutil.copy2(BUILD_APP, clone / "packaging" / "macos" / "build_app.sh")
-    venv_py = clone / ".venv" / "bin" / "python"
-    venv_py.parent.mkdir(parents=True)
-    venv_py.write_text(f'#!/bin/sh\nPYTHONPATH="{clone / "src"}" exec "{sys.executable}" "$@"\n')
-    venv_py.chmod(0o755)
-
-    env = {key: value for key, value in os.environ.items() if key != "WHISPY_ALLOW_STALE_BUILD"}
-    env.update(extra_env or {})
-    return subprocess.run(
-        ["bash", str(clone / "packaging" / "macos" / "build_app.sh")],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=60,
-    )
-
-
-def test_build_refuses_a_branch_behind_origin_main(tmp_path):
-    result = _run_build_guard(tmp_path, behind_main=True)
-    assert result.returncode != 0
-    assert "does not contain origin/main" in result.stdout
-    assert "WHISPY_ALLOW_STALE_BUILD=1" in result.stdout
-
-
-def test_build_on_an_up_to_date_branch_passes_the_guard(tmp_path):
-    result = _run_build_guard(tmp_path, behind_main=False)
-    assert "[stale build]" not in result.stdout
-
-
-def test_stale_build_can_be_forced_on_purpose(tmp_path):
-    result = _run_build_guard(tmp_path, behind_main=True, extra_env={"WHISPY_ALLOW_STALE_BUILD": "1"})
-    assert "[stale build]" in result.stdout
-    assert "building anyway" in result.stdout
-
-
-# ---------------------------------------------------------------------------
-# scripts/bootstrap.sh: one command per OS (issue #49)
+# scripts/bootstrap.sh
 # ---------------------------------------------------------------------------
 
 
-def test_bootstrap_installs_linux_packages_with_each_package_manager(bootstrap: str):
-    # A clean Linux box must not need a manual `sudo apt install` first.
-    assert "apt-get install -y" in bootstrap
-    assert "dnf install -y" in bootstrap
-    assert "pacman -S --needed --noconfirm" in bootstrap
-    # Debian's python3 has no venv; pip builds evdev from source.
-    for package in ("python3-venv", "gcc", "python3-dev", "linux-libc-dev"):
-        assert package in bootstrap, f"bootstrap.sh must install {package} when missing"
-    assert "WHISPY_SKIP_SYSTEM_PACKAGES" in bootstrap
+def test_bootstrap_has_no_blocking_prompt(bootstrap: str):
+    # Run as `curl | bash`: stdin is the script itself.
+    assert "read -r -p" not in bootstrap
+    assert "read -p" not in bootstrap
 
 
 def test_bootstrap_package_manager_never_reads_the_piped_script(bootstrap: str):
-    # Under `curl | bash` stdin is the script itself: a package manager reading
-    # it would swallow the rest of the installer.
     assert '"$@" </dev/null' in bootstrap
+
+
+def test_bootstrap_installs_linux_build_packages_with_each_package_manager(bootstrap: str):
+    assert "apt-get install -y" in bootstrap
+    assert "dnf install -y" in bootstrap
+    assert "pacman -S --needed --noconfirm" in bootstrap
+    assert "WHISPY_SKIP_SYSTEM_PACKAGES" in bootstrap
+    # What building whispy2 needs, on each distribution.
+    for package in (
+        "build-essential",
+        "libasound2-dev",
+        "libxkbcommon-dev",
+        "libclang-dev",
+        "libssl-dev",
+        "libnotify-bin",
+    ):
+        assert package in bootstrap, f"apt: {package}"
+    for package in ("gcc-c++", "alsa-lib-devel", "libxkbcommon-devel", "clang-devel", "openssl-devel"):
+        assert package in bootstrap, f"dnf: {package}"
+    for package in ("base-devel", "alsa-lib", "libxkbcommon", "libnotify"):
+        assert package in bootstrap, f"pacman: {package}"
+    assert "cmake" in bootstrap and "clang" in bootstrap and "pkg-config" in bootstrap
+
+
+def test_bootstrap_linux_builds_v2_and_never_v1(bootstrap: str):
+    code = _code(bootstrap)
+    linux = code[code.index("install_linux() {") :]
+    linux = linux[: linux.index("\n}\n")]
+    assert "ensure_rust" in linux and "ensure_cmake" in linux
+    assert '"$WHISPY_HOME/packaging/linux/reinstall.sh"' in linux
+    # No Python on the Linux route any more.
+    assert "python3" not in linux and 'install.sh"' not in linux.replace("reinstall.sh", "")
+    assert "python3-venv" not in bootstrap and "libportaudio2" not in bootstrap
 
 
 def test_bootstrap_installs_v2_on_macos(bootstrap: str):
     assert "packaging/macos-v2/reinstall.sh" in bootstrap
-    assert "sh.rustup.rs" in bootstrap and "cmake" in bootstrap
+    assert "sh.rustup.rs" in bootstrap
     # V1 must not linger: its login item would bring it back and keep the key.
     assert "retire_v1" in bootstrap and ".Trash" in bootstrap
-    # The macOS route no longer builds V1.
-    assert 'make -C "$WHISPY_HOME" app' not in bootstrap
+
+
+def test_bootstrap_uninstall_removes_the_linux_unit(bootstrap: str):
+    block = bootstrap[bootstrap.index('if [[ "${1:-}" == "--uninstall" ]]') :]
+    block = block[: block.index("\nfi\n")]
+    assert '"$WHISPY_HOME/packaging/linux/reinstall.sh" --uninstall' in block
+    # A checkout from before V2 reached Linux still has V1's own uninstaller.
+    assert '"$WHISPY_HOME/install.sh" --uninstall </dev/null' in block
+
+
+# ---------------------------------------------------------------------------
+# packaging/linux/reinstall.sh, as text
+# ---------------------------------------------------------------------------
+
+
+def test_linux_reinstall_builds_before_touching_the_install(linux: str):
+    code = _code(linux)
+    build = code.index("cargo build --release --locked -p whispy2")
+    assert build < code.index("\nretire_v1\n")
+    assert build < code.index('install -m 755 "$BUILT"')
+    assert build < code.index('systemctl --user restart "$UNIT"')
+
+
+def test_linux_reinstall_retires_the_v1_unit_and_venv(linux: str):
+    retire = linux[linux.index("retire_v1() {") :]
+    retire = retire[: retire.index("\n}\n")]
+    assert 'systemctl --user disable --now "$V1_UNIT"' in retire
+    assert 'rm -f "$v1_unit_path"' in retire
+    assert 'rm -rf "$REPO_ROOT/.venv"' in retire
+    assert 'V1_UNIT="whispy.service"' in linux
+    # The settings V1 and V2 share stay.
+    assert "config.json" not in retire.replace("config.json is kept", "").replace("config.json are kept", "")
+
+
+def test_linux_unit_runs_whispy2_with_the_session(linux: str):
+    unit = linux[linux.index("<< UNITEOF") : linux.index("\nUNITEOF")]
+    assert "ExecStart=%h/.local/bin/whispy2" in unit
+    assert "Restart=on-failure" in unit
+    assert "PassEnvironment=DISPLAY XAUTHORITY WAYLAND_DISPLAY XDG_SESSION_TYPE" in unit
+    assert "WantedBy=$START_TARGET" in unit
+    assert 'START_TARGET="graphical-session.target"' in linux
+    assert 'UNIT="whispy2.service"' in linux
+
+
+def test_linux_reinstall_enables_restarts_and_waits_for_the_socket(linux: str):
+    code = _code(linux)
+    assert 'systemctl --user enable "$UNIT"' in code
+    assert code.index('systemctl --user enable "$UNIT"') < code.index('systemctl --user restart "$UNIT"')
+    assert code.index('systemctl --user restart "$UNIT"') < code.index('"$BIN" send status')
+
+
+def test_linux_reinstall_links_omarchy_when_present(linux: str):
+    assert "command -v omarchy-dictation" in linux
+    assert 'packaging/omarchy/omarchy-dictation-whispy" "$BIN_DIR/omarchy-dictation-whispy"' in linux
+    assert 'packaging/omarchy/whispy-panel" "$PLUGIN_DIR/whispy-panel"' in linux
+    # Omarchy binds the keys only when the backend's own program is on PATH.
+    assert 'ln -sfn "$BIN" "$BIN_DIR/whispy"' in linux
+
+
+# ---------------------------------------------------------------------------
+# packaging/linux/reinstall.sh, run for real on stubs
+# ---------------------------------------------------------------------------
+
+V1_UNIT = """[Unit]
+Description=Whispy voice dictation daemon
+[Service]
+ExecStart=/home/me/.local/share/whispy/.venv/bin/python3 /home/me/.local/share/whispy/whispy_daemon.py
+[Install]
+WantedBy=default.target
+"""
+
+FAKE_WHISPY2 = """#!/bin/sh
+[ "$1" = send ] && [ "$2" = status ] && { echo '{"state":"idle","models_loaded":false}'; exit 0; }
+exit 2
+"""
+
+
+def _write_exe(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+@pytest.fixture
+def sandbox(tmp_path: Path):
+    """A checkout holding V1 leftovers, a HOME with V1's unit, and stub tools."""
+    repo = tmp_path / "repo"
+    shutil.copytree(ROOT / "packaging", repo / "packaging")
+    (repo / "v2").mkdir()
+    (repo / ".venv" / "bin").mkdir(parents=True)
+    home = tmp_path / "home"
+    units = home / ".config" / "systemd" / "user"
+    units.mkdir(parents=True)
+    (units / "whispy.service").write_text(V1_UNIT, encoding="utf-8")
+    (home / ".config" / "whispy").mkdir(parents=True)
+    (home / ".config" / "whispy" / "config.json").write_text('{"trigger_mode": "toggle"}', encoding="utf-8")
+    (home / ".config" / "whispy" / "config.token").write_text("secret", encoding="utf-8")
+    _write_exe(home / ".local" / "bin" / "whispy", "#!/bin/sh\nexec python3 whispy_daemon.py\n")
+    stubs = tmp_path / "stubs"
+    log = tmp_path / "calls.log"
+    target = tmp_path / "target"
+    # cargo "builds" a whispy2 that answers `send status`.
+    _write_exe(
+        stubs / "cargo",
+        f'#!/bin/sh\necho "cargo $*" >> {log}\nmkdir -p {target}/release\n'
+        f"cat > {target}/release/whispy2 <<'EOF'\n{FAKE_WHISPY2}EOF\nchmod +x {target}/release/whispy2\n",
+    )
+    _write_exe(stubs / "systemctl", f'#!/bin/sh\necho "systemctl $*" >> {log}\nexit 0\n')
+    # Never a real process of this machine: pkill only says whether one matched.
+    _write_exe(stubs / "pkill", f'#!/bin/sh\necho "pkill $*" >> {log}\nexit 1\n')
+    env = {
+        "HOME": str(home),
+        "PATH": f"{stubs}:/usr/bin:/bin",
+        "CARGO_TARGET_DIR": str(target),
+        "XDG_CONFIG_HOME": str(home / ".config"),
+        "DISPLAY": ":0",
+    }
+    return {"repo": repo, "home": home, "units": units, "log": log, "env": env}
+
+
+linux_only = pytest.mark.skipif(platform.system() != "Linux", reason="packaging/linux/reinstall.sh is Linux only")
+
+
+@linux_only
+def test_linux_reinstall_replaces_a_v1_install(sandbox):
+    result = subprocess.run(
+        [str(sandbox["repo"] / "packaging" / "linux" / "reinstall.sh")],
+        env=sandbox["env"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = sandbox["log"].read_text(encoding="utf-8")
+    home, units = sandbox["home"], sandbox["units"]
+
+    # Criterion 2: the V1 unit is stopped and removed, its venv and wrapper gone, settings kept.
+    assert "systemctl --user disable --now whispy.service" in calls
+    assert not (units / "whispy.service").exists()
+    assert not (sandbox["repo"] / ".venv").exists()
+    assert not (home / ".config" / "whispy" / "config.token").exists()
+    assert (home / ".config" / "whispy" / "config.json").read_text(encoding="utf-8") == '{"trigger_mode": "toggle"}'
+
+    # Criterion 1: whispy2 installed and run as its unit, which answers.
+    assert "cargo build --release --locked -p whispy2" in calls
+    installed = home / ".local" / "bin" / "whispy2"
+    assert installed.is_file() and os.access(installed, os.X_OK)
+    assert (home / ".local" / "bin" / "whispy").resolve() == installed.resolve()
+    unit = (units / "whispy2.service").read_text(encoding="utf-8")
+    assert "ExecStart=%h/.local/bin/whispy2" in unit
+    assert "systemctl --user enable whispy2.service" in calls
+    assert "systemctl --user restart whispy2.service" in calls
+    assert "systemctl --user import-environment DISPLAY" in calls
+    assert '"state":"idle"' in result.stdout
+
+
+@linux_only
+def test_linux_uninstall_removes_unit_and_binary_and_keeps_data(sandbox):
+    script = str(sandbox["repo"] / "packaging" / "linux" / "reinstall.sh")
+    subprocess.run([script], env=sandbox["env"], check=True, capture_output=True, timeout=60)
+    result = subprocess.run([script, "--uninstall"], env=sandbox["env"], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stdout + result.stderr
+    home = sandbox["home"]
+    assert "systemctl --user disable --now whispy2.service" in sandbox["log"].read_text(encoding="utf-8")
+    assert not (sandbox["units"] / "whispy2.service").exists()
+    assert not (home / ".local" / "bin" / "whispy2").exists()
+    assert not (home / ".local" / "bin" / "whispy").exists()
+    assert (home / ".config" / "whispy" / "config.json").exists()
+
+
+@linux_only
+def test_linux_reinstall_leaves_the_install_alone_when_the_build_fails(sandbox):
+    stubs = Path(sandbox["env"]["PATH"].split(":")[0])
+    _write_exe(stubs / "cargo", "#!/bin/sh\nexit 101\n")
+    result = subprocess.run(
+        [str(sandbox["repo"] / "packaging" / "linux" / "reinstall.sh")],
+        env=sandbox["env"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode != 0
+    assert "Build failed" in result.stderr
+    assert (sandbox["units"] / "whispy.service").exists(), "V1 must stay until a V2 is built"
+    assert (sandbox["repo"] / ".venv").exists()
+
+
+# ---------------------------------------------------------------------------
+# packaging/macos-v2 and the Makefile
+# ---------------------------------------------------------------------------
+
+
+def test_macos_bundle_uses_its_own_signing_script_and_committed_icon():
+    build = (ROOT / "packaging" / "macos-v2" / "build_bundle.sh").read_text(encoding="utf-8")
+    assert '"$SCRIPT_DIR/create_signing_cert.sh"' in build
+    assert '"$SCRIPT_DIR/whispy.icns"' in build
+    assert (ROOT / "packaging" / "macos-v2" / "whispy.icns").is_file()
+    assert "packaging/macos/" not in build
+    assert not (ROOT / "packaging" / "macos").exists()
+
+
+def test_makefile_reinstall_routes_by_os(makefile: str):
+    assert re.search(r"^reinstall:", makefile, re.M)
+    assert "./packaging/macos-v2/reinstall.sh" in makefile
+    assert "./packaging/linux/reinstall.sh" in makefile
+    for gone in ("whispy_daemon.py", "packaging/macos/", "doctor", "validate"):
+        assert gone not in makefile
+
+
+def test_v1_sources_are_gone():
+    for gone in ("src", "whispy_daemon.py", "install.sh", "packaging/macos"):
+        assert not (ROOT / gone).exists(), f"{gone} is V1 and must be gone (it lives at the tag v1)"
+
+
+# ---------------------------------------------------------------------------
+# The website says what each OS gets
+# ---------------------------------------------------------------------------
 
 
 def test_website_install_section_says_what_each_os_gets():
@@ -456,5 +329,6 @@ def test_website_install_section_says_what_each_os_gets():
     install = site[site.index('id="install"') :]
     assert "Whispy V2.app" in install
     assert "apt" in install and "dnf" in install and "pacman" in install
-    # The manual Linux pre-step is gone: one command on each OS.
+    assert "whispy2" in install and "~/.local/bin" in install
+    # One command on each OS: no manual package pre-step.
     assert "sudo apt install" not in install
