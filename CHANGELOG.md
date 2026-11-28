@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.5.3] — 2026-11-28
+
+### Fixes
+
+- **v2:** leave no second launchable Whispy V2.app in dist/ after an install (#70)
+
 ## [2.5.2] — 2026-11-27
 
 ### Fixes
