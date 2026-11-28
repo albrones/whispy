@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.6.1] — 2026-11-28
+
+### Fixes
+
+- **v2:** the menu always shows a grey "Whispy X.Y.Z · up to date" line (#73)
+
 ## [2.6.0] — 2026-11-28
 
 ### Features
