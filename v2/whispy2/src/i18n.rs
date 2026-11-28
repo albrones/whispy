@@ -249,6 +249,8 @@ texts! {
     AlertAccessibilityRefusedTyping => "alert.accessibility_refused_typing",
     LoginApproval => "login.approval",
     LoginFailed => "login.failed",
+    UpdateCurrent => "update.current",
+    UpdateUpToDate => "update.up_to_date",
     UpdateAvailable => "update.available",
     UpdateUpdatingTo => "update.updating_to",
     UpdateFailed => "update.failed",
@@ -472,6 +474,10 @@ mod tests {
         assert_eq!(
             fill_in(Lang::Fr, Text::UpdateAvailable, &[("version", "2.6.0")]),
             "Mise à jour disponible (2.6.0)"
+        );
+        assert_eq!(
+            fill_in(Lang::Fr, Text::UpdateUpToDate, &[("version", "2.6.0")]),
+            "Whispy 2.6.0 \u{b7} à jour"
         );
         assert_eq!(
             fill_in(Lang::En, Text::MenuHeader, &[("version", "2.6.0")]),

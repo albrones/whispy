@@ -47,7 +47,10 @@ def repo(tmp_path: Path) -> Path:
     (tmp_path / "v2/Cargo.lock").write_text(
         '[[package]]\nname = "whispy-core"\nversion = "0.1.0"\n\n[[package]]\nname = "whispy2"\nversion = "2.0.0"\n'
     )
-    (tmp_path / "website/index.html").write_text('<div class="dd-header">Whispy 2.0.0 · voice dictation</div>\n')
+    (tmp_path / "website/index.html").write_text(
+        '<div class="dd-header">Whispy 2.0.0 · voice dictation</div>\n'
+        '<div class="dd-item dd-version">Whispy 2.0.0 · up to date</div>\n'
+    )
     (tmp_path / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\n### Added\n- Hand-written note.\n\n## [2.0.0] — 2026-10-06\n\nOld.\n"
     )
@@ -79,6 +82,9 @@ def test_a_fix_publishes_the_patch_after_the_last_tag(repo, capsys, tmp_path):
     notes = tmp_path / "notes.md"
     assert _run(repo, "--notes", str(notes), capsys=capsys) == "2.0.1"
     assert release.stamped_versions(repo) == dict.fromkeys(release.stamped_versions(repo), "2.0.1")
+    # The menu demo states it twice: its header and its grey version line.
+    site = (repo / "website/index.html").read_text()
+    assert site.count("Whispy 2.0.1 ·") == 2 and "2.0.0" not in site
     changelog = (repo / "CHANGELOG.md").read_text()
     assert "## [Unreleased]\n\n## [2.0.1] — 2026-11-26\n" in changelog
     assert "### Fixes\n\n- **v2:** the pill no longer flickers (#60)" in changelog

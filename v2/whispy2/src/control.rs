@@ -240,7 +240,7 @@ pub fn dispatch(inputs: &Sender<Input>, updater: Option<&Updater>, request: Requ
         Request::Status => status_json(
             &status,
             live(inputs).unwrap_or_default().level,
-            updater.and_then(Updater::row).as_ref(),
+            updater.map(Updater::row).as_ref(),
         ),
         Request::Last => last_json(live(inputs).and_then(|live| live.last_text).as_deref()),
         Request::Start | Request::Toggle if status.state == State::Yielded => {
@@ -554,7 +554,16 @@ mod tests {
         assert!(status_json(&status, 0.0, Some(&row)).ends_with(
             ",\"level\":0.000,\"update\":{\"title\":\"Update available (2.5.0)\",\"action\":\"update\",\"transient\":false}}"
         ));
-        // Up to date: no row, no `update` key.
+        // At rest: the grey version line, nothing to send.
+        let line = Row {
+            title: "Whispy 2.6.0 \u{b7} up to date".into(),
+            enabled: false,
+            transient: false,
+        };
+        assert!(status_json(&status, 0.0, Some(&line)).ends_with(
+            ",\"update\":{\"title\":\"Whispy 2.6.0 \u{b7} up to date\",\"action\":null,\"transient\":false}}"
+        ));
+        // A build without updates: no `update` key.
         assert!(status_json(&status, 0.0, None).ends_with(",\"level\":0.000}"));
     }
 
@@ -573,7 +582,7 @@ mod tests {
             "ok"
         );
         let deadline = Instant::now() + Duration::from_secs(5);
-        while updater.row().is_none() {
+        while !updater.row().enabled {
             assert!(Instant::now() < deadline, "{:?}", updater.row());
             thread::sleep(Duration::from_millis(5));
         }

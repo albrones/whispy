@@ -128,7 +128,11 @@ def update_changelog(text: str, version: str, date: str, entries: list[Entry]) -
 VERSION_SITES: list[tuple[str, re.Pattern[str]]] = [
     ("v2/whispy2/Cargo.toml", re.compile(r'^\[package\]\nname = "whispy2"\nversion = "([^"]+)"', re.MULTILINE)),
     ("v2/Cargo.lock", re.compile(r'^name = "whispy2"\nversion = "([^"]+)"', re.MULTILINE)),
-    ("website/index.html", re.compile(r'<div class="dd-header">Whispy (\S+) · voice dictation</div>')),
+    # The menu demo's header and its grey version line (#50).
+    (
+        "website/index.html",
+        re.compile(r'<div class="dd-(?:header|item dd-version)">Whispy (\S+) · (?:voice dictation|up to date)</div>'),
+    ),
 ]
 
 
@@ -136,10 +140,11 @@ def stamp(root: Path, version: str) -> None:
     for rel, pattern in VERSION_SITES:
         path = root / rel
         text = path.read_text(encoding="utf-8")
-        m = pattern.search(text)
-        if not m:
+        if not pattern.search(text):
             raise SystemExit(f"{rel}: version not found ({pattern.pattern})")
-        path.write_text(text[: m.start(1)] + version + text[m.end(1) :], encoding="utf-8")
+        # Every match: a file may state the version more than once.
+        stamped = pattern.sub(lambda m: m[0][: m.start(1) - m.start()] + version + m[0][m.end(1) - m.start() :], text)
+        path.write_text(stamped, encoding="utf-8")
 
 
 def stamped_versions(root: Path) -> dict[str, str]:

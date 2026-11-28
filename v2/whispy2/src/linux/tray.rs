@@ -1,6 +1,6 @@
 //! The X11 tray icon (StatusNotifierItem): the state at a glance (a grey ring
 //! at rest, a red dot while listening), the status line, the update row
-//! (« Update available (X.Y.Z) », only when there is one), « Language: … »
+//! (grey « Whispy X.Y.Z · up to date », or « Update available (X.Y.Z) »), « Language: … »
 //! and Quit. Every label is drawn in the language in force when the host
 //! asks for the menu, so a language choice shows at once.
 //!
@@ -33,8 +33,8 @@ pub struct WhispyTray {
     pub listening: bool,
     /// The controller's last status; `None` until its first (the models load).
     pub status: Option<Status>,
-    /// The update row, as the updater last reported it; `None`: up to date.
-    pub update: Option<Row>,
+    /// The update row, as the updater last reported it.
+    pub update: Row,
     /// The `language` setting, checked in « Language: … ».
     pub language: Language,
     /// Where the language choice is saved; `None` without HOME.
@@ -152,19 +152,17 @@ impl ksni::Tray for WhispyTray {
             .into(),
             MenuItem::Separator,
         ];
-        if let Some(update) = &self.update {
-            items.push(
-                StandardItem {
-                    label: update.title.clone(),
-                    enabled: update.enabled,
-                    activate: Box::new(|tray: &mut Self| {
-                        tray.updater.install();
-                    }),
-                    ..Default::default()
-                }
-                .into(),
-            );
-        }
+        items.push(
+            StandardItem {
+                label: self.update.title.clone(),
+                enabled: self.update.enabled,
+                activate: Box::new(|tray: &mut Self| {
+                    tray.updater.install();
+                }),
+                ..Default::default()
+            }
+            .into(),
+        );
         items.push(
             SubMenu {
                 label: fill(Text::MenuLanguage, &[("language", self.language.label())]),
@@ -281,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn up_to_date_the_menu_shows_the_status_and_quit_reaches_the_app() {
+    fn at_rest_the_menu_shows_the_status_the_version_line_and_quit_reaches_the_app() {
         let (quit, quitted) = std::sync::mpsc::channel();
         let mut tray = tray(quit, test_updater());
         assert_eq!(labels(&tray)[0], "Loading the models\u{2026}");
@@ -290,12 +288,32 @@ mod tests {
             labels(&tray),
             [
                 "Ready \u{2014} hold the trigger key to dictate",
+                "Whispy 2.4.0",
                 "Language: System",
                 "Quit"
             ]
         );
         let menu = ksni::Tray::menu(&tray);
-        if let MenuItem::Standard(quit_item) = &menu[3] {
+        let MenuItem::Standard(version) = &menu[2] else {
+            panic!("the update row is a standard item")
+        };
+        assert!(!version.enabled, "the version line is grey, not clickable");
+        // A check that finds nothing newer: « · up to date », still grey.
+        let current = Updater::with(
+            crate::update::Version(2, 6, 0),
+            || crate::update::Checked::Latest(crate::update::Version(2, 6, 0)),
+            |_| crate::update::Installed::Done,
+        );
+        current.check();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while current.row().title == "Whispy 2.6.0" {
+            assert!(std::time::Instant::now() < deadline, "no answer");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        tray.update = current.row();
+        assert_eq!(labels(&tray)[1], "Whispy 2.6.0 \u{b7} up to date");
+        assert!(!tray.update.enabled);
+        if let MenuItem::Standard(quit_item) = &menu[4] {
             (quit_item.activate)(&mut tray);
         }
         assert!(quitted.try_recv().is_ok());
@@ -313,7 +331,7 @@ mod tests {
         let mut tray = WhispyTray::new(quit, test_updater(), Language::System, Some(path.clone()));
         tray.status = ready();
         let menu = ksni::Tray::menu(&tray);
-        let MenuItem::SubMenu(language) = &menu[2] else {
+        let MenuItem::SubMenu(language) = &menu[3] else {
             panic!("the language item is a submenu")
         };
         let MenuItem::RadioGroup(choices) = &language.submenu[0] else {
@@ -328,6 +346,7 @@ mod tests {
             labels(&tray),
             [
                 "Pr\u{ea}t \u{2014} maintenez la touche de dict\u{e9}e pour dicter",
+                "Whispy 2.4.0",
                 "Langue : Fran\u{e7}ais",
                 "Quitter"
             ]
@@ -344,7 +363,7 @@ mod tests {
         let mut tray = tray(quit, updater.clone());
         updater.check();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while updater.row().is_none() {
+        while !updater.row().enabled {
             assert!(std::time::Instant::now() < deadline, "no offer");
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
@@ -366,12 +385,12 @@ mod tests {
         assert!(item.enabled);
         (item.activate)(&mut tray);
         // The fake install ends without a restart: the row says so (#50).
-        while updater.row().is_none_or(|row| row.transient || row.enabled) {
+        while updater.row().transient || updater.row().enabled {
             assert!(std::time::Instant::now() < deadline, "{:?}", updater.row());
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         assert_eq!(
-            updater.row().unwrap().title,
+            updater.row().title,
             "2.5.0 is installed \u{2014} quit and reopen Whispy to finish"
         );
     }

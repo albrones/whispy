@@ -10,8 +10,9 @@ import "i18n/fr.js" as Fr
 // port, no token, no process per read. One request per connection, one JSON
 // line back: `status` (state, models, last problem, input level) and `last`.
 //
-// The update row (« Update available (X.Y.Z) », only while a release is
-// offered) comes with `status`; a click sends its request (`update`) and the
+// The update row (grey « Whispy X.Y.Z · up to date », or « Update available
+// (X.Y.Z) » while a release is offered) comes with `status`; a click on an
+// offer sends its request (`update`) and the
 // status is read every 500 ms while the row is transient.
 //
 // When it asks: once when the shell starts, on a nudge from the dictation

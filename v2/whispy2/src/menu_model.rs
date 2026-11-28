@@ -130,8 +130,8 @@ pub struct MenuInput {
     pub language: Language,
     pub login: LoginRow,
     pub permission_warning: bool,
-    /// The update row (see [`crate::update`]); `None` when Whispy is up to date.
-    pub update: Option<crate::update::Row>,
+    /// The update row (see [`crate::update`]): a grey status line at rest.
+    pub update: crate::update::Row,
     pub dark: bool,
 }
 
@@ -278,9 +278,7 @@ pub fn build(input: &MenuInput) -> Vec<MenuRow> {
     }
 
     rows.push(separator());
-    if let Some(update) = &input.update {
-        rows.push(update_row(update));
-    }
+    rows.push(update_row(&input.update));
     rows.push(MenuRow::new(
         RowKind::Action {
             action: MenuAction::Restart,
@@ -323,7 +321,7 @@ pub fn language_row(setting: Language) -> MenuRow {
     )
 }
 
-/// The update row: disabled while an install runs.
+/// The update row: disabled (grey) at rest and while an install runs.
 pub fn update_row(row: &crate::update::Row) -> MenuRow {
     MenuRow::new(
         RowKind::Action {
@@ -595,7 +593,11 @@ mod tests {
             language: Language::System,
             login: LoginRow::Hidden,
             permission_warning: false,
-            update: None,
+            update: crate::update::Row {
+                title: "Whispy 2.6.0 \u{b7} up to date".into(),
+                enabled: false,
+                transient: false,
+            },
             dark: true,
         }
     }
@@ -644,12 +646,14 @@ mod tests {
                 "Trigger: Fn",
                 "Language: System",
                 "",
+                "Whispy 2.6.0 \u{b7} up to date",
                 "Restart",
                 "Quit",
             ]
         );
         assert_eq!(rows[2].kind, RowKind::PermissionWarning { visible: false });
         assert!(!rows[0].enabled && !rows[1].enabled && !rows[4].enabled);
+        assert!(!rows[11].enabled, "the version line is grey");
         assert_eq!(
             rows[7].kind,
             RowKind::Toggle {
@@ -658,7 +662,7 @@ mod tests {
             }
         );
         assert_eq!(
-            rows[12].kind,
+            rows[13].kind,
             RowKind::Action {
                 action: MenuAction::Quit,
                 key_equivalent: Some("q")
@@ -692,11 +696,11 @@ mod tests {
         set(Lang::Fr);
         let mut input = idle_input();
         input.login = LoginRow::On;
-        input.update = Some(crate::update::Row {
+        input.update = crate::update::Row {
             title: crate::update::texts::available(crate::update::Version(2, 6, 0)),
             enabled: true,
             transient: false,
-        });
+        };
         input.status_text = status_text(&StatusFacts {
             model_loaded: true,
             ..Default::default()
@@ -809,21 +813,31 @@ mod tests {
     }
 
     #[test]
-    fn the_update_row_shows_only_an_offer_installs_it_and_waits_while_busy() {
+    fn the_update_row_is_a_grey_status_line_until_an_offer_installs_on_click() {
         use crate::update::Row;
         let mut input = idle_input();
-        input.update = Some(Row {
+        let rows = build(&input);
+        let titles: Vec<&str> = rows.iter().map(|r| r.title.text.as_str()).collect();
+        assert_eq!(
+            &titles[titles.len() - 3..],
+            ["Whispy 2.6.0 \u{b7} up to date", "Restart", "Quit"]
+        );
+        assert!(
+            !rows[rows.len() - 3].enabled,
+            "up to date: grey, not clickable"
+        );
+        input.update = Row {
             title: "Update available (2.5.0)".into(),
             enabled: true,
             transient: false,
-        });
+        };
         let rows = build(&input);
         let titles: Vec<&str> = rows.iter().map(|r| r.title.text.as_str()).collect();
         assert_eq!(
             &titles[titles.len() - 3..],
             ["Update available (2.5.0)", "Restart", "Quit"]
         );
-        let offer = update_row(input.update.as_ref().unwrap());
+        let offer = update_row(&input.update);
         assert_eq!(offer.title.text, "Update available (2.5.0)");
         assert!(offer.enabled);
         assert_eq!(
