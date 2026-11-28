@@ -14,6 +14,7 @@ use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 
 use crate::control::{self, Claim, Control};
 use crate::controller::{Controller, Input, LostClips, Source};
+use crate::i18n::Lang;
 use crate::journal::Journal;
 use crate::log;
 use crate::mac::{
@@ -83,6 +84,12 @@ pub fn run() {
     for note in &notes {
         log::line(note);
     }
+    let lang = crate::i18n::apply(settings.language);
+    log::line(&format!(
+        "language: {} ({})",
+        settings.language.as_config(),
+        lang.code()
+    ));
     let initial_mode = settings.trigger_mode;
     let initial_type_while_speaking = settings.type_while_speaking;
     let initial_keycode = settings.trigger.keycode;
@@ -105,8 +112,8 @@ pub fn run() {
         PillFeedback,
         |status| {
             match &status.note {
-                Some(note) => log::line(&format!("{} ({note})", status.headline())),
-                None => log::line(status.headline()),
+                Some(note) => log::line(&format!("{} ({note})", status.headline_in(Lang::En))),
+                None => log::line(status.headline_in(Lang::En)),
             }
             menu_bar::show(status.clone());
         },

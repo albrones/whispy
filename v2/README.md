@@ -136,6 +136,11 @@ permission alert; it opens the right Privacy pane), then under **SETTINGS**:
   does nothing in hold mode. The pill shows the words live either way;
 - **Trigger: <key>** — V1's presets: Fn, Right Command, Right Option, F13
   (a key set by hand in V1's file shows its name);
+- **Language: <choice>** — System, Français or English: the language of the
+  whole interface (menu, pill, notifications, update row). System follows
+  macOS's first preferred language: French when it is French, English for any
+  other. A choice applies at once, without a restart, and is kept in
+  `language`;
 - **Start at login** — registers the installed app as a login item (disabled
   outside the installed bundle; if macOS asks for approval, the menu says so);
 
@@ -144,9 +149,10 @@ socket) and **Quit** (frees the models and exits). Toggles show a trailing
 green ✓, presets a leading one; the green follows the menu's appearance.
 
 **Settings are V1's file.** V2 reads `~/.config/whispy/config.json` at start
-and writes only its four keys there: `copy_to_clipboard`, `trigger_mode`
-(`"hold"` or `"toggle"`), `trigger` (`null` for Fn, else a keycode) and
-`type_while_speaking` (`true` by default, as in V1). Each
+and writes only its five keys there: `copy_to_clipboard`, `trigger_mode`
+(`"hold"` or `"toggle"`), `trigger` (`null` for Fn, else a keycode),
+`type_while_speaking` (`true` by default, as in V1) and `language`
+(`"system"` by default, `"fr"` or `"en"`). Each
 save re-reads the file, changes one key and writes every other key back as it
 found it (temporary file + rename, mode 0600), so a choice made in V1 or V2
 holds in the other at its next start. A menu change applies to the next
@@ -188,7 +194,7 @@ network port. One request per line, one reply line:
 
 ```bash
 printf 'status\n' | nc -U ~/.whispy/v2/control.sock
-# {"state":"idle","models_loaded":true,"yielded":false,"last_problem":null,"trigger_mode":"hold","level":0.000}
+# {"state":"idle","models_loaded":true,"yielded":false,"last_problem":null,"trigger_mode":"hold","lang":"en","level":0.000}
 printf 'start\n'  | nc -U ~/.whispy/v2/control.sock   # like pressing the trigger down
 printf 'stop\n'   | nc -U ~/.whispy/v2/control.sock   # like releasing it (always a hold)
 printf 'toggle\n' | nc -U ~/.whispy/v2/control.sock   # like one Toggle-mode press
@@ -197,7 +203,8 @@ whispy2 send status                                   # the same, without nc
 ```
 
 `level` is the input level while recording (V1's scale, 10 × RMS; 0 otherwise),
-read by the Omarchy pill. `last` answers the whole text of the last dictation
+read by the Omarchy pill; `lang` the interface's language in force (`en` or
+`fr`), which the Omarchy panel follows. `last` answers the whole text of the last dictation
 since V2 started: it lives in memory only, never on disk (the journal keeps
 lengths, not text). `whispy2 send <request>` exits 0 on an answer, 1 on an
 `error`/`refused` reply, 2 when no V2 answers.
@@ -301,11 +308,16 @@ container: `whispy2/linux-e2e/install.sh` (see below).
   types. Only the 5-minute watchdog uses the clipboard (`wl-copy`, else `xclip`
   or `xsel`).
 - **Tray icon (X11)**: a grey ring at rest, a red dot while listening; its menu
-  shows the status line and **Quit**. It needs a StatusNotifierItem host in the
+  shows the status line, **Language** (System / Français / English, as on
+  macOS) and **Quit**. It needs a StatusNotifierItem host in the
   panel (KDE, XFCE, most bars). Without one Whispy posts one notification
   (« Tray icon unavailable ») and runs on without it. No icon under Wayland;
   on Omarchy, the bar panel shows the state.
 - **Notifications**: every alert goes through `notify-send` (libnotify).
+- **Language**: with `language` at `"system"`, the interface follows the
+  locale of the session (`LC_ALL`, then `LC_MESSAGES`, then `LANG`): French
+  for `fr_*`, English otherwise. The Omarchy panel speaks Whispy's language
+  when it answers, else the one `language` forces, else the session's.
 - **No network port**: the control socket is the only way in. Not ported:
   `custom_vocabulary` and V1's `/transcribe`; V1's `/level` is the `level` of
   the socket's `status`, and `/last-transcription` its `last` (the text is kept

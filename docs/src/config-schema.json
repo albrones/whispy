@@ -28,6 +28,14 @@
     "platforms": ["macos"],
     "description": "macOS: the trigger key. Empty for Fn, or a keycode: 54 Right Command, 61 Right Option, 105 F13 (all in the menu). Linux under X11 always uses Right Ctrl; under Wayland your compositor binds the key."
   },
+  "language": {
+    "group": "Interface",
+    "kind": "choice",
+    "choices": ["system", "fr", "en"],
+    "default": "system",
+    "platforms": ["macos", "linux"],
+    "description": "The language of Whispy's menus and notifications. system: French when the system is in French (macOS: the first preferred language; Linux: LC_ALL, LC_MESSAGES, then LANG), English otherwise. fr or en forces one. Also in the menu: Language."
+  },
   "omarchy_trigger": {
     "group": "Omarchy",
     "kind": "choice",

@@ -79,10 +79,10 @@ pub struct TapHealth {
 // lives until main returns).
 unsafe impl Send for TapHealth {}
 
-const NOT_GRANTED: &str =
-    "The trigger key is not available: grant Input Monitoring to Whispy V2 (or to the \
-     terminal that launched whispy2) in System Settings → Privacy & Security → Input Monitoring, \
-     then quit and reopen it.";
+/// Input Monitoring is not granted, in the language in force.
+fn not_granted() -> String {
+    crate::i18n::tr(crate::i18n::Text::AlertInputMonitoringNotGranted).to_string()
+}
 
 /// Installs the tap on the main run loop; `forward` receives the key events.
 /// `keycode` is the initial trigger. Fails when Input Monitoring is not granted.
@@ -97,7 +97,7 @@ pub fn install(
     // SAFETY: plain CoreGraphics calls without arguments (macOS 10.15+).
     if !unsafe { CGPreflightListenEventAccess() } {
         unsafe { CGRequestListenEventAccess() };
-        return Err(NOT_GRANTED.to_string());
+        return Err(not_granted());
     }
     let key = TriggerKeyHandle(Arc::new(AtomicI64::new(keycode)));
     let callback_key = key.clone();
@@ -145,7 +145,7 @@ pub fn install(
             CallbackResult::Keep
         },
     )
-    .map_err(|()| NOT_GRANTED.to_string())?;
+    .map_err(|()| not_granted())?;
     let source = tap
         .mach_port()
         .create_runloop_source(0)

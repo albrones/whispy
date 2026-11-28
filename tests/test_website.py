@@ -178,13 +178,16 @@ def test_no_adaptive_learning_claim(html: str):
 def test_demo_menu_mirrors_the_real_menu(html: str):
     """The animated menu-bar demo may only depict settings that exist.
 
-    Model and Language went away with the Whisper backend: Parakeet ships in
-    one size and detects language itself.
+    Model went away with the Whisper backend: Parakeet ships in one size and
+    detects the spoken language itself. Language is back as the interface's
+    language (#64), System by default, not a dictation setting.
     """
     dropdown = html.split("data-demo-dropdown", 1)[1].split("</div>\n\n", 1)[0]
     assert "<span>Trigger</span>" in dropdown, "demo dropdown missing Trigger entry"
-    for gone in ("Model", "Language"):
-        assert f"<span>{gone}</span>" not in dropdown, f"demo dropdown still shows a {gone} row"
+    assert "<span>Model</span>" not in dropdown, "demo dropdown still shows a Model row"
+    assert '<span>Language</span><span class="dd-val">System ›</span>' in dropdown, (
+        "demo dropdown misses the interface's Language row"
+    )
 
 
 def test_site_names_the_model_that_actually_runs(html: str):

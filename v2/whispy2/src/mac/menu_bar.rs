@@ -29,6 +29,7 @@ use objc2_foundation::{
 use super::login_item::{self, LoginState};
 use super::trigger_tap::TriggerKeyHandle;
 use crate::controller::{Input, Source, Status, LOADING_NOTE};
+use crate::i18n::{self, Text};
 use crate::log;
 use crate::machine::{Event, State};
 use crate::menu_logic::{self, Relaunch};
@@ -302,6 +303,7 @@ impl MenuBar {
                 type_while_speaking: settings.type_while_speaking,
                 trigger_keycode: settings.trigger.keycode,
                 trigger_label: menu_model::trigger_label(settings.trigger.keycode),
+                language: settings.language,
                 login: self.login_row(),
                 permission_warning: pane_of(&inner.status).is_some(),
                 update: self.handles.updater.row(),
@@ -409,14 +411,15 @@ impl MenuBar {
             MenuAction::ToggleCopy
             | MenuAction::ToggleMode
             | MenuAction::ToggleTypeWhileSpeaking
-            | MenuAction::SelectTrigger(_) => {
+            | MenuAction::SelectTrigger(_)
+            | MenuAction::SelectLanguage(_) => {
                 self.change_setting(action);
             }
             MenuAction::ToggleLogin => {
                 let failure = login_item::toggle().err();
                 let approval = (login_item::is_available()
                     && login_item::state() == LoginState::RequiresApproval)
-                    .then(|| login_item::APPROVAL_NOTE.to_string());
+                    .then(|| i18n::tr(Text::LoginApproval).to_string());
                 self.inner.borrow_mut().note = failure.or(approval);
             }
             MenuAction::OpenPermissionSettings => {
@@ -454,7 +457,10 @@ impl MenuBar {
         };
         if let Err(error) = saved {
             log::line(&format!("could not save {}: {error}", change.key()));
-            self.inner.borrow_mut().note = Some(format!("Could not save the setting: {error}"));
+            self.inner.borrow_mut().note = Some(i18n::fill(
+                Text::MenuSaveFailed,
+                &[("error", error.as_str())],
+            ));
             return;
         }
         change.apply(&mut self.handles.settings.borrow_mut());
@@ -473,6 +479,16 @@ impl MenuBar {
             }
             menu_logic::Change::TypeWhileSpeaking(is_on) => {
                 let _ = self.handles.inputs.send(Input::TypeWhileSpeaking(*is_on));
+            }
+            menu_logic::Change::Language(language) => {
+                // At once: the rebuild that follows draws the menu in it, and
+                // every notification and pill text drawn afterwards follows.
+                let lang = i18n::apply(*language);
+                log::line(&format!(
+                    "language: {} ({})",
+                    language.as_config(),
+                    lang.code()
+                ));
             }
         }
         self.inner.borrow_mut().note = None;

@@ -21,11 +21,13 @@ pub const TRIGGER_KEYSYM: u32 = 0xffe4;
 /// The key's name, as the user reads it.
 pub const TRIGGER_NAME: &str = "Right Ctrl";
 
-/// What the user is told when the key cannot be listened to.
+/// What the user is told when the key cannot be listened to, in the
+/// language in force.
 pub fn unavailable(reason: &str) -> String {
-    format!(
-        "Whispy cannot listen to the {TRIGGER_NAME} key: {reason}. Whispy keeps running; \
-         dictation can still be started through its control socket."
+    use crate::i18n::{fill, tr, Text};
+    fill(
+        Text::AlertTriggerKeyUnavailableMessage,
+        &[("key", tr(Text::KeyRightCtrl)), ("reason", reason)],
     )
 }
 

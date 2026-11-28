@@ -2,6 +2,8 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "Model.js" as Model
+import "i18n/en.js" as En
+import "i18n/fr.js" as Fr
 
 // Whispy V2's state, input level and last dictation, read straight from its
 // control socket (~/.whispy/v2/control.sock, a private Unix socket): no network
@@ -44,6 +46,10 @@ Item {
   readonly property var update: Model.updateRow(reachable, status)
 
   property var config: ({})
+  // The interface's language (Model.lang) and its texts, i18n/<lang>.js.
+  readonly property string lang: Model.lang(reachable ? status : null, config,
+    Quickshell.env("LC_ALL") || Quickshell.env("LC_MESSAGES") || Quickshell.env("LANG") || "")
+  readonly property var t: lang === "fr" ? Fr.TEXTS : En.TEXTS
   property string lastText: ""
   property real level: 0
   property string message: ""
@@ -190,7 +196,7 @@ Item {
     stderr: StdioCollector { id: triggerStderr; waitForEnd: true }
     onExited: function(exitCode) {
       var last = String(triggerStderr.text || "").trim().split("\n").pop()
-      if (exitCode !== 0) root.flash(last.replace(/^omarchy-dictation-whispy: /, "") || "Could not change the key", true)
+      if (exitCode !== 0) root.flash(last.replace(/^omarchy-dictation-whispy: /, "") || Model.text(root.t, "error.key"), true)
       else if (last.indexOf("Warning: ") === 0) root.flash(last.slice(9), false)
       root.fetchConfig()
     }
@@ -219,7 +225,7 @@ Item {
   Process {
     id: loginWriter
     onExited: function(exitCode) {
-      if (exitCode !== 0) root.flash("Could not change Start at login", true)
+      if (exitCode !== 0) root.flash(Model.text(root.t, "error.login"), true)
       root.readStartAtLogin()
     }
   }
@@ -243,7 +249,7 @@ Item {
       if (exitCode !== 0) {
         root.starting = false
         root.stopping = false
-        root.flash("systemctl could not change Whispy", true)
+        root.flash(Model.text(root.t, "error.service"), true)
       }
       root.refresh()
     }
@@ -260,7 +266,7 @@ Item {
   function copyLast() {
     if (lastText === "") return
     Quickshell.execDetached(["wl-copy", "--", lastText])
-    flash("Copied", false)
+    flash(Model.text(t, "copied"), false)
   }
 
   function flash(text, isError) {

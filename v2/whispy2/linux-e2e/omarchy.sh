@@ -31,7 +31,7 @@ wtype -s 3600000 >/dev/null 2>&1 &
 sleep 1
 
 # The panel's service, as shipped, next to the harness that logs what it draws.
-cp /src/packaging/omarchy/whispy-panel/Service.qml /src/packaging/omarchy/whispy-panel/Model.js /e2e/omarchy/shell.qml /tmp/panel/
+cp -r /src/packaging/omarchy/whispy-panel/Service.qml /src/packaging/omarchy/whispy-panel/Model.js /src/packaging/omarchy/whispy-panel/i18n /e2e/omarchy/shell.qml /tmp/panel/
 panel() { QT_QPA_PLATFORM=offscreen qs -p /tmp/panel/shell.qml "$@"; }
 # A shell function: wait_for runs it in this shell (a `bash -c` would not see `panel`).
 panel_is() { panel ipc call whispy state | grep -q "$1"; }

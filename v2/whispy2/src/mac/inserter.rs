@@ -19,6 +19,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::controller::Inserter;
+use crate::i18n::{fill, Text};
 use crate::machine::Delivery;
 
 const PASTE_SCRIPT: &str =
@@ -60,12 +61,10 @@ pub fn type_command_args(text: &str) -> Vec<String> {
     .collect()
 }
 
-fn accessibility_refused(what: &str, detail: &str, tail: &str) -> String {
-    format!(
-        "macOS refused the {what}: grant Accessibility to Whispy V2 (or to the \
-         terminal that launched whispy2) (System Settings → Privacy & Security → Accessibility). \
-         {tail}({detail})"
-    )
+/// The paste or the typing macOS refused, in the language in force; the
+/// text names the Accessibility pane, which [`crate::controller::insertion_alert`] looks for.
+fn accessibility_refused(text: Text, detail: &str) -> String {
+    fill(text, &[("detail", detail)])
 }
 
 /// Starts System Events and passes macOS's Apple-event check ahead of the
@@ -107,9 +106,8 @@ impl Inserter for PasteInserter {
             // The text stays on the clipboard, for the user to paste by hand.
             if detail.contains(KEYSTROKE_NOT_PERMITTED) {
                 return Err(accessibility_refused(
-                    "paste",
+                    Text::AlertAccessibilityRefusedPaste,
                     &detail,
-                    "The text is on the clipboard. ",
                 ));
             }
             return Err(format!(
@@ -135,7 +133,10 @@ fn type_text(text: &str) -> Result<(), String> {
     }
     let detail = String::from_utf8_lossy(&typed.stderr).trim().to_string();
     if detail.contains(KEYSTROKE_NOT_PERMITTED) {
-        return Err(accessibility_refused("typing", &detail, ""));
+        return Err(accessibility_refused(
+            Text::AlertAccessibilityRefusedTyping,
+            &detail,
+        ));
     }
     Err(format!("typing the text failed. ({detail})"))
 }

@@ -31,6 +31,7 @@ use whispy_core::stream::{PassStats, Streamer};
 use whispy_core::{Pipeline, Strategy};
 
 use crate::feedback::{phase_of, Caption, Feedback, Phase};
+use crate::i18n::{self, tr, tr_in, Lang, Text};
 use crate::journal::{Entry, Journal, Outcome};
 use crate::log;
 use crate::machine::{Action, Delivery, Event, Machine, Mode, State, RECORDING_LIMIT};
@@ -99,21 +100,40 @@ pub struct Status {
 }
 
 impl Status {
+    /// What Whispy is doing, in the language in force.
     pub fn headline(&self) -> &'static str {
-        match self.state {
-            State::Idle => match self.trigger_mode {
-                TriggerMode::Hold => "Ready — hold the trigger key to dictate",
-                TriggerMode::Toggle => "Ready — press the trigger key to start dictating",
+        self.headline_in(i18n::current())
+    }
+
+    /// What Whispy is doing, in `lang` (the log is written in English).
+    pub fn headline_in(&self, lang: Lang) -> &'static str {
+        tr_in(
+            lang,
+            match self.state {
+                State::Idle => match self.trigger_mode {
+                    TriggerMode::Hold => Text::HeadlineReadyHold,
+                    TriggerMode::Toggle => Text::HeadlineReadyToggle,
+                },
+                State::Recording {
+                    mode: Mode::Hold, ..
+                } => Text::HeadlineRecordingHold,
+                State::Recording {
+                    mode: Mode::Toggle, ..
+                } => Text::HeadlineRecordingToggle,
+                State::Transcribing { .. } => Text::HeadlineTranscribing,
+                State::Inserting => Text::HeadlineInserting,
+                State::Yielded => Text::StatusYielded,
             },
-            State::Recording {
-                mode: Mode::Hold, ..
-            } => "Recording — release the trigger key to insert",
-            State::Recording {
-                mode: Mode::Toggle, ..
-            } => "Recording — press the trigger key to stop",
-            State::Transcribing { .. } => "Transcribing…",
-            State::Inserting => "Inserting…",
-            State::Yielded => "Whispy V1 is running — the trigger key is left to it",
+        )
+    }
+
+    /// The line a one-line surface shows (the Linux tray icon): the last
+    /// problem, else the models loading, else the headline.
+    pub fn line(&self) -> String {
+        match self.note.as_deref() {
+            Some(LOADING_NOTE) => tr(Text::HeadlineLoading).to_string(),
+            Some(problem) => problem.to_string(),
+            None => self.headline().to_string(),
         }
     }
 
@@ -272,6 +292,8 @@ impl Controller {
     }
 }
 
+/// The note while the models load: a marker the menus recognise and draw in
+/// the language in force (`headline.loading`); the log reads it as is.
 pub const LOADING_NOTE: &str = "Loading the models…";
 
 /// The worker's loader: the models a fresh install lacks are downloaded first
@@ -444,19 +466,19 @@ fn alert_for(
         return None;
     }
     if is_tick {
-        return Some(Alert::dictation_stopped(&format!(
-            "Dictation stopped after {} minutes. Any transcribed text was copied to the clipboard.",
-            RECORDING_LIMIT.as_secs() / 60
+        return Some(Alert::dictation_stopped(&i18n::fill(
+            Text::AlertDictationStoppedMessage,
+            &[("minutes", &(RECORDING_LIMIT.as_secs() / 60).to_string())],
         )));
     }
     (!models_loaded && !is_load_failed).then(Alert::model_still_loading)
 }
 
 /// The alert an insertion failure is, if it is V1's « Can't type into apps »:
-/// the inserter's message names Accessibility when macOS refused the keystrokes.
+/// the inserter's message names Accessibility (« Accessibilité » in French)
+/// when macOS refused the keystrokes.
 pub fn insertion_alert(error: &str) -> Option<Alert> {
-    error
-        .contains("Accessibility")
+    (error.contains("Accessibility") || error.contains("Accessibilité"))
         .then(|| Alert::cannot_type(error))
 }
 
@@ -464,10 +486,7 @@ pub fn insertion_alert(error: &str) -> Option<Alert> {
 fn note_for(event: &Event) -> Option<Option<String>> {
     match event {
         Event::TriggerDown(_) => Some(None),
-        Event::TranscriptionFailed => Some(Some(
-            "The last dictation could not be transcribed; its audio is kept in ~/.whispy/v2-lost/."
-                .into(),
-        )),
+        Event::TranscriptionFailed => Some(Some(tr(Text::NoteTranscriptionFailed).into())),
         _ => None,
     }
 }
@@ -488,9 +507,9 @@ impl<C: Capture> Recorder<C> {
         match action {
             Action::StartCapture => {
                 self.is_recording = false;
-                self.capture
-                    .start()
-                    .map_err(|error| format!("The microphone could not be opened: {error}"))?;
+                self.capture.start().map_err(|error| {
+                    i18n::fill(Text::NoteMicrophoneFailed, &[("error", &error.to_string())])
+                })?;
                 // Every dictation is captioned; only one in toggle mode with the
                 // setting on is also typed live. Decided once, at the start: a
                 // setting flipped mid-dictation must not leave half of it typed
@@ -582,8 +601,9 @@ fn spawn_worker<I: Inserter + 'static>(
                     Some(pipeline)
                 }
                 Err(error) => {
-                    let _ = controller.send(Input::ModelsLoaded(Err(format!(
-                        "The models could not be loaded: {error}"
+                    let _ = controller.send(Input::ModelsLoaded(Err(i18n::fill(
+                        Text::NoteModelsFailed,
+                        &[("error", &error.to_string())],
                     ))));
                     None
                 }
@@ -759,8 +779,8 @@ fn peak_level(samples: &[f32]) -> f32 {
 
 pub fn heard_nothing_note(device: Option<&str>) -> String {
     match device {
-        Some(name) => format!("Microphone heard nothing ({name})"),
-        None => "Microphone heard nothing".into(),
+        Some(name) => i18n::fill(Text::NoteHeardNothingOn, &[("device", name)]),
+        None => tr(Text::NoteHeardNothing).into(),
     }
 }
 
