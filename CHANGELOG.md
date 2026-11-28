@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-11-28
+
+### Features
+
+- **v2:** Whispy V2 speaks French or English, with a Language setting (#71)
+
 ## [2.5.3] — 2026-11-28
 
 ### Fixes

@@ -1,6 +1,6 @@
 [package]
 name = "whispy2"
-version = "2.5.3"
+version = "2.6.0"
 description = "Whispy V2 app (macOS and Linux): a trigger key to dictate, text inserted into the frontmost app"
 edition.workspace = true
 publish.workspace = true
