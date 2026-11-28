@@ -265,7 +265,7 @@ code { font-family: var(--mono); color: var(--green); }
 .dd-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-right: 8px; box-shadow: 0 0 8px var(--green); }
 .dd-status { display: flex; align-items: center; justify-content: flex-start; }
 .dd-val { color: var(--muted); font-size: 0.78rem; }
-.dd-hint { color: var(--muted); }
+.dd-hint, .dd-version { color: var(--muted); }
 .dd-sep { height: 1px; margin: 5px 8px; background: rgba(255, 255, 255, 0.08); }
 .dd-tick { width: 14px; color: var(--green); opacity: 0; margin-right: 2px; }
 .dd-check.is-checked .dd-tick { opacity: 1; }

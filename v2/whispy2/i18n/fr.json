@@ -62,6 +62,8 @@
   "alert.accessibility_refused_typing": "macOS a refusé la saisie : autorisez Whispy V2 (ou le terminal qui a lancé whispy2) dans Réglages Système → Confidentialité et sécurité → Accessibilité. ({detail})",
   "login.approval": "Approuvez Whispy V2 dans Réglages Système → Général → Ouverture",
   "login.failed": "L'ouverture à la connexion a échoué : {error}",
+  "update.current": "Whispy {version}",
+  "update.up_to_date": "Whispy {version} · à jour",
   "update.available": "Mise à jour disponible ({version})",
   "update.updating_to": "Mise à jour vers {version}…",
   "update.failed": "La mise à jour vers {version} a échoué : {reason} — réessayez",

@@ -69,7 +69,7 @@ const out = {
   updateStopped: m.updateRow(false, null),
   updateOld: m.updateRow(true, ready),
   updateOffer: m.updateRow(true, {...ready, update: {title: "Update available (2.5.0)", action: "update", transient: false}}),
-  updateNone: m.updateRow(true, ready),
+  updateLine: m.updateRow(true, {...ready, update: {title: "Whispy 2.6.0 · up to date", action: null, transient: false}}),
   updateBusy: m.updateRow(true, {...ready, update: {title: "Updating to 2.5.0…", action: null, transient: true}}),
   updateBogus: m.updateRow(true, {...ready, update: {title: "x", action: "rm -rf", transient: "yes"}}),
 };
@@ -170,7 +170,7 @@ def test_the_update_row_comes_from_the_status_and_names_its_request(model):
     assert model["updateStopped"] is None
     assert model["updateOld"] is None, "a Whispy without the field shows no row"
     assert model["updateOffer"] == {"title": "Update available (2.5.0)", "request": "update", "transient": False}
-    assert model["updateNone"] is None
+    assert model["updateLine"] == {"title": "Whispy 2.6.0 · up to date", "request": "", "transient": False}
     assert model["updateBusy"] == {"title": "Updating to 2.5.0…", "request": "", "transient": True}
     # Only the known request is ever sent.
     assert model["updateBogus"] == {"title": "x", "request": "", "transient": False}
@@ -183,6 +183,11 @@ def test_the_panel_sends_only_the_update_request_whispy_knows():
     assert "root.update.transient" in service
     panel = (PLUGIN / "Panel.qml").read_text()
     assert 'rowId: "update"' in panel and "sw.runUpdate()" in panel
+    # The grey version line is shown but can be neither clicked nor reached
+    # with the keyboard: only a row with a request can.
+    assert 'actionable: sw.update !== null && sw.update.request === "update"' in panel
+    assert 'sw.update !== null && sw.update.request === "update" ? ["update"]' in panel
+    assert "enabled: actionRow.actionable" in panel
 
 
 def test_presets_match_the_config_schema(model):

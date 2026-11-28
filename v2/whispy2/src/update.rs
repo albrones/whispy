@@ -4,8 +4,10 @@
 //! - **Check**: the last published version is the highest `vX.Y.Z` tag of the
 //!   public repository, read with `git ls-remote --tags` (no API, no token).
 //!   Whispy checks at startup, then once a day (and on the socket's
-//!   `check-update`). A check shows nothing: up to date or offline, the menus
-//!   have no update row at all, and the result is only logged.
+//!   `check-update`). At rest the row is a grey status line that cannot be
+//!   chosen: « Whispy 2.6.0 · up to date » once a check found nothing newer,
+//!   plain « Whispy 2.6.0 » before the first answer or offline (a failed
+//!   check is only logged).
 //! - **Offer**: when a newer version is published, the row « Update available
 //!   (X.Y.Z) » appears. Finding it installs nothing: choosing it, a click of
 //!   its own, does.
@@ -38,6 +40,14 @@ use crate::log;
 pub mod texts {
     use super::Version;
     use crate::i18n::{fill, Text};
+
+    pub fn current(version: Version) -> String {
+        fill(Text::UpdateCurrent, &[("version", &version.to_string())])
+    }
+
+    pub fn up_to_date(version: Version) -> String {
+        fill(Text::UpdateUpToDate, &[("version", &version.to_string())])
+    }
 
     pub fn available(version: Version) -> String {
         fill(Text::UpdateAvailable, &[("version", &version.to_string())])
@@ -160,13 +170,13 @@ pub enum Installed {
     Failed(String),
 }
 
-/// The update row, as every menu shows it, when there is one: Whispy up to
-/// date (or unable to check) shows none. Choosing it installs the version it
-/// names.
+/// The update row, as every menu shows it: always there, a grey status line
+/// at rest. Choosing it, when `enabled`, installs the version it names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
     pub title: String,
-    /// `false`: shown disabled (an install is running).
+    /// `false`: shown grey and cannot be chosen (the status line at rest, or
+    /// an install running).
     pub enabled: bool,
     /// The title changes on its own soon (an install is running): the Omarchy
     /// panel asks again until it settles.
@@ -175,8 +185,10 @@ pub struct Row {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Phase {
-    /// Up to date, or not known yet: no row.
-    Idle,
+    /// Not known yet (no answer, or offline): « Whispy 2.6.0 ».
+    Unknown,
+    /// A check found nothing newer: « Whispy 2.6.0 · up to date ».
+    UpToDate,
     Available(Version),
     Installing(Version),
     /// The reason, shown on the row.
@@ -187,9 +199,10 @@ enum Phase {
 }
 
 impl Phase {
-    fn row(&self) -> Option<Row> {
+    fn row(&self, current: Version) -> Row {
         let (title, enabled, transient) = match self {
-            Phase::Idle => return None,
+            Phase::Unknown => (texts::current(current), false, false),
+            Phase::UpToDate => (texts::up_to_date(current), false, false),
             Phase::Available(version) => (texts::available(*version), true, false),
             Phase::Installing(version) => (texts::updating_to(*version), false, true),
             Phase::Failed(version, reason) => (texts::update_failed(*version, reason), true, false),
@@ -200,11 +213,11 @@ impl Phase {
                 false,
             ),
         };
-        Some(Row {
+        Row {
             title,
             enabled,
             transient,
-        })
+        }
     }
 
     /// The version an install would get.
@@ -213,14 +226,16 @@ impl Phase {
             Phase::Available(version)
             | Phase::Failed(version, _)
             | Phase::NeedsTerminal(version) => Some(*version),
-            Phase::Idle | Phase::Installing(_) | Phase::NotRestarted(_) => None,
+            Phase::Unknown | Phase::UpToDate | Phase::Installing(_) | Phase::NotRestarted(_) => {
+                None
+            }
         }
     }
 }
 
 type CheckFn = dyn Fn() -> Checked + Send + Sync;
 type InstallFn = dyn Fn(Version) -> Installed + Send + Sync;
-type ChangedFn = dyn Fn(Option<&Row>) + Send + Sync;
+type ChangedFn = dyn Fn(&Row) + Send + Sync;
 
 struct Shared {
     phase: Phase,
@@ -258,7 +273,7 @@ impl Updater {
     ) -> Updater {
         Updater {
             shared: Arc::new(Mutex::new(Shared {
-                phase: Phase::Idle,
+                phase: Phase::Unknown,
                 checking: false,
                 last_check: None,
                 on_change: None,
@@ -269,18 +284,18 @@ impl Updater {
         }
     }
 
-    /// Called with the new row (`None`: no row) on every change, from any thread.
-    pub fn set_on_change(&self, on_change: impl Fn(Option<&Row>) + Send + Sync + 'static) {
+    /// Called with the new row on every change, from any thread.
+    pub fn set_on_change(&self, on_change: impl Fn(&Row) + Send + Sync + 'static) {
         self.lock().on_change = Some(Arc::new(on_change));
     }
 
-    /// The row to show, `None` when there is no update to offer.
-    pub fn row(&self) -> Option<Row> {
-        self.lock().phase.row()
+    /// The row to show.
+    pub fn row(&self) -> Row {
+        self.lock().phase.row(self.current)
     }
 
-    /// Starts a check, unless one or an install is running. It shows
-    /// nothing until it finds a newer version.
+    /// Starts a check, unless one or an install is running. The row changes
+    /// only once it answers (a failure changes nothing).
     pub fn check(&self) {
         {
             let mut shared = self.lock();
@@ -330,7 +345,7 @@ impl Updater {
                         "update: up to date ({}, last published {latest})",
                         self.current
                     ));
-                    Phase::Idle
+                    Phase::UpToDate
                 }
                 Checked::Failed(reason) => {
                     // Silent: an update offered before stays offered.
@@ -418,10 +433,10 @@ impl Updater {
     fn changed(&self) {
         let (row, on_change) = {
             let shared = self.lock();
-            (shared.phase.row(), shared.on_change.clone())
+            (shared.phase.row(self.current), shared.on_change.clone())
         };
         if let Some(on_change) = on_change {
-            on_change(row.as_ref());
+            on_change(&row);
         }
     }
 
@@ -677,11 +692,11 @@ mod tests {
 
     const CURRENT: Version = Version(2, 4, 0);
 
-    fn wait_for(updater: &Updater, settled: impl Fn(Option<&Row>) -> bool) -> Option<Row> {
+    fn wait_for(updater: &Updater, settled: impl Fn(&Row) -> bool) -> Row {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             let row = updater.row();
-            if settled(row.as_ref()) {
+            if settled(&row) {
                 return row;
             }
             assert!(Instant::now() < deadline, "row never settled: {row:?}");
@@ -698,8 +713,17 @@ mod tests {
         }
     }
 
-    fn offered(row: Option<&Row>) -> bool {
-        row.is_some_and(|row| row.enabled)
+    fn offered(row: &Row) -> bool {
+        row.enabled
+    }
+
+    /// The grey version line: shown, but it cannot be chosen.
+    fn grey(title: &str) -> Row {
+        Row {
+            title: title.into(),
+            enabled: false,
+            transient: false,
+        }
     }
 
     fn updater(checked: Checked, installed: Installed) -> Updater {
@@ -734,24 +758,46 @@ b91d9ff3\trefs/tags/v2.9.0
     }
 
     #[test]
-    fn at_rest_there_is_no_row() {
-        assert_eq!(
-            updater(Checked::Latest(CURRENT), Installed::Done).row(),
-            None
-        );
+    fn before_any_answer_the_row_is_the_grey_version_line() {
+        let updater = updater(Checked::Latest(CURRENT), Installed::Done);
+        assert_eq!(updater.row(), grey("Whispy 2.4.0"));
+        assert!(!updater.install(), "the version line installs nothing");
     }
 
     #[test]
-    fn up_to_date_a_check_shows_nothing() {
+    fn up_to_date_the_row_says_so_in_grey_and_cannot_be_chosen() {
         let updater = updater(Checked::Latest(CURRENT), Installed::Done);
         let (seen, rows) = mpsc::channel();
         updater.set_on_change(move |row| {
-            let _ = seen.send(row.cloned());
+            let _ = seen.send(row.clone());
         });
         updater.check();
         wait_checked(&updater);
-        assert_eq!(updater.row(), None);
-        assert_eq!(rows.try_iter().count(), 0, "nothing was ever shown");
+        let line = grey("Whispy 2.4.0 \u{b7} up to date");
+        assert_eq!(updater.row(), line);
+        assert_eq!(
+            rows.try_iter().collect::<Vec<_>>(),
+            std::slice::from_ref(&line)
+        );
+        assert!(!updater.install(), "the version line installs nothing");
+        // An older published version (a tag removed) changes nothing.
+        let ahead = Updater::with(
+            CURRENT,
+            || Checked::Latest(Version(2, 3, 9)),
+            |_| Installed::Done,
+        );
+        ahead.check();
+        wait_checked(&ahead);
+        assert_eq!(ahead.row(), line);
+    }
+
+    #[test]
+    fn up_to_date_in_french_the_row_says_a_jour() {
+        crate::i18n::set(crate::i18n::Lang::Fr);
+        assert_eq!(
+            Phase::UpToDate.row(Version(2, 6, 0)).title,
+            "Whispy 2.6.0 \u{b7} \u{e0} jour"
+        );
     }
 
     #[test]
@@ -766,18 +812,18 @@ b91d9ff3\trefs/tags/v2.9.0
             },
         );
         updater.check();
-        let row = wait_for(&updater, offered).unwrap();
+        let row = wait_for(&updater, offered);
         assert_eq!(row.title, "Update available (2.5.0)");
         assert!(!row.transient);
         // Another check finds the same offer: still offered, still nothing run.
         updater.check();
         wait_checked(&updater);
-        assert_eq!(updater.row(), Some(row));
+        assert_eq!(updater.row(), row);
         assert!(installs.try_recv().is_err(), "finding it installs nothing");
     }
 
     #[test]
-    fn criterion_5_a_failed_check_shows_nothing_and_keeps_an_offered_update() {
+    fn criterion_5_a_failed_check_adds_nothing_and_keeps_an_offered_update() {
         let fail = Arc::new(Mutex::new(true));
         let failing = Arc::clone(&fail);
         let updater = Updater::with(
@@ -793,7 +839,7 @@ b91d9ff3\trefs/tags/v2.9.0
         );
         updater.check();
         wait_checked(&updater);
-        assert_eq!(updater.row(), None);
+        assert_eq!(updater.row(), grey("Whispy 2.4.0"), "offline: nothing said");
 
         *fail.lock().unwrap() = false;
         updater.check();
@@ -801,7 +847,7 @@ b91d9ff3\trefs/tags/v2.9.0
         *fail.lock().unwrap() = true;
         updater.check();
         wait_checked(&updater);
-        assert_eq!(updater.row().unwrap().title, "Update available (2.5.0)");
+        assert_eq!(updater.row().title, "Update available (2.5.0)");
     }
 
     #[test]
@@ -827,16 +873,16 @@ b91d9ff3\trefs/tags/v2.9.0
             versions.recv_timeout(Duration::from_secs(5)).unwrap(),
             Version(2, 5, 0)
         );
-        let row = updater.row().unwrap();
+        let row = updater.row();
         assert_eq!(row.title, "Updating to 2.5.0\u{2026}");
         assert!(!row.enabled && row.transient);
         // A check while installing changes nothing.
         updater.check();
-        assert_eq!(updater.row().unwrap().title, "Updating to 2.5.0\u{2026}");
+        assert_eq!(updater.row().title, "Updating to 2.5.0\u{2026}");
         drop(release.lock().unwrap().take());
         // The script ended but this process still runs (the 2.5.0 macOS
         // update, #50): the row says so instead of vanishing.
-        let row = wait_for(&updater, |row| row.is_some_and(|row| !row.transient)).unwrap();
+        let row = wait_for(&updater, |row| !row.transient);
         assert_eq!(
             row.title,
             "2.5.0 is installed \u{2014} quit and reopen Whispy to finish"
@@ -845,7 +891,7 @@ b91d9ff3\trefs/tags/v2.9.0
         // The daily check keeps it shown.
         updater.check();
         wait_checked(&updater);
-        assert_eq!(updater.row(), Some(row));
+        assert_eq!(updater.row(), row);
     }
 
     #[test]
@@ -854,7 +900,7 @@ b91d9ff3\trefs/tags/v2.9.0
         updater.check();
         wait_for(&updater, offered);
         updater.install();
-        let row = wait_for(&updater, |row| row.is_some_and(|row| !row.transient)).unwrap();
+        let row = wait_for(&updater, |row| !row.transient);
         assert_eq!(
             row.title,
             "Update needs your password \u{2014} run in a terminal: curl -fsSL https://raw.githubusercontent.com/albrones/whispy/v2.5.0/scripts/bootstrap.sh | WHISPY_REF=v2.5.0 bash"
@@ -862,7 +908,7 @@ b91d9ff3\trefs/tags/v2.9.0
         // The daily check keeps the command shown for the same version.
         updater.check();
         wait_checked(&updater);
-        assert_eq!(updater.row(), Some(row));
+        assert_eq!(updater.row(), row);
     }
 
     #[test]
@@ -874,7 +920,7 @@ b91d9ff3\trefs/tags/v2.9.0
         updater.check();
         wait_for(&updater, offered);
         updater.install();
-        let row = wait_for(&updater, |row| row.is_some_and(|row| !row.transient)).unwrap();
+        let row = wait_for(&updater, |row| !row.transient);
         assert_eq!(
             row.title,
             "Update to 2.5.0 failed: Build failed \u{2014} try again"

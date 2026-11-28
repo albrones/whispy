@@ -38,7 +38,7 @@ Panel {
   // The key and Start at login are files and systemd state: both can be
   // changed with Whispy stopped.
   readonly property var rows: ["power"].concat(running ? [] : ["start"], ["trigger", "login"],
-    running && sw.update !== null ? ["update"] : [],
+    running && sw.update !== null && sw.update.request === "update" ? ["update"] : [],
     running && sw.lastText !== "" ? ["last"] : [])
   readonly property string currentRow: cursorActive && page === "" ? rows[Math.min(rowIndex, rows.length - 1)] : ""
   readonly property var pageOptions: page === "trigger" ? Model.presets(sw.t) : []
@@ -241,12 +241,14 @@ Panel {
           }
         }
 
-        // « Update available (X.Y.Z) », only while a release is offered: the
-        // title is Whispy's, from its status; it can carry a command to run,
-        // so it wraps.
+        // Grey « Whispy X.Y.Z · up to date » at rest, « Update available
+        // (X.Y.Z) » while a release is offered: the title is Whispy's, from
+        // its status; it can carry a command to run, so it wraps. Only a row
+        // with a request can be clicked.
         ActionRow {
           visible: root.page === "" && root.running && sw.update !== null
           rowId: "update"
+          actionable: sw.update !== null && sw.update.request === "update"
           label: sw.update ? sw.update.title : ""
           caption: sw.update && sw.update.request === "update" ? Model.text(sw.t, "update.caption") : ""
           wrap: true
@@ -482,14 +484,17 @@ Panel {
     property string caption: ""
     // A long label wraps instead of being cut.
     property bool wrap: false
+    // false: a grey line that cannot be clicked (Whispy's version line).
+    property bool actionable: true
 
     width: parent ? parent.width : implicitWidth
-    hasCursor: root.currentRow === rowId
+    hasCursor: actionable && root.currentRow === rowId
     foreground: root.foreground
     implicitHeight: actionContent.implicitHeight + Style.spacing.rowPaddingX
 
     MouseArea {
       anchors.fill: parent
+      enabled: actionRow.actionable
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
       onEntered: root.setRowCursor(actionRow.rowId)
@@ -509,10 +514,10 @@ Panel {
         textFormat: Text.PlainText
         Layout.fillWidth: true
         text: actionRow.label
-        color: root.foreground
+        color: actionRow.actionable ? root.foreground : root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
-        font.bold: true
+        font.bold: actionRow.actionable
         wrapMode: actionRow.wrap ? Text.WrapAtWordBoundaryOrAnywhere : Text.NoWrap
         elide: actionRow.wrap ? Text.ElideNone : Text.ElideRight
       }

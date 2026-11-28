@@ -62,6 +62,8 @@
   "alert.accessibility_refused_typing": "macOS refused the typing: grant Accessibility to Whispy V2 (or to the terminal that launched whispy2) (System Settings → Privacy & Security → Accessibility). ({detail})",
   "login.approval": "Approve Whispy V2 in System Settings → Login Items",
   "login.failed": "Start at login failed: {error}",
+  "update.current": "Whispy {version}",
+  "update.up_to_date": "Whispy {version} · up to date",
   "update.available": "Update available ({version})",
   "update.updating_to": "Updating to {version}…",
   "update.failed": "Update to {version} failed: {reason} — try again",
