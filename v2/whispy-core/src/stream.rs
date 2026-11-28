@@ -51,6 +51,18 @@ pub const LOOKAHEAD_WORDS: usize = 3;
 /// Fewest words typed at once, unless they end on punctuation or a pause:
 /// each commit is a paste (about half a second, and the clipboard swapped).
 pub const MIN_COMMIT_WORDS: usize = 4;
+/// Audio heard past the first open word after which the last pass is trusted
+/// alone (#72): no agreement, one word after (not [`LOOKAHEAD_WORDS`]), any
+/// passage worth a paste. Agreement from the first open word can fail for many
+/// passes in a row (a word heard two ways, a comma that comes and goes), and
+/// slow speech can take seconds to bring three more words: on the user's
+/// dictations whole sentences landed at once, up to ten seconds late. Each
+/// word is still heard [`LOOKAHEAD_S`] past (the pause: [`COMMIT_PAUSE_S`]).
+pub const PATIENCE_S: f32 = 3.0;
+/// A gap between two heard words this long may hold speech the pass has not
+/// transcribed yet (« sans ça. ‖ Euh... ça aurait ‖ été »): a commit without
+/// agreement stops before it.
+const UNHEARD_GAP_S: f32 = 1.0;
 /// Silence after the last word heard that commits it.
 pub const COMMIT_PAUSE_S: f32 = 2.0;
 /// Typed audio kept before the open audio, so the model hears it in context.
@@ -88,6 +100,11 @@ pub struct PassStats {
     /// began (its last word's end, or the released audio's end when the text
     /// has no timings); 0 when nothing was committed. The bench's commit delay.
     pub audio_end_s: f32,
+    /// How long the oldest word typed by this pass waited: from the end of
+    /// its audio to the end of the pass, in audio seconds; 0 when nothing was
+    /// typed. A passage is pasted at once, so this is what the speaker waits
+    /// for its first word (`audio_end_s` dates its last word).
+    pub waited_s: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -137,6 +154,12 @@ pub struct Streamer {
     committed: String,
     /// Words (as the engine wrote them) of the last text committed.
     last_words: usize,
+    /// Per committed word not typed yet: where it ends in `raw` (bytes) and
+    /// where its audio ends (seconds since the stream began).
+    untyped_ends: Vec<(usize, f32)>,
+    /// Audio end of the oldest word the last [`Streamer::release_typed`]
+    /// typed, `None` when it typed nothing.
+    oldest_typed_end_s: Option<f32>,
 }
 
 impl Default for Streamer {
@@ -161,6 +184,8 @@ impl Streamer {
             shown: String::new(),
             committed: String::new(),
             last_words: 0,
+            untyped_ends: Vec::new(),
+            oldest_typed_end_s: None,
         }
     }
 
@@ -200,6 +225,20 @@ impl Streamer {
 
     /// One re-transcription of the window; commits what is stable.
     pub fn pass(&mut self, pipeline: &mut Pipeline) -> Result<Update, Error> {
+        let heard_s = seconds(self.window_start + self.window.len());
+        let started = Instant::now();
+        self.oldest_typed_end_s = None;
+        let mut update = self.pass_inner(pipeline)?;
+        if let Some(end_s) = self.oldest_typed_end_s.take() {
+            if !update.typed.is_empty() {
+                let ended_s = heard_s + started.elapsed().as_secs_f32();
+                update.stats.waited_s = (ended_s - end_s).max(0.0);
+            }
+        }
+        Ok(update)
+    }
+
+    fn pass_inner(&mut self, pipeline: &mut Pipeline) -> Result<Update, Error> {
         self.pushed_since_pass = 0;
         self.voiced_since_pass = false;
 
@@ -236,7 +275,8 @@ impl Streamer {
             let started = Instant::now();
             let text = pipeline.transcribe_raw(self.rest())?.text;
             stats.took_s = started.elapsed().as_secs_f32();
-            let typed = self.commit_text(&text, false, false);
+            let end_s = seconds(self.window_start + self.window.len());
+            let typed = self.commit_text(&text, &[end_s], false, false);
             self.release(self.window.len());
             self.previous.clear();
             stats.committed_words = self.last_words;
@@ -266,13 +306,32 @@ impl Streamer {
             .take_while(|(new, old)| new.text == old.text)
             .count();
         stats.stable = stable;
-
         // 5. The last stable word the model has heard far enough past that
         // makes a passage worth a paste: enough words, or the end of a phrase,
         // or the last word before a pause.
-        let commit = (0..stable).rev().find(|&i| {
+        //
+        // Once the first open word was heard PATIENCE_S ago, this pass, which
+        // heard the most, is trusted alone: agreement is waived, one word after (or the pause)
+        // is enough, and any passage is worth a paste. Not across a gap of
+        // UNHEARD_GAP_S between two words: speech this pass did not transcribe
+        // may sit there, and committing past it would drop it in the context.
+        let impatient = open
+            .first()
+            .is_some_and(|first| window_s - first.end_s >= PATIENCE_S);
+        let trusted = if impatient {
+            (1..open.len())
+                .find(|&k| open[k].start_s - open[k - 1].end_s >= UNHEARD_GAP_S)
+                .unwrap_or(open.len())
+        } else {
+            0
+        };
+        let commit = (0..stable.max(trusted)).rev().find(|&i| {
             let heard_past = window_s - open[i].end_s;
             let words_after = open.len() - i - 1;
+            if i < trusted {
+                return heard_past >= LOOKAHEAD_S
+                    && (words_after > 0 || heard_past >= COMMIT_PAUSE_S);
+            }
             let is_heard_past = if words_after == 0 {
                 heard_past >= COMMIT_PAUSE_S
             } else {
@@ -301,7 +360,11 @@ impl Streamer {
             .min(gap_middle)
             .min(window_s);
         stats.audio_end_s = seconds(self.window_start) + open[i].end_s;
-        let typed = self.commit_text(&joined(&open[..=i]), in_context, false);
+        let ends: Vec<f32> = open[..=i]
+            .iter()
+            .map(|word| seconds(self.window_start) + word.end_s)
+            .collect();
+        let typed = self.commit_text(&joined(&open[..=i]), &ends, in_context, false);
         stats.committed_words = self.last_words;
         let start_s = context_start(&heard[..=first_open + i], boundary_s - LEFT_CONTEXT_S);
         let start = (start_s * SAMPLE_RATE as f32) as usize;
@@ -346,7 +409,8 @@ impl Streamer {
             }
         };
         let is_lost = text.trim().is_empty() && Strategy::Gated.prepare(&open).is_some();
-        let typed = self.commit_text(&text, in_context, true);
+        let end_s = seconds(self.window_start + self.window.len());
+        let typed = self.commit_text(&text, &[end_s], in_context, true);
         Ok(Finish {
             engine: engine.filter(|_| !typed.is_empty()),
             typed,
@@ -418,7 +482,8 @@ impl Streamer {
         };
         self.release(cut);
         self.context = 0;
-        Ok(self.commit_text(&text, false, false))
+        let end_s = seconds(self.window_start);
+        Ok(self.commit_text(&text, &[end_s], false, false))
     }
 
     /// Where (window samples) the latest run of at least [`COMMIT_PAUSE_S`] of
@@ -456,7 +521,10 @@ impl Streamer {
     /// context after a text that ends mid-sentence, its first letter is
     /// lowered (unless an acronym); in context the model's own case stands (a
     /// proper noun mid-sentence). Returns what the field gets now (see `release_typed`).
-    fn commit_text(&mut self, text: &str, in_context: bool, flush: bool) -> String {
+    ///
+    /// `ends` dates the words' audio (seconds since the stream began): one per
+    /// word, or one for them all (a text with no timings).
+    fn commit_text(&mut self, text: &str, ends: &[f32], in_context: bool, flush: bool) -> String {
         let text = text.trim();
         self.last_words = 0;
         if !text.is_empty() {
@@ -472,8 +540,22 @@ impl Streamer {
             if !self.raw.is_empty() {
                 self.raw.push(' ');
             }
+            let base = self.raw.len();
             self.raw.push_str(&text);
-            self.last_words = text.split_whitespace().count();
+            let words: Vec<(usize, &str)> = text
+                .split_whitespace()
+                .map(|word| (word.as_ptr() as usize - text.as_ptr() as usize, word))
+                .collect();
+            self.last_words = words.len();
+            let fallback = ends.last().copied().unwrap_or(0.0);
+            for (k, (offset, word)) in words.iter().enumerate() {
+                let end_s = if ends.len() == words.len() {
+                    ends[k]
+                } else {
+                    fallback
+                };
+                self.untyped_ends.push((base + offset + word.len(), end_s));
+            }
         }
         self.release_typed(flush)
     }
@@ -489,6 +571,15 @@ impl Streamer {
         } else {
             itn::stable_prefix_len(&self.raw)
         };
+        let typed_words = self
+            .untyped_ends
+            .iter()
+            .take_while(|(end, _)| *end <= stable)
+            .count();
+        if let Some(&(_, end_s)) = self.untyped_ends.first().filter(|_| typed_words > 0) {
+            self.oldest_typed_end_s = Some(end_s);
+        }
+        self.untyped_ends.drain(..typed_words);
         let target = itn::normalize(&self.raw[..stable]);
         self.committed = itn::normalize(&self.raw);
         // Never retype: what the field holds stays, only what extends it is typed.
@@ -780,6 +871,64 @@ mod tests {
         assert!(longest < OVERFLOW_S, "longest window {longest} s");
     }
 
+    /// The longest a typed word waited across `updates`, seconds.
+    fn longest_wait(updates: &[Update]) -> f32 {
+        updates.iter().map(|u| u.stats.waited_s).fold(0.0, f32::max)
+    }
+
+    /// Bound on any word's wait when passes are instant: PATIENCE_S, plus up
+    /// to one pass interval before a pass sees it, plus a 10 ms frame.
+    const WAIT_BOUND_S: f32 = PATIENCE_S + PASS_EVERY_S + 0.05;
+
+    #[test]
+    fn a_hypothesis_that_never_agrees_is_still_typed_within_patience() {
+        // #72: every other pass hears a comma after each word, so two passes
+        // never agree from the first open word. Before PATIENCE_S, nothing was
+        // typed until the window overflowed (about 17 s) or the stop.
+        let pauses = vec![0.15; 30];
+        let audio = spoken(&pauses);
+        let mut calls = 0;
+        let (mut pipeline, _) = pipeline(
+            Box::new(move |samples| {
+                calls += 1;
+                let comma = if calls % 2 == 0 { "," } else { "" };
+                hear(samples)
+                    .into_iter()
+                    .map(|w| Word {
+                        text: format!("{}{comma}", w.text),
+                        ..w
+                    })
+                    .collect()
+            }),
+            Box::new(|samples| {
+                hear(samples)
+                    .iter()
+                    .map(|w| w.text.clone())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }),
+        );
+        let (text, updates) = dictate(&audio, &mut pipeline);
+        assert_eq!(text.replace(',', ""), expected_words(30));
+        assert!(updates.iter().all(|u| !u.stats.forced));
+        assert!(updates.iter().filter(|u| !u.typed.is_empty()).count() >= 5);
+        let waited = longest_wait(&updates);
+        assert!(waited <= WAIT_BOUND_S, "a word waited {waited:.2} s");
+    }
+
+    #[test]
+    fn slow_speech_is_typed_within_patience() {
+        // #72: a word every 1.2 to 2 s, never a 2 s pause. Three words after a
+        // word and four words per paste took up to nine seconds to come.
+        let pauses = vec![0.9; 12];
+        let audio = spoken(&pauses);
+        let (mut pipeline, _) = hearing_pipeline();
+        let (text, updates) = dictate(&audio, &mut pipeline);
+        assert_eq!(text, expected_words(12));
+        let waited = longest_wait(&updates);
+        assert!(waited <= WAIT_BOUND_S, "a word waited {waited:.2} s");
+    }
+
     #[test]
     fn a_word_is_committed_once_two_passes_agree_and_the_model_heard_past_it() {
         let hypothesis = vec![
@@ -796,7 +945,8 @@ mod tests {
             pipeline(queue(vec![hypothesis.clone(), hypothesis]), no_plain());
         let mut streamer = Streamer::new();
 
-        streamer.push(&voiced(4.0));
+        // 3.4 s: « Je » (ends 0.5 s) is heard 2.9 s past, under PATIENCE_S.
+        streamer.push(&voiced(3.4));
         let first = pass_now(&mut streamer, &mut pipeline);
         assert_eq!((first.typed.as_str(), first.stats.stable), ("", 0));
         assert_eq!(
@@ -804,14 +954,16 @@ mod tests {
             "Je vais envoyer le rapport. Pense à acheter"
         );
 
-        // 4.6 s heard: « rapport. » (ends 2.5 s) is 2.1 s behind with three
-        // words after it; « Pense » (ends 3.4 s) only 1.2 s behind.
+        // 4.0 s heard: « rapport. » (ends 2.5 s) is 1.5 s behind with three
+        // words after it; « Pense » (ends 3.4 s) only 0.6 s behind.
         streamer.push(&voiced(0.6));
         let second = pass_now(&mut streamer, &mut pipeline);
         assert_eq!(second.typed, "Je vais envoyer le rapport.");
         assert_eq!(second.provisional, "Pense à acheter");
         assert_eq!(second.stats.committed_words, 5);
         assert!((second.stats.audio_end_s - 2.5).abs() < 1e-3);
+        // The passage lands at once: « Je » (ends 0.5 s) waited 3.5 s.
+        assert!((second.stats.waited_s - 3.5).abs() < 0.05);
         assert_eq!(streamer.committed(), "Je vais envoyer le rapport.");
 
         // The boundary is just past « rapport. » (2.65 s), not the middle of
@@ -821,7 +973,7 @@ mod tests {
         streamer.push(&voiced(0.6));
         pass_now(&mut streamer, &mut pipeline);
         let lengths = calls.lock().unwrap().timed.clone();
-        assert_eq!(lengths[2], (5.2 * SAMPLE_RATE as f32) as usize);
+        assert_eq!(lengths[2], (4.6 * SAMPLE_RATE as f32) as usize);
     }
 
     #[test]
@@ -855,12 +1007,16 @@ mod tests {
         streamer.push(&silence(0.6));
         streamer.push(&voiced(1.8));
         let update = pass_now(&mut streamer, &mut pipeline);
-        // « faire » lost its period: it no longer agrees, and two words are
-        // too few to type on their own.
-        assert_eq!(update.typed, "");
-        assert_eq!(update.provisional, said);
+        // « faire » lost its period: it no longer agrees, but it was heard
+        // 3.1 s ago, past PATIENCE_S: typed as this pass heard it, without the
+        // period. « vraiment » onwards waits.
+        assert_eq!(update.typed, "on pourrait faire");
+        assert_eq!(update.provisional, "vraiment de l'affichage.");
         let finish = streamer.finish(&mut pipeline).unwrap();
-        assert_eq!(finish.typed, said);
+        assert_eq!(
+            format!("{}{}", update.typed, finish.typed),
+            "on pourrait faire vraiment de l'affichage."
+        );
     }
 
     #[test]
@@ -890,8 +1046,8 @@ mod tests {
         let (mut pipeline, _) = pipeline(queue(vec![early.clone(), early, late]), no_plain());
         let mut streamer = Streamer::new();
         streamer.push(&voiced(5.0));
-        pass_now(&mut streamer, &mut pipeline);
-        streamer.push(&voiced(0.6));
+        // « sans » was heard 4.4 s ago, past PATIENCE_S: this pass is trusted
+        // alone, but not across the 2 s gap after « ça. ».
         assert_eq!(pass_now(&mut streamer, &mut pipeline).typed, "sans ça.");
         streamer.push(&voiced(0.6));
         pass_now(&mut streamer, &mut pipeline);
@@ -1092,9 +1248,9 @@ mod tests {
     #[test]
     fn a_number_a_guard_rejected_is_never_retyped_when_it_grows() {
         let mut streamer = Streamer::new();
-        let first = streamer.commit_text("the cent", false, false);
-        let second = streamer.commit_text("vingt ans", false, false);
-        let rest = streamer.commit_text("", false, true);
+        let first = streamer.commit_text("the cent", &[], false, false);
+        let second = streamer.commit_text("vingt ans", &[], false, false);
+        let rest = streamer.commit_text("", &[], false, true);
         assert_eq!(first, "the");
         assert_eq!(
             format!("{first}{second}{rest}"),
@@ -1105,47 +1261,56 @@ mod tests {
     #[test]
     fn a_commit_of_nothing_counts_no_words() {
         let mut streamer = Streamer::new();
-        streamer.commit_text("à quatorze heures", false, false);
+        streamer.commit_text("à quatorze heures", &[], false, false);
         assert_eq!(streamer.last_words, 3);
-        streamer.commit_text("", false, false);
+        streamer.commit_text("", &[], false, false);
         assert_eq!(streamer.last_words, 0);
     }
 
     #[test]
     fn the_caption_shows_the_committed_text_in_digits() {
         let mut streamer = Streamer::new();
-        streamer.commit_text("à quatorze heures trente", false, false);
+        streamer.commit_text("à quatorze heures trente", &[], false, false);
         assert_eq!(streamer.committed(), "à 14 h 30");
-        assert_eq!(streamer.commit_text("", false, true), " 14 h 30");
+        assert_eq!(streamer.commit_text("", &[], false, true), " 14 h 30");
     }
 
     #[test]
     fn heard_without_context_after_a_text_left_open_continues_it() {
         let mut streamer = Streamer::new();
         assert_eq!(
-            streamer.commit_text("Il y a des tickets", true, true),
+            streamer.commit_text("Il y a des tickets", &[], true, true),
             "Il y a des tickets"
         );
         assert_eq!(
-            streamer.commit_text("Qui se baladent.", false, true),
+            streamer.commit_text("Qui se baladent.", &[], false, true),
             " qui se baladent."
         );
-        assert_eq!(streamer.commit_text("Ensuite", false, true), " Ensuite");
-        // In context the model's capitals stand (a proper noun mid-sentence).
-        assert_eq!(streamer.commit_text("Pierre", true, true), " Pierre");
         assert_eq!(
-            streamer.commit_text("API demain", false, true),
+            streamer.commit_text("Ensuite", &[], false, true),
+            " Ensuite"
+        );
+        // In context the model's capitals stand (a proper noun mid-sentence).
+        assert_eq!(streamer.commit_text("Pierre", &[], true, true), " Pierre");
+        assert_eq!(
+            streamer.commit_text("API demain", &[], false, true),
             " API demain"
         );
         // After a typed period a capital follows, whoever heard the period;
         // after an ellipsis the model's case stands.
-        assert_eq!(streamer.commit_text("donc bon.", true, true), " donc bon.");
-        assert_eq!(streamer.commit_text("pensez-y", true, true), " Pensez-y");
         assert_eq!(
-            streamer.commit_text("sera de...", true, true),
+            streamer.commit_text("donc bon.", &[], true, true),
+            " donc bon."
+        );
+        assert_eq!(
+            streamer.commit_text("pensez-y", &[], true, true),
+            " Pensez-y"
+        );
+        assert_eq!(
+            streamer.commit_text("sera de...", &[], true, true),
             " sera de..."
         );
-        assert_eq!(streamer.commit_text("pouvoir", true, true), " pouvoir");
+        assert_eq!(streamer.commit_text("pouvoir", &[], true, true), " pouvoir");
     }
 
     #[test]

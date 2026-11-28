@@ -66,6 +66,12 @@ const WER_MARGIN: f64 = 0.01;
 /// second at p95 (median 1.9 s) and removed every extra period the bench saw.
 /// The pill shows the words live meanwhile.
 const COMMIT_DELAY_P95_S: f64 = 4.0;
+/// The oldest word of a passage, from its audio end to its typing (#72):
+/// the wait the speaker sees.
+/// Measured 2026-11-28: p95 5.3 s, max 9.9 s before `PATIENCE_S`; p95 3.8 s,
+/// max 5.0 s with it.
+const WAIT_P95_S: f64 = 4.5;
+const WAIT_MAX_S: f64 = 6.0;
 const STOP_LATENCY_P95_S: f64 = 1.0;
 const PASS_COST_MAX: f64 = 0.5;
 
@@ -172,6 +178,10 @@ struct Rolling {
     commit_delays: Vec<f64>,
     /// The delays of the commits cut mid-sentence (also in `commit_delays`).
     forced_delays: Vec<f64>,
+    /// Per pass that typed: how long its oldest word waited (its audio end to
+    /// the typing), seconds. A passage lands at once: this is the wait the
+    /// speaker sees, where `commit_delays` dates the passage's last word.
+    waits: Vec<f64>,
     /// The open window's length, seconds, at each commit.
     commit_windows: Vec<f64>,
     stop_latency: f64,
@@ -203,6 +213,7 @@ fn simulate<W: Worker>(mut worker: W, samples: &[f32]) -> Result<Rolling, Error>
                 let delay = t + d - update.stats.audio_end_s as f64;
                 run.commit_delays.push(delay);
                 run.commit_windows.push(update.stats.window_s as f64);
+                run.waits.push(update.stats.waited_s as f64);
                 if update.stats.forced {
                     run.forced_delays.push(delay);
                 }
@@ -426,12 +437,12 @@ impl Group {
     fn print(&self) {
         println!("\n== {} ({} clips) ==", self.name, self.results.len());
         println!(
-            "{:<28} {:>6} | WER % block pieces rolling | ends+ pieces rolling | delay p50/p95 | stop s | cost  | forced",
+            "{:<28} {:>6} | WER % block pieces rolling | ends+ pieces rolling | delay p50/p95 | wait p95/max | stop s | cost  | forced",
             "clip", "audio"
         );
         for r in &self.results {
             println!(
-                "{:<28} {:>5.1}s |       {}  {}  {} |        {:>6} {:>7} | {:>5}/{:<5}   | {:>6.2} | {:>5.2} | {:>6}",
+                "{:<28} {:>5.1}s |       {}  {}  {} |        {:>6} {:>7} | {:>5}/{:<5}   | {:>5}/{:<5}  | {:>6.2} | {:>5.2} | {:>6}",
                 r.id,
                 r.audio_s,
                 pct(rate(r.block.errors, r.ref_words)),
@@ -441,6 +452,8 @@ impl Group {
                 r.rolling.extra_ends,
                 opt(percentile(&r.run.commit_delays, 50.0)),
                 opt(percentile(&r.run.commit_delays, 95.0)),
+                opt(percentile(&r.run.waits, 95.0)),
+                opt(percentile(&r.run.waits, 100.0)),
                 r.run.stop_latency,
                 pass_cost_of(&[&r.run]),
                 r.run.forced
@@ -448,7 +461,7 @@ impl Group {
         }
         let runs: Vec<&Rolling> = self.results.iter().map(|r| &r.run).collect();
         println!(
-            "{:<28} {:>6} |       {}  {}  {} |        {:>6} {:>7} | {:>5}/{:<5}   | {:>6.2} | {:>5.2} | {:>6}",
+            "{:<28} {:>6} |       {}  {}  {} |        {:>6} {:>7} | {:>5}/{:<5}   | {:>5}/{:<5}  | {:>6.2} | {:>5.2} | {:>6}",
             "GROUP",
             "",
             pct(self.wer(|r| &r.block)),
@@ -458,6 +471,8 @@ impl Group {
             self.extra_ends(|r| &r.rolling),
             opt(percentile(&all(&runs, |r| &r.commit_delays), 50.0)),
             opt(percentile(&all(&runs, |r| &r.commit_delays), 95.0)),
+            opt(percentile(&all(&runs, |r| &r.waits), 95.0)),
+            opt(percentile(&all(&runs, |r| &r.waits), 100.0)),
             percentile(&runs.iter().map(|r| r.stop_latency).collect::<Vec<_>>(), 95.0)
                 .unwrap_or(0.0),
             pass_cost_of(&runs),
@@ -562,6 +577,7 @@ pub fn run() -> Result<ExitCode, String> {
         .flat_map(|g| g.results.iter().map(|r| &r.run))
         .collect();
     let delays = all(&runs, |r| &r.commit_delays);
+    let waits = all(&runs, |r| &r.waits);
     let stops: Vec<f64> = runs.iter().map(|r| r.stop_latency).collect();
     let passes = all(&runs, |r| &r.pass_times);
     println!(
@@ -600,6 +616,15 @@ pub fn run() -> Result<ExitCode, String> {
         delays.len()
     );
 
+    println!(
+        "first-word wait: p50 {} / p95 {} / max {} s over {} passages; {} over {WAIT_P95_S} s",
+        opt(percentile(&waits, 50.0)),
+        opt(percentile(&waits, 95.0)),
+        opt(percentile(&waits, 100.0)),
+        waits.len(),
+        waits.iter().filter(|&&w| w > WAIT_P95_S).count(),
+    );
+
     let mut lines: Vec<(String, bool)> = groups.iter().flat_map(group_criteria).collect();
     let delay_p95 = percentile(&delays, 95.0).unwrap_or(0.0);
     let stop_p95 = percentile(&stops, 95.0).unwrap_or(0.0);
@@ -607,6 +632,12 @@ pub fn run() -> Result<ExitCode, String> {
     lines.push((
         format!("4 commit delay p95 {delay_p95:.2} s ≤ {COMMIT_DELAY_P95_S} s"),
         delay_p95 <= COMMIT_DELAY_P95_S,
+    ));
+    let wait_p95 = percentile(&waits, 95.0).unwrap_or(0.0);
+    let wait_max = percentile(&waits, 100.0).unwrap_or(0.0);
+    lines.push((
+        format!("4 first-word wait p95 {wait_p95:.2} s ≤ {WAIT_P95_S} s, max {wait_max:.2} s ≤ {WAIT_MAX_S} s"),
+        wait_p95 <= WAIT_P95_S && wait_max <= WAIT_MAX_S,
     ));
     lines.push((
         format!("4 stop latency p95 {stop_p95:.2} s ≤ {STOP_LATENCY_P95_S} s"),

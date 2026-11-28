@@ -93,9 +93,13 @@ scrolls while V2 records or transcribes. Then, in any app, with the trigger key
   1.5 s and three words past it (2 s of silence for the last word): its
   punctuation is decided with what follows, so a thinking pause does not become
   a period. Words go out four or more at a time, or at the end of a phrase or a
-  pause, each passage one paste: typically 2 s behind your voice (bench: median
-  1.9 s, p95 3.7 s). The pill shows the words as they are heard (see below):
-  faded until typed, white once typed. Nothing typed is ever erased or
+  pause, each passage one paste. No word waits more than 3 s for that: once
+  the oldest word not typed yet was heard 3 s ago, the last pass is trusted
+  alone (one word after it is enough), up to the first gap of 1 s or more. A
+  passage's first word lands about 3 s after you said it, rarely more than
+  4 s (bench: median 3.1 s, p95 3.8 s, max 5.0 s; its last word: median
+  1.9 s). The pill shows the words as they are heard (see below): faded
+  until typed, white once typed. Nothing typed is ever erased or
   rewritten. The stopping press hears
   what is not typed yet once more, in its context, and types it (bench: p95
   0.6 s). Text goes through the same paste (or typing) as a whole dictation, so
@@ -103,8 +107,8 @@ scrolls while V2 records or transcribes. Then, in any app, with the trigger key
   stops the dictation, the whole text goes to the clipboard; if a passage could
   not be typed, the stop inserts the whole text again rather than lose it. Hold
   mode is never typed live: the key is held meanwhile. The log holds one line
-  of counts per pass (live or not, window, time, words, committed), never the
-  text.
+  of counts per pass (live or not, window, time, words, committed, how long
+  the oldest word typed waited), never the text.
 
 While you record, V1's pill sits at the bottom centre of the screen with 11
 bars that follow your voice; it hides when the recording stops, never takes

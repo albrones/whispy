@@ -962,13 +962,14 @@ fn caption_tail(text: &str, max_chars: usize) -> String {
 /// The log line of one rolling pass: counts and times only, never any dictated text.
 fn pass_line(stats: &PassStats, types_live: bool) -> String {
     format!(
-        "stream pass: live={} window={:.1}s took={:.2}s words={} stable={} committed={} forced={}",
+        "stream pass: live={} window={:.1}s took={:.2}s words={} stable={} committed={} waited={:.1}s forced={}",
         if types_live { "yes" } else { "no" },
         stats.window_s,
         stats.took_s,
         stats.words,
         stats.stable,
         stats.committed_words,
+        stats.waited_s,
         if stats.forced { "yes" } else { "no" },
     )
 }
@@ -2303,10 +2304,11 @@ mod tests {
             committed_words: 11,
             forced: false,
             audio_end_s: 3.0,
+            waited_s: 3.46,
         };
         assert_eq!(
             pass_line(&stats, true),
-            "stream pass: live=yes window=12.4s took=0.38s words=23 stable=18 committed=11 forced=no"
+            "stream pass: live=yes window=12.4s took=0.38s words=23 stable=18 committed=11 waited=3.5s forced=no"
         );
         let forced = PassStats {
             forced: true,
